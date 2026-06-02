@@ -78,7 +78,10 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
             "{label} used non-odd client stream id {id}"
         );
     }
-    assert_ne!(f1.stream_id, f2.stream_id, "concurrent requests need distinct streams");
+    assert_ne!(
+        f1.stream_id, f2.stream_id,
+        "concurrent requests need distinct streams"
+    );
 
     let resp2 = encode_response(&r2, auth.agent_id);
     write_one(&mut sock, Opcode::EncodeResp, f2.stream_id, &resp2).await;
