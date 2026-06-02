@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from .errors import ProtocolError
-from .mux import MuxConnection
+from .mux import MuxConnection, Subscription
 from .wire.opcode import Opcode
 from .wire.types import (
     AgentPermissions,
@@ -26,25 +26,66 @@ from .wire.types import (
     EncodeResponse,
     EntityCreateRequest,
     EntityCreateResponse,
+    EntityGetRequest,
+    EntityGetResponse,
+    EntityListItem,
+    EntityListRequest,
+    EntityListResponseFrame,
     ForgetRequest,
     ForgetResponse,
+    GetCapabilitiesRequest,
+    GetCapabilitiesResponse,
     HelloCapabilities,
     HelloPayload,
+    InferenceStep,
+    LinkRequest,
+    LinkResponse,
     MaterializeProceduralRequest,
     MaterializeProceduralResponse,
     MemoryResult,
     MtlsClaim,
+    PlanRequest,
+    PlanResponseFrame,
+    PlanStep,
     QueryRequest,
     QueryResponse,
+    ReasonRequest,
+    ReasonResponseFrame,
     RecallRequest,
     RecallResponseFrame,
     RelationCreateRequest,
     RelationCreateResponse,
+    RelationListFromRequest,
+    RelationListFromResponseFrame,
+    RelationListToRequest,
+    RelationListToResponseFrame,
+    RelationView,
+    SchemaGetRequest,
+    SchemaGetResponse,
+    SchemaListItem,
+    SchemaListRequest,
+    SchemaListResponseFrame,
     SchemaUploadRequest,
     SchemaUploadResponse,
+    SchemaValidateRequest,
+    SchemaValidateResponse,
     ServerFeatures,
     StatementCreateRequest,
     StatementCreateResponse,
+    StatementGetRequest,
+    StatementGetResponse,
+    StatementListRequest,
+    StatementListResponseFrame,
+    StatementView,
+    SubscribeRequest,
+    TxnAbortRequest,
+    TxnAbortResponse,
+    TxnBeginRequest,
+    TxnBeginResponse,
+    TxnCommitRequest,
+    TxnCommitResponse,
+    UnlinkRequest,
+    UnlinkResponse,
     decode_payload,
     encode_payload,
 )
@@ -274,6 +315,210 @@ class BrainClient:
             MaterializeProceduralResponse,
             request,
         )
+
+    def link(self, request: LinkRequest) -> LinkResponse:
+        """Create or reweight an edge between two memories (LINK). Returns
+        whether the edge already existed (LINK overwrote its weight)."""
+        return self._unary(Opcode.LINK_REQ, Opcode.LINK_RESP, LinkResponse, request)
+
+    def unlink(self, request: UnlinkRequest) -> UnlinkResponse:
+        """Remove an edge identified by ``(source, kind, target)`` (UNLINK).
+        Idempotent: removing a non-existent edge succeeds with ``removed=False``.
+        """
+        return self._unary(Opcode.UNLINK_REQ, Opcode.UNLINK_RESP, UnlinkResponse, request)
+
+    def capabilities(self, request: GetCapabilitiesRequest | None = None) -> GetCapabilitiesResponse:
+        """Introspect the connected shard's live capabilities (GET_CAPABILITIES):
+        whether the reranker is loaded, which extractor tiers are enabled, the
+        active user schema namespaces, and the embedding dimensionality."""
+        request = request or GetCapabilitiesRequest()
+        return self._unary(
+            Opcode.GET_CAPABILITIES_REQ,
+            Opcode.GET_CAPABILITIES_RESP,
+            GetCapabilitiesResponse,
+            request,
+        )
+
+    def get_entity(self, request: EntityGetRequest) -> EntityGetResponse:
+        """Fetch one entity by id (ENTITY_GET)."""
+        return self._unary(Opcode.ENTITY_GET_REQ, Opcode.ENTITY_GET_RESP, EntityGetResponse, request)
+
+    def get_statement(self, request: StatementGetRequest) -> StatementGetResponse:
+        """Fetch one statement by id (STATEMENT_GET). With ``follow_supersession``
+        set, the server may redirect to the current entry in the chain."""
+        return self._unary(
+            Opcode.STATEMENT_GET_REQ,
+            Opcode.STATEMENT_GET_RESP,
+            StatementGetResponse,
+            request,
+        )
+
+    def get_schema(self, request: SchemaGetRequest) -> SchemaGetResponse:
+        """Fetch one schema version (SCHEMA_GET). ``version == 0`` selects the
+        active version."""
+        return self._unary(Opcode.SCHEMA_GET_REQ, Opcode.SCHEMA_GET_RESP, SchemaGetResponse, request)
+
+    def validate_schema(self, request: SchemaValidateRequest) -> SchemaValidateResponse:
+        """Validate a schema document without persisting it (SCHEMA_VALIDATE)."""
+        return self._unary(
+            Opcode.SCHEMA_VALIDATE_REQ,
+            Opcode.SCHEMA_VALIDATE_RESP,
+            SchemaValidateResponse,
+            request,
+        )
+
+    def txn_begin(self, request: TxnBeginRequest) -> TxnBeginResponse:
+        """Begin a transaction (TXN_BEGIN). The client mints ``txn_id``;
+        subsequent writes carry it to enroll until commit or abort."""
+        return self._unary(Opcode.TXN_BEGIN, Opcode.TXN_BEGIN_RESP, TxnBeginResponse, request)
+
+    def txn_commit(self, request: TxnCommitRequest) -> TxnCommitResponse:
+        """Commit a transaction (TXN_COMMIT)."""
+        return self._unary(Opcode.TXN_COMMIT, Opcode.TXN_COMMIT_RESP, TxnCommitResponse, request)
+
+    def txn_abort(self, request: TxnAbortRequest) -> TxnAbortResponse:
+        """Abort a transaction (TXN_ABORT), discarding its buffered operations."""
+        return self._unary(Opcode.TXN_ABORT, Opcode.TXN_ABORT_RESP, TxnAbortResponse, request)
+
+    def plan(self, request: PlanRequest) -> list[PlanStep]:
+        """Plan a path from ``start`` to ``goal`` (PLAN), flattening every
+        streamed frame's ``steps`` into one ordered list. For the raw frames
+        (``is_final``, terminal ``plan_status``), use :meth:`plan_frames`."""
+        steps: list[PlanStep] = []
+        for frame in self.plan_frames(request):
+            steps.extend(frame.steps)
+        return steps
+
+    def plan_frames(self, request: PlanRequest) -> list[PlanResponseFrame]:
+        """Plan a path, returning each decoded PLAN_RESP frame as streamed."""
+        return self._streamed(Opcode.PLAN_REQ, Opcode.PLAN_RESP, PlanResponseFrame, request)
+
+    def reason(self, request: ReasonRequest) -> list[InferenceStep]:
+        """Reason about an observation (REASON), flattening every streamed
+        frame's ``inferences`` into one ordered list. For the raw frames, use
+        :meth:`reason_frames`."""
+        inferences: list[InferenceStep] = []
+        for frame in self.reason_frames(request):
+            inferences.extend(frame.inferences)
+        return inferences
+
+    def reason_frames(self, request: ReasonRequest) -> list[ReasonResponseFrame]:
+        """Reason about an observation, returning each decoded REASON_RESP frame."""
+        return self._streamed(Opcode.REASON_REQ, Opcode.REASON_RESP, ReasonResponseFrame, request)
+
+    def list_entities(self, request: EntityListRequest) -> list[EntityListItem]:
+        """List entities (ENTITY_LIST), flattening every streamed frame's
+        ``items``. For the raw frames, use :meth:`list_entities_frames`."""
+        items: list[EntityListItem] = []
+        for frame in self.list_entities_frames(request):
+            items.extend(frame.items)
+        return items
+
+    def list_entities_frames(self, request: EntityListRequest) -> list[EntityListResponseFrame]:
+        """List entities, returning each decoded ENTITY_LIST_RESP frame."""
+        return self._streamed(
+            Opcode.ENTITY_LIST_REQ, Opcode.ENTITY_LIST_RESP, EntityListResponseFrame, request
+        )
+
+    def list_statements(self, request: StatementListRequest) -> list[StatementView]:
+        """List statements (STATEMENT_LIST), flattening every streamed frame's
+        ``items``. For the raw frames, use :meth:`list_statements_frames`."""
+        items: list[StatementView] = []
+        for frame in self.list_statements_frames(request):
+            items.extend(frame.items)
+        return items
+
+    def list_statements_frames(
+        self, request: StatementListRequest
+    ) -> list[StatementListResponseFrame]:
+        """List statements, returning each decoded STATEMENT_LIST_RESP frame."""
+        return self._streamed(
+            Opcode.STATEMENT_LIST_REQ,
+            Opcode.STATEMENT_LIST_RESP,
+            StatementListResponseFrame,
+            request,
+        )
+
+    def list_relations_from(self, request: RelationListFromRequest) -> list[RelationView]:
+        """List relations originating from an entity (RELATION_LIST_FROM),
+        flattening every streamed frame's ``items``. For the raw frames, use
+        :meth:`list_relations_from_frames`."""
+        items: list[RelationView] = []
+        for frame in self.list_relations_from_frames(request):
+            items.extend(frame.items)
+        return items
+
+    def list_relations_from_frames(
+        self, request: RelationListFromRequest
+    ) -> list[RelationListFromResponseFrame]:
+        """List relations from an entity, returning each decoded
+        RELATION_LIST_FROM_RESP frame."""
+        return self._streamed(
+            Opcode.RELATION_LIST_FROM_REQ,
+            Opcode.RELATION_LIST_FROM_RESP,
+            RelationListFromResponseFrame,
+            request,
+        )
+
+    def list_relations_to(self, request: RelationListToRequest) -> list[RelationView]:
+        """List relations pointing to an entity (RELATION_LIST_TO), flattening
+        every streamed frame's ``items``. For the raw frames, use
+        :meth:`list_relations_to_frames`."""
+        items: list[RelationView] = []
+        for frame in self.list_relations_to_frames(request):
+            items.extend(frame.items)
+        return items
+
+    def list_relations_to_frames(
+        self, request: RelationListToRequest
+    ) -> list[RelationListToResponseFrame]:
+        """List relations to an entity, returning each decoded
+        RELATION_LIST_TO_RESP frame."""
+        return self._streamed(
+            Opcode.RELATION_LIST_TO_REQ,
+            Opcode.RELATION_LIST_TO_RESP,
+            RelationListToResponseFrame,
+            request,
+        )
+
+    def list_schemas(self, request: SchemaListRequest) -> list[SchemaListItem]:
+        """List schema versions in a namespace (SCHEMA_LIST), flattening every
+        streamed frame's ``items``. For the raw frames, use
+        :meth:`list_schemas_frames`."""
+        items: list[SchemaListItem] = []
+        for frame in self.list_schemas_frames(request):
+            items.extend(frame.items)
+        return items
+
+    def list_schemas_frames(self, request: SchemaListRequest) -> list[SchemaListResponseFrame]:
+        """List schema versions, returning each decoded SCHEMA_LIST_RESP frame."""
+        return self._streamed(
+            Opcode.SCHEMA_LIST_REQ, Opcode.SCHEMA_LIST_RESP, SchemaListResponseFrame, request
+        )
+
+    def subscribe(self, request: SubscribeRequest) -> Subscription:
+        """Open a long-lived change-feed subscription (SUBSCRIBE). Returns a
+        :class:`~brain_db_sdk.mux.Subscription` the caller drains with
+        ``next()`` (or by iterating it); call ``unsubscribe()`` for a clean
+        teardown. The server pushes ``SUBSCRIBE_EVENT`` frames until the
+        subscription is torn down, so this does not block on a single response.
+        """
+        return self._conn.subscribe(request)
+
+    def _streamed(self, req_opcode: Opcode, resp_opcode: Opcode, resp_type, request):
+        """Send one request and decode every streamed response frame up to and
+        including EOS, asserting each frame's opcode. The shape every LIST/streamed
+        verb's ``*_frames`` method shares (mirrors :meth:`recall_frames`)."""
+        frames = self._conn.request(req_opcode, encode_payload(request))
+        out = []
+        for frame in frames:
+            if frame.opcode != int(resp_opcode):
+                raise ProtocolError(
+                    f"expected {resp_opcode.name} ({int(resp_opcode):#06x}), got "
+                    f"{frame.opcode:#06x}"
+                )
+            out.append(decode_payload(resp_type, frame.payload))
+        return out
 
     def _unary(self, req_opcode: Opcode, resp_opcode: Opcode, resp_type, request):
         """Send one request and decode a single typed response frame, asserting

@@ -31,6 +31,10 @@ from .wire.types import (
     AuthPayload,
     ErrorResponse,
     HelloPayload,
+    SubscribeRequest,
+    SubscriptionEvent,
+    UnsubscribeRequest,
+    UnsubscribeResponse,
     WelcomePayload,
     decode_payload,
     encode_payload,
@@ -132,6 +136,27 @@ class MuxConnection:
             raise ProtocolError(f"expected a single response frame, got {len(frames)}")
         return frames[0]
 
+    def subscribe(self, request: SubscribeRequest) -> "Subscription":
+        """Open a long-lived subscription. Allocates a stream id, registers its
+        route, sends the SUBSCRIBE frame as one EOS frame, and returns a
+        :class:`Subscription` the caller drains with ``next()``. Unlike
+        :meth:`request`, this does NOT collect to EOS — the server pushes events
+        until the client unsubscribes."""
+        stream_id = self._take_stream_id()
+        q = self._register(stream_id)
+        try:
+            self._write(Opcode.SUBSCRIBE_REQ, stream_id, encode_payload(request))
+        except Exception:
+            self._deregister(stream_id)
+            raise
+        return Subscription(self, stream_id, q)
+
+    def route_count(self) -> int:
+        """Number of live routes in the table. Test/diagnostics hook: a clean
+        subscription teardown must leave no leaked route behind."""
+        with self._routes_lock:
+            return len(self._routes)
+
     def send_bye(self) -> None:
         """Send BYE to end the session cleanly."""
         self._write(Opcode.BYE, HANDSHAKE_STREAM_ID, b"")
@@ -206,10 +231,104 @@ class MuxConnection:
             write_frame(self._sock, frame)
 
     def _take_stream_id(self) -> int:
+        # Client-initiated op streams MUST be non-zero and ODD (stream 0 is the
+        # connection/handshake stream; the server rejects even/zero client
+        # streams as BadFrame). Start at 1 and step by 2 so every request on a
+        # reused connection (pool, any reuse) stays odd, wrapping back to 1.
         with self._id_lock:
             stream_id = self._next_stream_id
-            self._next_stream_id = self._next_stream_id + 1 if self._next_stream_id < 0xFFFF_FFFF else 1
+            self._next_stream_id = (
+                self._next_stream_id + 2 if self._next_stream_id + 2 <= 0xFFFF_FFFF else 1
+            )
             return stream_id
 
 
-__all__ = ["MuxConnection", "HandshakeOutcome", "HANDSHAKE_STREAM_ID"]
+class Subscription:
+    """A live server-push subscription stream. Drain events with :meth:`next`
+    (or iterate the object directly); call :meth:`unsubscribe` for a clean
+    teardown — the server then EOS-closes the event stream, which :meth:`next`
+    observes as end-of-stream.
+
+    Dropping a subscription without unsubscribing leaks no route once it is
+    closed: :meth:`close` (and the context-manager exit) deregisters the route.
+    Prefer :meth:`unsubscribe` before closing so the server stops pushing.
+    """
+
+    def __init__(self, conn: "MuxConnection", stream_id: int, q: queue.Queue) -> None:
+        self._conn = conn
+        self._stream_id = stream_id
+        self._q = q
+        # Set once an EOS frame has been observed: the next next() returns None
+        # without touching the (already-removed) route.
+        self._ended = False
+
+    @property
+    def stream_id(self) -> int:
+        """The stream id the server pushes events on."""
+        return self._stream_id
+
+    def next(self) -> SubscriptionEvent | None:
+        """Return the next subscription event, or ``None`` once the stream has
+        ended (the server EOS-closed it, or the connection dropped).
+
+        An EOS-flagged frame carrying an event yields that event; the following
+        call returns ``None``. An EOS frame with an empty payload ends the
+        stream immediately.
+        """
+        if self._ended:
+            return None
+        try:
+            frame = self._conn._next(self._q)  # noqa: SLF001 — same module
+        except ConnectionClosed:
+            self._ended = True
+            self._conn._deregister(self._stream_id)  # noqa: SLF001
+            return None
+        if frame.opcode == Opcode.ERROR:
+            self._ended = True
+            self._conn._deregister(self._stream_id)  # noqa: SLF001
+            raise ServerError(decode_payload(ErrorResponse, frame.payload))
+        if frame.flags & FLAG_EOS:
+            # Last frame on the stream; mark ended and drop the route.
+            self._ended = True
+            self._conn._deregister(self._stream_id)  # noqa: SLF001
+            if not frame.payload:
+                return None
+        return decode_payload(SubscriptionEvent, frame.payload)
+
+    def __iter__(self) -> "Subscription":
+        return self
+
+    def __next__(self) -> SubscriptionEvent:
+        event = self.next()
+        if event is None:
+            raise StopIteration
+        return event
+
+    def unsubscribe(self) -> UnsubscribeResponse:
+        """Tear the subscription down cleanly: send UNSUBSCRIBE on a fresh
+        stream and await its UNSUBSCRIBE_RESP. The server then EOS-closes the
+        event stream, which a subsequent :meth:`next` observes as ``None``."""
+        req = UnsubscribeRequest(target_stream_id=self._stream_id)
+        frame = self._conn.request_one(Opcode.UNSUBSCRIBE_REQ, encode_payload(req))
+        if frame.opcode != int(Opcode.UNSUBSCRIBE_RESP):
+            raise ProtocolError(
+                f"expected UNSUBSCRIBE_RESP ({int(Opcode.UNSUBSCRIBE_RESP):#06x}), got "
+                f"{frame.opcode:#06x}"
+            )
+        return decode_payload(UnsubscribeResponse, frame.payload)
+
+    def close(self) -> None:
+        """Deregister the subscription's route so a forgotten handle doesn't
+        leak a route-table entry. Does not send UNSUBSCRIBE — call
+        :meth:`unsubscribe` first for a clean shutdown."""
+        self._ended = True
+        self._conn._deregister(self._stream_id)  # noqa: SLF001
+
+    def __enter__(self) -> "Subscription":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+__all__ = ["MuxConnection", "Subscription", "HandshakeOutcome", "HANDSHAKE_STREAM_ID"]

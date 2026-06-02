@@ -20,7 +20,7 @@ __version__ = "0.1.0"
 from . import wire  # noqa: F401
 from .client import Auth, BrainClient, ClientConfig, SessionInfo, new_id
 from .connection import Connection, HandshakeOutcome
-from .mux import MuxConnection
+from .mux import MuxConnection, Subscription
 from .pool import Pool
 from .retry import RetryPolicy, with_retry
 from .verbs import EncodeBuilder, ForgetBuilder, RecallBuilder
@@ -44,6 +44,7 @@ __all__ = [
     "Connection",
     "HandshakeOutcome",
     "MuxConnection",
+    "Subscription",
     "Pool",
     "EncodeBuilder",
     "RecallBuilder",
