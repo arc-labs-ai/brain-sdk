@@ -1,0 +1,178 @@
+"""Ergonomic request builders for the v1 verbs.
+
+The wire dataclasses in :mod:`brain_db_sdk.wire.types` mirror the protocol
+exactly — every field present, in wire order. That is what the codec needs but
+a poor calling convention: most fields have an obvious default and only a few
+matter per call. These builders fill the defaults, mint a ``request_id``, and
+expose just the knobs a caller tunes. The verbs on
+:class:`~brain_db_sdk.client.BrainClient` accept either a builder (via
+``.build()``) or a hand-built wire dataclass.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Optional
+
+from .client import new_id
+from .wire.types import (
+    EdgeRequest,
+    EncodeRequest,
+    ForgetMode,
+    ForgetRequest,
+    MemoryKind,
+    RecallRequest,
+)
+
+
+@dataclass
+class EncodeBuilder:
+    """Builder for an ENCODE request. Stores one text memory; the knobs
+    default to a plain semantic memory in context 0 with dedup on."""
+
+    text: str
+    context_id: int = 0
+    kind: int = MemoryKind.SEMANTIC
+    salience_hint: float = 0.5
+    edges: list[EdgeRequest] = field(default_factory=list)
+    deduplicate: bool = True
+
+    def context(self, context_id: int) -> "EncodeBuilder":
+        self.context_id = context_id
+        return self
+
+    def with_kind(self, kind: int) -> "EncodeBuilder":
+        self.kind = kind
+        return self
+
+    def salience(self, salience_hint: float) -> "EncodeBuilder":
+        self.salience_hint = salience_hint
+        return self
+
+    def edge(self, edge: EdgeRequest) -> "EncodeBuilder":
+        self.edges.append(edge)
+        return self
+
+    def dedup(self, deduplicate: bool) -> "EncodeBuilder":
+        self.deduplicate = deduplicate
+        return self
+
+    def build(self) -> EncodeRequest:
+        """Finish into a wire :class:`EncodeRequest`, minting a fresh id."""
+        return EncodeRequest(
+            text=self.text,
+            context_id=self.context_id,
+            kind=self.kind,
+            salience_hint=self.salience_hint,
+            edges=list(self.edges),
+            request_id=new_id(),
+            txn_id=None,
+            deduplicate=self.deduplicate,
+        )
+
+
+@dataclass
+class RecallBuilder:
+    """Builder for a RECALL request. Defaults retrieve the top 10 of the
+    agent's own memories with text and edges included."""
+
+    cue_text: str
+    top_k: int = 10
+    confidence_threshold: float = 0.0
+    context_filter: Optional[list[int]] = None
+    age_bound_unix_nanos: Optional[int] = None
+    kind_filter: Optional[list[int]] = None
+    salience_floor: float = 0.0
+    include_edges: bool = True
+    include_graph: bool = False
+    include_text: bool = True
+    agent_filter: list[bytes] = field(default_factory=list)
+    include_other_agents: bool = False
+
+    def limit(self, top_k: int) -> "RecallBuilder":
+        self.top_k = top_k
+        return self
+
+    def confidence(self, threshold: float) -> "RecallBuilder":
+        self.confidence_threshold = threshold
+        return self
+
+    def contexts(self, contexts: list[int]) -> "RecallBuilder":
+        self.context_filter = list(contexts)
+        return self
+
+    def kinds(self, kinds: list[int]) -> "RecallBuilder":
+        self.kind_filter = list(kinds)
+        return self
+
+    def salience(self, floor: float) -> "RecallBuilder":
+        self.salience_floor = floor
+        return self
+
+    def edges(self, include: bool) -> "RecallBuilder":
+        self.include_edges = include
+        return self
+
+    def graph(self, include: bool) -> "RecallBuilder":
+        self.include_graph = include
+        return self
+
+    def text(self, include: bool) -> "RecallBuilder":
+        self.include_text = include
+        return self
+
+    def agents(self, agents: list[bytes]) -> "RecallBuilder":
+        self.agent_filter = list(agents)
+        return self
+
+    def other_agents(self, include: bool) -> "RecallBuilder":
+        self.include_other_agents = include
+        return self
+
+    def build(self) -> RecallRequest:
+        """Finish into a wire :class:`RecallRequest`, minting a fresh id."""
+        return RecallRequest(
+            cue_text=self.cue_text,
+            top_k=self.top_k,
+            confidence_threshold=self.confidence_threshold,
+            context_filter=self.context_filter,
+            age_bound_unix_nanos=self.age_bound_unix_nanos,
+            kind_filter=self.kind_filter,
+            salience_floor=self.salience_floor,
+            include_edges=self.include_edges,
+            include_graph=self.include_graph,
+            include_text=self.include_text,
+            request_id=new_id(),
+            txn_id=None,
+            agent_filter=list(self.agent_filter),
+            include_other_agents=self.include_other_agents,
+        )
+
+
+@dataclass
+class ForgetBuilder:
+    """Builder for a FORGET request. Defaults to a soft forget (tombstone
+    with a grace period); :meth:`hard` zeroes immediately."""
+
+    memory_id: int
+    mode: int = ForgetMode.SOFT
+
+    def hard(self) -> "ForgetBuilder":
+        self.mode = ForgetMode.HARD
+        return self
+
+    def with_mode(self, mode: int) -> "ForgetBuilder":
+        self.mode = mode
+        return self
+
+    def build(self) -> ForgetRequest:
+        """Finish into a wire :class:`ForgetRequest`, minting a fresh id."""
+        return ForgetRequest(
+            memory_id=self.memory_id,
+            mode=self.mode,
+            request_id=new_id(),
+            txn_id=None,
+        )
+
+
+__all__ = ["EncodeBuilder", "RecallBuilder", "ForgetBuilder"]

@@ -1,0 +1,43 @@
+[package]
+name = "brain-db-sdk"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Rust client SDK for the Brain memory database. Speaks Brain's BRN0 wire protocol directly over TCP."
+license = "Apache-2.0"
+repository = "https://github.com/brain-db-io/brain-sdk"
+homepage = "https://github.com/brain-db-io/brain-sdk"
+documentation = "https://docs.rs/brain-db-sdk"
+readme = "README.md"
+keywords = ["brain", "memory", "ai-agents", "client", "database"]
+categories = ["database", "api-bindings", "network-programming"]
+
+[lib]
+name = "brain_db_sdk"
+path = "src/lib.rs"
+
+[dependencies]
+# Wire codec: independent re-implementation of Brain's frame + payload encoding.
+# Versions pinned to match brain-protocol so produced bytes are identical to the
+# conformance corpus (the byte-level oracle we test against).
+ciborium = "0.2"           # CBOR (RFC 8949) payload maps, deterministic encoding
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"       # [u8; N] / id fields -> CBOR byte strings (major type 2)
+serde_repr = "0.1"         # enum discriminants -> CBOR integers
+crc32c = "0.6"             # header_crc32c + payload_crc32c
+thiserror = "1"            # structured frame-codec + client error taxonomy
+
+# Async TCP transport + connection. The connection layer is async (tokio)
+# per the SDK plan; the wire codec above stays runtime-agnostic.
+tokio = { version = "1", features = ["net", "io-util", "rt", "time", "macros", "sync"] }
+# request_id / agent_id minting: time-ordered UUIDv7, taken as 16 raw bytes.
+uuid = { version = "1", features = ["v7"] }
+
+[dev-dependencies]
+# `arbitrary_precision` lets serde_json's Value hold the packed u128
+# MemoryId without overflow, so the corpus .json mirrors compare cleanly.
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+# Multi-threaded runtime + in-process duplex pipe drive the handshake /
+# round-trip tests against a mock server, no real socket required.
+tokio = { version = "1", features = ["rt-multi-thread", "io-util", "macros", "net", "time"] }
+# proptest  = "1"           # frame round-trip + CRC-rejection properties (build phase)

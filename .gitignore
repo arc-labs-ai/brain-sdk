@@ -1,0 +1,19 @@
+# Rust
+/rust/target/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# TypeScript / Node
+node_modules/
+/typescript/dist/
+*.tsbuildinfo
+
+# OS
+.DS_Store

@@ -1,0 +1,37 @@
+Vendored wire-protocol conformance corpus
+==========================================
+
+Source: brain  (https://github.com/brain-db-io/brain-db)
+Path:   crates/brain-protocol/tests/conformance/corpus/
+Files:  38 (*.bin, *.json) pairs + index.json
+
+Vendored: 2026-05-31
+
+PROVENANCE — read this before treating the commit below as the pin.
+The corpus was copied from the brain repo's WORKING TREE, not from a
+committed revision. At copy time the brain repo was at commit:
+
+    282fe6b33d6ef52b7be78fa6b7d26419352803c5
+
+…BUT that commit predates the rkyv->CBOR wire migration. The corpus on
+disk reflects the *uncommitted* migration working tree — re-blessed after
+the ID-byte-string encoding fix (P1-1: [u8;N] ids as CBOR byte strings),
+the vector single-encode fix (P1-2), and the uniform-id-encoding fix
+(P1-6: every 16-byte wire id encodes as a CBOR byte string even when
+reached through Option or Vec, where it previously leaked a CBOR array of
+u8). P1-6 changed 11 .bin files: resp_entity_create, resp_entity_get,
+resp_entity_list, resp_entity_resolve, resp_recall_hybrid,
+resp_statement_create, resp_statement_get, resp_statement_history,
+resp_statement_list, resp_statement_supersede, resp_materialize_procedural.
+So these golden bytes match the CBOR wire format, not whatever 282fe6b
+would regenerate.
+
+ACTION OWED: once the brain migration is committed, refresh this corpus
+from the committing revision and replace the commit hash above with that
+revision. Until then, the corpus is correct for the current wire format
+but the hash is a provenance marker, not a reproducible pin.
+
+Refresh procedure (deliberate, reviewed — never automated cross-repo):
+    cp <brain>/crates/brain-protocol/tests/conformance/corpus/*.{bin,json} \
+       <brain-sdk>/conformance/corpus/
+    # then update the commit hash + date above.

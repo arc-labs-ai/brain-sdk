@@ -1,0 +1,53 @@
+{
+  "name": "@brain-db/sdk",
+  "version": "0.1.0",
+  "description": "Hand-written client SDK for the Brain memory database. Speaks Brain's BRN0 wire protocol directly over TCP.",
+  "license": "Apache-2.0",
+  "author": "Niraj Georgian",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brain-db-io/brain-sdk.git",
+    "directory": "typescript"
+  },
+  "homepage": "https://github.com/brain-db-io/brain-sdk/tree/main/typescript#readme",
+  "bugs": {
+    "url": "https://github.com/brain-db-io/brain-sdk/issues"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "brain",
+    "memory",
+    "ai-agents",
+    "client",
+    "sdk"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cborg": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.4",
+    "vitest": "^4.1.7"
+  }
+}
