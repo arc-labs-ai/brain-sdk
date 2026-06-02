@@ -74,7 +74,11 @@ where
     S: AsyncWrite,
 {
     fn alloc_stream_id(&self) -> u32 {
-        self.next_stream_id.fetch_add(1, Ordering::Relaxed)
+        // Client-initiated op streams MUST be non-zero and ODD (stream 0 is
+        // the connection/handshake stream; the server rejects even client
+        // streams as `BadFrame`). Start at 1 and step by 2 so every request
+        // on a reused connection (REPL, pool) stays odd.
+        self.next_stream_id.fetch_add(2, Ordering::Relaxed)
     }
 
     /// Register a route for `stream_id`, returning its receiver. Fails if the
