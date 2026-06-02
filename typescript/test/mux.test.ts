@@ -74,6 +74,9 @@ function encodeRequest(contextId: bigint): EncodeRequest {
   };
 }
 
+/** Stream ids the mock server observed on inbound client op frames. */
+const observedStreamIds: number[] = [];
+
 /** Handshake, read BOTH ENCODE requests, then reply in reverse receipt order. */
 async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
   const chan = new FrameChannel(sock);
@@ -113,8 +116,10 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
 
   // Read both requests before answering either, then answer in reverse order.
   const f1 = await chan.read();
+  observedStreamIds.push(f1.streamId);
   const r1 = decodeEncode(f1.payload);
   const f2 = await chan.read();
+  observedStreamIds.push(f2.streamId);
   const r2 = decodeEncode(f2.payload);
 
   await chan.write({
@@ -170,6 +175,16 @@ describe("mux connection", () => {
 
       await conn.sendBye();
       conn.close();
+
+      // Client op streams MUST be non-zero and ODD (the server rejects
+      // even/zero as BadFrame). Two requests on the one connection step the
+      // allocator by 2, staying odd: 1, 3.
+      expect(observedStreamIds.length).toBe(2);
+      for (const id of observedStreamIds) {
+        expect(id).not.toBe(0);
+        expect(id % 2).toBe(1);
+      }
+      expect(observedStreamIds).toEqual([1, 3]);
     } finally {
       server.close();
     }

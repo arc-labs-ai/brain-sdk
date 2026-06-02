@@ -29,12 +29,19 @@ import {
   type AuthOkPayload,
   type AuthPayload,
   type HelloPayload,
+  type SubscribeRequest,
+  type SubscriptionEvent,
+  type UnsubscribeResponse,
   type WelcomePayload,
   decodeAuthOk,
   decodeError,
+  decodeSubscriptionEvent,
+  decodeUnsubscribeResponse,
   decodeWelcome,
   encodeAuth,
   encodeHello,
+  encodeSubscribe,
+  encodeUnsubscribe,
 } from "./wire/types.js";
 
 import type { HandshakeOutcome } from "./connection.js";
@@ -179,9 +186,50 @@ export class MuxConnection {
     return frames[0]!;
   }
 
+  /**
+   * Open a long-lived subscription (SUBSCRIBE). Allocates a stream id,
+   * registers its route, sends the SUBSCRIBE frame as one EOS frame, and
+   * returns a {@link Subscription} the caller drains with `next()` (or
+   * `for await`). Unlike {@link request}, this does NOT collect to EOS — the
+   * server pushes events until the client unsubscribes.
+   */
+  async subscribe(request: SubscribeRequest): Promise<Subscription> {
+    if (this.closedError) throw this.closedError;
+    const streamId = this.takeStreamId();
+    const sink = new StreamSink();
+    this.routes.set(streamId, sink);
+    try {
+      await this.writeFrame(Opcode.SubscribeReq, streamId, encodeSubscribe(request));
+    } catch (err) {
+      this.routes.delete(streamId);
+      throw err;
+    }
+    return new Subscription(this, streamId, sink);
+  }
+
+  /**
+   * Number of live routes in the table. Test/diagnostics hook: a clean
+   * subscription teardown must leave no leaked route behind.
+   */
+  routeCount(): number {
+    return this.routes.size;
+  }
+
   /** Send BYE to end the session cleanly. The server closes without a reply. */
   async sendBye(): Promise<void> {
     await this.writeFrame(Opcode.Bye, HANDSHAKE_STREAM_ID, new Uint8Array(0));
+  }
+
+  // ---- subscription support (consumed by `Subscription`, same module) ----
+
+  /** Await the next frame routed to `sink`, honoring the request timeout. */
+  awaitFrame(sink: StreamSink): Promise<Frame> {
+    return this.nextFrame(sink);
+  }
+
+  /** Drop the route for `streamId` (subscription teardown). */
+  dropRoute(streamId: number): void {
+    this.routes.delete(streamId);
   }
 
   /** Destroy the underlying socket. */
@@ -263,10 +311,117 @@ export class MuxConnection {
   }
 
   private takeStreamId(): number {
+    // Client-initiated op streams MUST be non-zero and ODD (stream 0 is the
+    // connection/handshake stream; the server rejects even/zero client streams
+    // as BadFrame). Start at 1 and step by 2 so every request on a reused
+    // connection (pool, REPL) stays odd, wrapping back to 1 at the u32 max.
     const id = this.nextStreamId;
-    // 32-bit wire field; wrap past the max back to 1 (0 stays the handshake).
-    this.nextStreamId = this.nextStreamId >= 0xffff_ffff ? 1 : this.nextStreamId + 1;
+    this.nextStreamId = this.nextStreamId + 2 > 0xffff_ffff ? 1 : this.nextStreamId + 2;
     return id;
+  }
+}
+
+/**
+ * A live server-push subscription stream. Drain events with {@link next} or by
+ * iterating with `for await`; call {@link unsubscribe} for a clean teardown —
+ * the server then EOS-closes the event stream, which {@link next} observes as
+ * end-of-stream (`null`).
+ *
+ * Dropping a subscription without unsubscribing leaks no route once {@link close}
+ * (or the async-iterator's return path) deregisters it. Prefer
+ * `await unsubscribe()` before closing so the server stops pushing.
+ */
+export class Subscription implements AsyncIterableIterator<SubscriptionEvent> {
+  // Set once an EOS frame has been observed: the next `next()` short-circuits
+  // to done without touching the (already-removed) route.
+  private ended = false;
+
+  constructor(
+    private readonly conn: MuxConnection,
+    private readonly streamIdValue: number,
+    private readonly sink: StreamSink,
+  ) {}
+
+  /** The stream id the server pushes events on. */
+  get streamId(): number {
+    return this.streamIdValue;
+  }
+
+  /**
+   * Await the next subscription event, or `null` once the stream has ended
+   * (the server EOS-closed it, or the connection dropped). An EOS-flagged frame
+   * carrying an event yields that event; the following call returns `null`. An
+   * EOS frame with an empty payload ends the stream immediately.
+   */
+  async nextEvent(): Promise<SubscriptionEvent | null> {
+    if (this.ended) return null;
+    let frame: Frame;
+    try {
+      frame = await this.conn.awaitFrame(this.sink);
+    } catch (err) {
+      this.ended = true;
+      this.conn.dropRoute(this.streamIdValue);
+      if (err instanceof ConnectionClosed) return null;
+      throw err;
+    }
+    if (frame.opcode === Opcode.Error) {
+      this.ended = true;
+      this.conn.dropRoute(this.streamIdValue);
+      throw new ServerError(decodeError(frame.payload));
+    }
+    if ((frame.flags & FLAG_EOS) !== 0) {
+      // Last frame on the stream; mark ended and drop the route.
+      this.ended = true;
+      this.conn.dropRoute(this.streamIdValue);
+      if (frame.payload.length === 0) return null;
+    }
+    return decodeSubscriptionEvent(frame.payload);
+  }
+
+  /**
+   * Tear the subscription down cleanly: send UNSUBSCRIBE on a fresh stream and
+   * await its UNSUBSCRIBE_RESP. The server then EOS-closes the event stream,
+   * which a subsequent {@link nextEvent} observes as `null`.
+   */
+  async unsubscribe(): Promise<UnsubscribeResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.UnsubscribeReq,
+      encodeUnsubscribe({ targetStreamId: this.streamIdValue }),
+    );
+    if (frame.opcode !== Opcode.UnsubscribeResp) {
+      throw new ProtocolError(
+        `expected UNSUBSCRIBE_RESP (0x${Opcode.UnsubscribeResp.toString(16)}), got ` +
+          `0x${frame.opcode.toString(16)}`,
+      );
+    }
+    return decodeUnsubscribeResponse(frame.payload);
+  }
+
+  /**
+   * Deregister the subscription's route so a forgotten handle doesn't leak a
+   * route-table entry. Does not send UNSUBSCRIBE — call {@link unsubscribe}
+   * first for a clean shutdown.
+   */
+  close(): void {
+    this.ended = true;
+    this.conn.dropRoute(this.streamIdValue);
+  }
+
+  // ---- async iteration ----
+
+  async next(): Promise<IteratorResult<SubscriptionEvent>> {
+    const event = await this.nextEvent();
+    if (event === null) return { done: true, value: undefined };
+    return { done: false, value: event };
+  }
+
+  async return(): Promise<IteratorResult<SubscriptionEvent>> {
+    this.close();
+    return { done: true, value: undefined };
+  }
+
+  [Symbol.asyncIterator](): AsyncIterableIterator<SubscriptionEvent> {
+    return this;
   }
 }
 

@@ -13,7 +13,8 @@
 import { randomBytes } from "node:crypto";
 
 import { ProtocolError } from "./errors.js";
-import { MuxConnection } from "./mux.js";
+import { MuxConnection, type Subscription } from "./mux.js";
+import type { Frame } from "./wire/frame.js";
 import { Opcode } from "./wire/opcode.js";
 import {
   type AgentPermissions,
@@ -24,42 +25,116 @@ import {
   type EncodeResponse,
   type EntityCreateRequest,
   type EntityCreateResponse,
+  type EntityGetRequest,
+  type EntityGetResponse,
+  type EntityListItem,
+  type EntityListRequest,
+  type EntityListResponseFrame,
   type ForgetRequest,
   type ForgetResponse,
+  type GetCapabilitiesResponse,
   type HelloCapabilities,
   type HelloPayload,
+  type InferenceStep,
+  type LinkRequest,
+  type LinkResponse,
   type MaterializeProceduralRequest,
   type MaterializeProceduralResponse,
   type MemoryResult,
+  type PlanRequest,
+  type PlanResponseFrame,
+  type PlanStep,
   type QueryRequest,
   type QueryResponse,
+  type ReasonRequest,
+  type ReasonResponseFrame,
   type RecallRequest,
   type RecallResponseFrame,
   type RelationCreateRequest,
   type RelationCreateResponse,
+  type RelationListFromRequest,
+  type RelationListFromResponseFrame,
+  type RelationListToRequest,
+  type RelationListToResponseFrame,
+  type RelationView,
+  type SchemaGetRequest,
+  type SchemaGetResponse,
+  type SchemaListItemWire,
+  type SchemaListRequest,
+  type SchemaListResponseFrame,
   type SchemaUploadRequest,
   type SchemaUploadResponse,
+  type SchemaValidateRequest,
+  type SchemaValidateResponse,
   type ServerFeatures,
   type StatementCreateRequest,
   type StatementCreateResponse,
+  type StatementGetRequest,
+  type StatementGetResponse,
+  type StatementListRequest,
+  type StatementListResponseFrame,
+  type StatementView,
+  type SubscribeRequest,
+  type TxnAbortRequest,
+  type TxnAbortResponse,
+  type TxnBeginRequest,
+  type TxnBeginResponse,
+  type TxnCommitRequest,
+  type TxnCommitResponse,
+  type UnlinkRequest,
+  type UnlinkResponse,
   decodeEncodeResponse,
   decodeEntityCreateResponse,
+  decodeEntityGetResponse,
+  decodeEntityListResponse,
   decodeForgetResponse,
+  decodeGetCapabilitiesResponse,
+  decodeLinkResponse,
   decodeMaterializeProceduralResponse,
+  decodePlanResponse,
   decodeQueryResponse,
+  decodeReasonResponse,
   decodeRecallResponse,
   decodeRelationCreateResponse,
+  decodeRelationListFromResponse,
+  decodeRelationListToResponse,
+  decodeSchemaGetResponse,
+  decodeSchemaListResponse,
   decodeSchemaUploadResponse,
+  decodeSchemaValidateResponse,
   decodeStatementCreateResponse,
+  decodeStatementGetResponse,
+  decodeStatementListResponse,
+  decodeTxnAbortResponse,
+  decodeTxnBeginResponse,
+  decodeTxnCommitResponse,
+  decodeUnlinkResponse,
   encodeEncode,
   encodeEntityCreate,
+  encodeEntityGet,
+  encodeEntityList,
   encodeForget,
+  encodeGetCapabilities,
+  encodeLink,
   encodeMaterializeProcedural,
+  encodePlan,
   encodeQuery,
+  encodeReason,
   encodeRecall,
   encodeRelationCreate,
+  encodeRelationListFrom,
+  encodeRelationListTo,
+  encodeSchemaGet,
+  encodeSchemaList,
   encodeSchemaUpload,
+  encodeSchemaValidate,
   encodeStatementCreate,
+  encodeStatementGet,
+  encodeStatementList,
+  encodeTxnAbort,
+  encodeTxnBegin,
+  encodeTxnCommit,
+  encodeUnlink,
 } from "./wire/types.js";
 
 /** Default `clientId` advertised in HELLO. */
@@ -308,6 +383,252 @@ export class BrainClient {
     );
     this.expect(frame.opcode, Opcode.MaterializeProceduralResp, "MATERIALIZE_PROCEDURAL_RESP");
     return decodeMaterializeProceduralResponse(frame.payload);
+  }
+
+  /** Create or reweight an edge between two memories (LINK). */
+  async link(request: LinkRequest): Promise<LinkResponse> {
+    const frame = await this.conn.requestOne(Opcode.LinkReq, encodeLink(request));
+    this.expect(frame.opcode, Opcode.LinkResp, "LINK_RESP");
+    return decodeLinkResponse(frame.payload);
+  }
+
+  /** Remove an edge identified by `(source, kind, target)` (UNLINK). Idempotent. */
+  async unlink(request: UnlinkRequest): Promise<UnlinkResponse> {
+    const frame = await this.conn.requestOne(Opcode.UnlinkReq, encodeUnlink(request));
+    this.expect(frame.opcode, Opcode.UnlinkResp, "UNLINK_RESP");
+    return decodeUnlinkResponse(frame.payload);
+  }
+
+  /**
+   * Introspect the connected shard's live capabilities (GET_CAPABILITIES):
+   * whether the reranker is loaded, which extractor tiers are enabled, the
+   * active user schema namespaces, and the embedding dimensionality.
+   */
+  async capabilities(): Promise<GetCapabilitiesResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.GetCapabilitiesReq,
+      encodeGetCapabilities({}),
+    );
+    this.expect(frame.opcode, Opcode.GetCapabilitiesResp, "GET_CAPABILITIES_RESP");
+    return decodeGetCapabilitiesResponse(frame.payload);
+  }
+
+  /** Fetch one entity by id (ENTITY_GET). */
+  async getEntity(request: EntityGetRequest): Promise<EntityGetResponse> {
+    const frame = await this.conn.requestOne(Opcode.EntityGetReq, encodeEntityGet(request));
+    this.expect(frame.opcode, Opcode.EntityGetResp, "ENTITY_GET_RESP");
+    return decodeEntityGetResponse(frame.payload);
+  }
+
+  /**
+   * Fetch one statement by id (STATEMENT_GET). With `followSupersession` set,
+   * the server may redirect to the current entry in the chain.
+   */
+  async getStatement(request: StatementGetRequest): Promise<StatementGetResponse> {
+    const frame = await this.conn.requestOne(Opcode.StatementGetReq, encodeStatementGet(request));
+    this.expect(frame.opcode, Opcode.StatementGetResp, "STATEMENT_GET_RESP");
+    return decodeStatementGetResponse(frame.payload);
+  }
+
+  /** Fetch one schema version (SCHEMA_GET). `version === 0` selects the active. */
+  async getSchema(request: SchemaGetRequest): Promise<SchemaGetResponse> {
+    const frame = await this.conn.requestOne(Opcode.SchemaGetReq, encodeSchemaGet(request));
+    this.expect(frame.opcode, Opcode.SchemaGetResp, "SCHEMA_GET_RESP");
+    return decodeSchemaGetResponse(frame.payload);
+  }
+
+  /** Validate a schema document without persisting it (SCHEMA_VALIDATE). */
+  async validateSchema(request: SchemaValidateRequest): Promise<SchemaValidateResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.SchemaValidateReq,
+      encodeSchemaValidate(request),
+    );
+    this.expect(frame.opcode, Opcode.SchemaValidateResp, "SCHEMA_VALIDATE_RESP");
+    return decodeSchemaValidateResponse(frame.payload);
+  }
+
+  /** Begin a transaction (TXN_BEGIN). The client mints `txnId`. */
+  async txnBegin(request: TxnBeginRequest): Promise<TxnBeginResponse> {
+    const frame = await this.conn.requestOne(Opcode.TxnBegin, encodeTxnBegin(request));
+    this.expect(frame.opcode, Opcode.TxnBeginResp, "TXN_BEGIN_RESP");
+    return decodeTxnBeginResponse(frame.payload);
+  }
+
+  /** Commit a transaction (TXN_COMMIT). */
+  async txnCommit(request: TxnCommitRequest): Promise<TxnCommitResponse> {
+    const frame = await this.conn.requestOne(Opcode.TxnCommit, encodeTxnCommit(request));
+    this.expect(frame.opcode, Opcode.TxnCommitResp, "TXN_COMMIT_RESP");
+    return decodeTxnCommitResponse(frame.payload);
+  }
+
+  /** Abort a transaction (TXN_ABORT), discarding its buffered operations. */
+  async txnAbort(request: TxnAbortRequest): Promise<TxnAbortResponse> {
+    const frame = await this.conn.requestOne(Opcode.TxnAbort, encodeTxnAbort(request));
+    this.expect(frame.opcode, Opcode.TxnAbortResp, "TXN_ABORT_RESP");
+    return decodeTxnAbortResponse(frame.payload);
+  }
+
+  /**
+   * Plan a path from `start` to `goal` (PLAN), flattening every streamed
+   * frame's `steps` into one ordered list. For the raw frames (`isFinal`,
+   * terminal `planStatus`), use {@link planFrames}.
+   */
+  async plan(request: PlanRequest): Promise<PlanStep[]> {
+    const frames = await this.planFrames(request);
+    return frames.flatMap((f) => f.steps);
+  }
+
+  /** Plan a path, returning each decoded PLAN_RESP frame. */
+  async planFrames(request: PlanRequest): Promise<PlanResponseFrame[]> {
+    return this.streamed(
+      Opcode.PlanReq,
+      Opcode.PlanResp,
+      "PLAN_RESP",
+      encodePlan(request),
+      decodePlanResponse,
+    );
+  }
+
+  /**
+   * Reason about an observation (REASON), flattening every streamed frame's
+   * `inferences`. For the raw frames, use {@link reasonFrames}.
+   */
+  async reason(request: ReasonRequest): Promise<InferenceStep[]> {
+    const frames = await this.reasonFrames(request);
+    return frames.flatMap((f) => f.inferences);
+  }
+
+  /** Reason about an observation, returning each decoded REASON_RESP frame. */
+  async reasonFrames(request: ReasonRequest): Promise<ReasonResponseFrame[]> {
+    return this.streamed(
+      Opcode.ReasonReq,
+      Opcode.ReasonResp,
+      "REASON_RESP",
+      encodeReason(request),
+      decodeReasonResponse,
+    );
+  }
+
+  /**
+   * List entities (ENTITY_LIST), flattening every streamed frame's `items`.
+   * For the raw frames (cursors, cumulative counts), use {@link listEntitiesFrames}.
+   */
+  async listEntities(request: EntityListRequest): Promise<EntityListItem[]> {
+    const frames = await this.listEntitiesFrames(request);
+    return frames.flatMap((f) => f.items);
+  }
+
+  /** List entities, returning each decoded ENTITY_LIST_RESP frame. */
+  async listEntitiesFrames(request: EntityListRequest): Promise<EntityListResponseFrame[]> {
+    return this.streamed(
+      Opcode.EntityListReq,
+      Opcode.EntityListResp,
+      "ENTITY_LIST_RESP",
+      encodeEntityList(request),
+      decodeEntityListResponse,
+    );
+  }
+
+  /** List statements (STATEMENT_LIST), flattening every frame's `items`. */
+  async listStatements(request: StatementListRequest): Promise<StatementView[]> {
+    const frames = await this.listStatementsFrames(request);
+    return frames.flatMap((f) => f.items);
+  }
+
+  /** List statements, returning each decoded STATEMENT_LIST_RESP frame. */
+  async listStatementsFrames(
+    request: StatementListRequest,
+  ): Promise<StatementListResponseFrame[]> {
+    return this.streamed(
+      Opcode.StatementListReq,
+      Opcode.StatementListResp,
+      "STATEMENT_LIST_RESP",
+      encodeStatementList(request),
+      decodeStatementListResponse,
+    );
+  }
+
+  /** List relations from an entity (RELATION_LIST_FROM), flattening `items`. */
+  async listRelationsFrom(request: RelationListFromRequest): Promise<RelationView[]> {
+    const frames = await this.listRelationsFromFrames(request);
+    return frames.flatMap((f) => f.items);
+  }
+
+  /** List relations from an entity, returning each decoded frame. */
+  async listRelationsFromFrames(
+    request: RelationListFromRequest,
+  ): Promise<RelationListFromResponseFrame[]> {
+    return this.streamed(
+      Opcode.RelationListFromReq,
+      Opcode.RelationListFromResp,
+      "RELATION_LIST_FROM_RESP",
+      encodeRelationListFrom(request),
+      decodeRelationListFromResponse,
+    );
+  }
+
+  /** List relations to an entity (RELATION_LIST_TO), flattening `items`. */
+  async listRelationsTo(request: RelationListToRequest): Promise<RelationView[]> {
+    const frames = await this.listRelationsToFrames(request);
+    return frames.flatMap((f) => f.items);
+  }
+
+  /** List relations to an entity, returning each decoded frame. */
+  async listRelationsToFrames(
+    request: RelationListToRequest,
+  ): Promise<RelationListToResponseFrame[]> {
+    return this.streamed(
+      Opcode.RelationListToReq,
+      Opcode.RelationListToResp,
+      "RELATION_LIST_TO_RESP",
+      encodeRelationListTo(request),
+      decodeRelationListToResponse,
+    );
+  }
+
+  /** List schema versions in a namespace (SCHEMA_LIST), flattening `items`. */
+  async listSchemas(request: SchemaListRequest): Promise<SchemaListItemWire[]> {
+    const frames = await this.listSchemasFrames(request);
+    return frames.flatMap((f) => f.items);
+  }
+
+  /** List schema versions, returning each decoded SCHEMA_LIST_RESP frame. */
+  async listSchemasFrames(request: SchemaListRequest): Promise<SchemaListResponseFrame[]> {
+    return this.streamed(
+      Opcode.SchemaListReq,
+      Opcode.SchemaListResp,
+      "SCHEMA_LIST_RESP",
+      encodeSchemaList(request),
+      decodeSchemaListResponse,
+    );
+  }
+
+  /**
+   * Open a long-lived change-feed subscription (SUBSCRIBE). Returns a
+   * {@link Subscription} the caller drains with `nextEvent()` (or `for await`);
+   * call `unsubscribe()` for a clean teardown.
+   */
+  async subscribe(request: SubscribeRequest): Promise<Subscription> {
+    return this.conn.subscribe(request);
+  }
+
+  /**
+   * Send a request and decode every streamed response frame up to and including
+   * EOS, asserting each frame's opcode. The shape every LIST/streamed verb's
+   * `*Frames` method shares (mirrors {@link recallFrames}).
+   */
+  private async streamed<T>(
+    reqOpcode: number,
+    respOpcode: number,
+    respName: string,
+    payload: Uint8Array,
+    decode: (b: Uint8Array) => T,
+  ): Promise<T[]> {
+    const frames = await this.conn.request(reqOpcode, payload);
+    return frames.map((frame: Frame) => {
+      this.expect(frame.opcode, respOpcode, respName);
+      return decode(frame.payload);
+    });
   }
 
   /** Assert a response carried the expected opcode, else a protocol error. */

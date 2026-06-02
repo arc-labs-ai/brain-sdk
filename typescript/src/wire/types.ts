@@ -1638,3 +1638,2128 @@ export function decodeMaterializeProceduralResponse(
     trimmedByBudget: asBool(field(m, "trimmed_by_budget")),
   };
 }
+
+// ---------------------------------------------------------------------------
+// LINK / UNLINK.
+//
+// Memory ids ride the wire as u128 → `bigint`, like every other MemoryId field.
+// ---------------------------------------------------------------------------
+
+export interface LinkRequest {
+  source: bigint;
+  target: bigint;
+  kind: EdgeKindWire;
+  /** `[0, 1]` for most kinds; `[-1, 1]` for Contradicts. */
+  weight: number;
+  requestId: WireUuid;
+  txnId: WireUuid | null;
+}
+
+export function encodeLink(p: LinkRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["source", p.source],
+      ["target", p.target],
+      ["kind", p.kind as number],
+      ["weight", f32(p.weight)],
+      ["request_id", p.requestId],
+      ["txn_id", p.txnId],
+    ]),
+  );
+}
+
+export function decodeLink(bytes: Uint8Array): LinkRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    source: asBig(field(m, "source")),
+    target: asBig(field(m, "target")),
+    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    weight: asNum(field(m, "weight")),
+    requestId: asBytes(field(m, "request_id")),
+    txnId: asOptBytes(field(m, "txn_id")),
+  };
+}
+
+export interface LinkResponse {
+  source: bigint;
+  target: bigint;
+  kind: EdgeKindWire;
+  weight: number;
+  createdAtUnixNanos: bigint;
+  /** `true` if the edge already existed (LINK overwrote its weight). */
+  alreadyExisted: boolean;
+}
+
+export function encodeLinkResponse(p: LinkResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["source", p.source],
+      ["target", p.target],
+      ["kind", p.kind as number],
+      ["weight", f32(p.weight)],
+      ["created_at_unix_nanos", p.createdAtUnixNanos],
+      ["already_existed", p.alreadyExisted],
+    ]),
+  );
+}
+
+export function decodeLinkResponse(bytes: Uint8Array): LinkResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    source: asBig(field(m, "source")),
+    target: asBig(field(m, "target")),
+    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    weight: asNum(field(m, "weight")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    alreadyExisted: asBool(field(m, "already_existed")),
+  };
+}
+
+export interface UnlinkRequest {
+  source: bigint;
+  target: bigint;
+  kind: EdgeKindWire;
+  requestId: WireUuid;
+  txnId: WireUuid | null;
+}
+
+export function encodeUnlink(p: UnlinkRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["source", p.source],
+      ["target", p.target],
+      ["kind", p.kind as number],
+      ["request_id", p.requestId],
+      ["txn_id", p.txnId],
+    ]),
+  );
+}
+
+export function decodeUnlink(bytes: Uint8Array): UnlinkRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    source: asBig(field(m, "source")),
+    target: asBig(field(m, "target")),
+    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    requestId: asBytes(field(m, "request_id")),
+    txnId: asOptBytes(field(m, "txn_id")),
+  };
+}
+
+export interface UnlinkResponse {
+  source: bigint;
+  target: bigint;
+  kind: EdgeKindWire;
+  /** `true` if the edge existed and was removed; `false` if it didn't exist. */
+  removed: boolean;
+}
+
+export function encodeUnlinkResponse(p: UnlinkResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["source", p.source],
+      ["target", p.target],
+      ["kind", p.kind as number],
+      ["removed", p.removed],
+    ]),
+  );
+}
+
+export function decodeUnlinkResponse(bytes: Uint8Array): UnlinkResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    source: asBig(field(m, "source")),
+    target: asBig(field(m, "target")),
+    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    removed: asBool(field(m, "removed")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PLAN.
+// ---------------------------------------------------------------------------
+
+export enum PlanStrategy {
+  Auto = 0,
+  AStar = 1,
+  Mcts = 2,
+  AttractorRollout = 3,
+}
+
+/** Plan endpoint. Externally tagged (one-entry map keyed by variant). */
+export type PlanState =
+  | { kind: "ByMemoryId"; memoryId: bigint }
+  | { kind: "ByText"; text: string }
+  | { kind: "ByVector"; offset: number; dim: number };
+
+function encodePlanState(s: PlanState): unknown {
+  switch (s.kind) {
+    case "ByMemoryId":
+      return new Map<string, unknown>([["ByMemoryId", s.memoryId]]);
+    case "ByText":
+      return new Map<string, unknown>([["ByText", s.text]]);
+    case "ByVector":
+      return new Map<string, unknown>([
+        [
+          "ByVector",
+          new Map<string, unknown>([
+            ["offset", s.offset],
+            ["dim", s.dim],
+          ]),
+        ],
+      ]);
+  }
+}
+
+function decodePlanState(value: unknown): PlanState {
+  const m = asMap(value);
+  if (m.has("ByMemoryId")) return { kind: "ByMemoryId", memoryId: asBig(m.get("ByMemoryId")) };
+  if (m.has("ByText")) return { kind: "ByText", text: asStr(m.get("ByText")) };
+  if (m.has("ByVector")) {
+    const inner = asMap(m.get("ByVector"));
+    return {
+      kind: "ByVector",
+      offset: asNum(field(inner, "offset")),
+      dim: asNum(field(inner, "dim")),
+    };
+  }
+  throw new CborError("unknown PlanState variant");
+}
+
+export interface PlanBudget {
+  maxSteps: number;
+  maxWallTimeMs: number;
+  maxBranchesExplored: number;
+}
+
+function encodePlanBudget(b: PlanBudget): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["max_steps", b.maxSteps],
+    ["max_wall_time_ms", b.maxWallTimeMs],
+    ["max_branches_explored", b.maxBranchesExplored],
+  ]);
+}
+
+function decodePlanBudget(value: unknown): PlanBudget {
+  const m = asMap(value);
+  return {
+    maxSteps: asNum(field(m, "max_steps")),
+    maxWallTimeMs: asNum(field(m, "max_wall_time_ms")),
+    maxBranchesExplored: asNum(field(m, "max_branches_explored")),
+  };
+}
+
+export interface PlanRequest {
+  start: PlanState;
+  goal: PlanState;
+  budget: PlanBudget;
+  strategyHint: PlanStrategy | null;
+  contextFilter: bigint[] | null;
+  requestId: WireUuid | null;
+  txnId: WireUuid | null;
+}
+
+export function encodePlan(p: PlanRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["start", encodePlanState(p.start)],
+      ["goal", encodePlanState(p.goal)],
+      ["budget", encodePlanBudget(p.budget)],
+      ["strategy_hint", p.strategyHint === null ? null : (p.strategyHint as number)],
+      ["context_filter", p.contextFilter === null ? null : p.contextFilter],
+      ["request_id", p.requestId],
+      ["txn_id", p.txnId],
+    ]),
+  );
+}
+
+export function decodePlan(bytes: Uint8Array): PlanRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    start: decodePlanState(field(m, "start")),
+    goal: decodePlanState(field(m, "goal")),
+    budget: decodePlanBudget(field(m, "budget")),
+    strategyHint: asOpt(field(m, "strategy_hint"), (v) => asNum(v) as PlanStrategy),
+    contextFilter: asOpt(field(m, "context_filter"), (v) => asArray(v).map(asBig)),
+    requestId: asOptBytes(field(m, "request_id")),
+    txnId: asOptBytes(field(m, "txn_id")),
+  };
+}
+
+export enum PlanStatus {
+  GoalReached = 0,
+  BudgetExhausted = 1,
+  NoPathFound = 2,
+  Cancelled = 3,
+}
+
+/** Transition kind between plan steps. Externally tagged; `Other` carries text. */
+export type TransitionKind =
+  | { kind: "Initial" }
+  | { kind: "Causal" }
+  | { kind: "Temporal" }
+  | { kind: "Similarity" }
+  | { kind: "Other"; value: string };
+
+function encodeTransitionKind(t: TransitionKind): unknown {
+  if (t.kind === "Other") return new Map<string, unknown>([["Other", t.value]]);
+  return t.kind;
+}
+
+function decodeTransitionKind(value: unknown): TransitionKind {
+  if (value === "Initial") return { kind: "Initial" };
+  if (value === "Causal") return { kind: "Causal" };
+  if (value === "Temporal") return { kind: "Temporal" };
+  if (value === "Similarity") return { kind: "Similarity" };
+  const m = asMap(value);
+  if (m.has("Other")) return { kind: "Other", value: asStr(m.get("Other")) };
+  throw new CborError("unknown TransitionKind variant");
+}
+
+export interface PlanStep {
+  stepIndex: number;
+  memoryId: bigint;
+  text: string;
+  transitionKind: TransitionKind;
+  confidence: number;
+  estimatedDistanceToGoal: number;
+}
+
+function encodePlanStep(s: PlanStep): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["step_index", s.stepIndex],
+    ["memory_id", s.memoryId],
+    ["text", s.text],
+    ["transition_kind", encodeTransitionKind(s.transitionKind)],
+    ["confidence", f32(s.confidence)],
+    ["estimated_distance_to_goal", f32(s.estimatedDistanceToGoal)],
+  ]);
+}
+
+function decodePlanStep(value: unknown): PlanStep {
+  const m = asMap(value);
+  return {
+    stepIndex: asNum(field(m, "step_index")),
+    memoryId: asBig(field(m, "memory_id")),
+    text: asStr(field(m, "text")),
+    transitionKind: decodeTransitionKind(field(m, "transition_kind")),
+    confidence: asNum(field(m, "confidence")),
+    estimatedDistanceToGoal: asNum(field(m, "estimated_distance_to_goal")),
+  };
+}
+
+export interface PlanResponseFrame {
+  steps: PlanStep[];
+  isFinal: boolean;
+  planStatus: PlanStatus | null;
+}
+
+export function encodePlanResponse(p: PlanResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["steps", p.steps.map(encodePlanStep)],
+      ["is_final", p.isFinal],
+      ["plan_status", p.planStatus === null ? null : (p.planStatus as number)],
+    ]),
+  );
+}
+
+export function decodePlanResponse(bytes: Uint8Array): PlanResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    steps: asArray(field(m, "steps")).map(decodePlanStep),
+    isFinal: asBool(field(m, "is_final")),
+    planStatus: asOpt(field(m, "plan_status"), (v) => asNum(v) as PlanStatus),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// REASON.
+// ---------------------------------------------------------------------------
+
+/** What to reason about. Externally tagged. */
+export type ObservationInput =
+  | { kind: "ByMemoryId"; memoryId: bigint }
+  | { kind: "ByText"; text: string };
+
+function encodeObservationInput(o: ObservationInput): unknown {
+  if (o.kind === "ByMemoryId") return new Map<string, unknown>([["ByMemoryId", o.memoryId]]);
+  return new Map<string, unknown>([["ByText", o.text]]);
+}
+
+function decodeObservationInput(value: unknown): ObservationInput {
+  const m = asMap(value);
+  if (m.has("ByMemoryId")) return { kind: "ByMemoryId", memoryId: asBig(m.get("ByMemoryId")) };
+  if (m.has("ByText")) return { kind: "ByText", text: asStr(m.get("ByText")) };
+  throw new CborError("unknown ObservationInput variant");
+}
+
+export interface ReasonRequest {
+  observation: ObservationInput;
+  depth: number;
+  confidenceThreshold: number;
+  contextFilter: bigint[] | null;
+  maxInferences: number;
+  budgetWallTimeMs: number;
+  requestId: WireUuid | null;
+  txnId: WireUuid | null;
+}
+
+export function encodeReason(p: ReasonRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["observation", encodeObservationInput(p.observation)],
+      ["depth", p.depth],
+      ["confidence_threshold", f32(p.confidenceThreshold)],
+      ["context_filter", p.contextFilter === null ? null : p.contextFilter],
+      ["max_inferences", p.maxInferences],
+      ["budget_wall_time_ms", p.budgetWallTimeMs],
+      ["request_id", p.requestId],
+      ["txn_id", p.txnId],
+    ]),
+  );
+}
+
+export function decodeReason(bytes: Uint8Array): ReasonRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    observation: decodeObservationInput(field(m, "observation")),
+    depth: asNum(field(m, "depth")),
+    confidenceThreshold: asNum(field(m, "confidence_threshold")),
+    contextFilter: asOpt(field(m, "context_filter"), (v) => asArray(v).map(asBig)),
+    maxInferences: asNum(field(m, "max_inferences")),
+    budgetWallTimeMs: asNum(field(m, "budget_wall_time_ms")),
+    requestId: asOptBytes(field(m, "request_id")),
+    txnId: asOptBytes(field(m, "txn_id")),
+  };
+}
+
+export enum ReasonStatus {
+  Complete = 0,
+  BudgetExhausted = 1,
+  DepthLimitReached = 2,
+  Cancelled = 3,
+}
+
+/** Inference kind. Externally tagged; `Other` carries text. */
+export type InferenceKind =
+  | { kind: "CausalExplanation" }
+  | { kind: "EvidenceAccumulation" }
+  | { kind: "AnalogicalInference" }
+  | { kind: "Other"; value: string };
+
+function encodeInferenceKind(i: InferenceKind): unknown {
+  if (i.kind === "Other") return new Map<string, unknown>([["Other", i.value]]);
+  return i.kind;
+}
+
+function decodeInferenceKind(value: unknown): InferenceKind {
+  if (value === "CausalExplanation") return { kind: "CausalExplanation" };
+  if (value === "EvidenceAccumulation") return { kind: "EvidenceAccumulation" };
+  if (value === "AnalogicalInference") return { kind: "AnalogicalInference" };
+  const m = asMap(value);
+  if (m.has("Other")) return { kind: "Other", value: asStr(m.get("Other")) };
+  throw new CborError("unknown InferenceKind variant");
+}
+
+export interface InferenceStep {
+  stepIndex: number;
+  claim: string;
+  supportingMemories: bigint[];
+  contradictingMemories: bigint[];
+  confidence: number;
+  inferenceKind: InferenceKind;
+}
+
+function encodeInferenceStep(s: InferenceStep): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["step_index", s.stepIndex],
+    ["claim", s.claim],
+    ["supporting_memories", s.supportingMemories],
+    ["contradicting_memories", s.contradictingMemories],
+    ["confidence", f32(s.confidence)],
+    ["inference_kind", encodeInferenceKind(s.inferenceKind)],
+  ]);
+}
+
+function decodeInferenceStep(value: unknown): InferenceStep {
+  const m = asMap(value);
+  return {
+    stepIndex: asNum(field(m, "step_index")),
+    claim: asStr(field(m, "claim")),
+    supportingMemories: asArray(field(m, "supporting_memories")).map(asBig),
+    contradictingMemories: asArray(field(m, "contradicting_memories")).map(asBig),
+    confidence: asNum(field(m, "confidence")),
+    inferenceKind: decodeInferenceKind(field(m, "inference_kind")),
+  };
+}
+
+export interface ReasonResponseFrame {
+  inferences: InferenceStep[];
+  isFinal: boolean;
+  reasonStatus: ReasonStatus | null;
+}
+
+export function encodeReasonResponse(p: ReasonResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["inferences", p.inferences.map(encodeInferenceStep)],
+      ["is_final", p.isFinal],
+      ["reason_status", p.reasonStatus === null ? null : (p.reasonStatus as number)],
+    ]),
+  );
+}
+
+export function decodeReasonResponse(bytes: Uint8Array): ReasonResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    inferences: asArray(field(m, "inferences")).map(decodeInferenceStep),
+    isFinal: asBool(field(m, "is_final")),
+    reasonStatus: asOpt(field(m, "reason_status"), (v) => asNum(v) as ReasonStatus),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// TXN_BEGIN / TXN_COMMIT / TXN_ABORT.
+// ---------------------------------------------------------------------------
+
+export interface TxnBeginRequest {
+  txnId: WireUuid;
+  timeoutSeconds: number;
+}
+
+export function encodeTxnBegin(p: TxnBeginRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["txn_id", p.txnId],
+      ["timeout_seconds", p.timeoutSeconds],
+    ]),
+  );
+}
+
+export function decodeTxnBegin(bytes: Uint8Array): TxnBeginRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    txnId: asBytes(field(m, "txn_id")),
+    timeoutSeconds: asNum(field(m, "timeout_seconds")),
+  };
+}
+
+export interface TxnBeginResponse {
+  txnId: WireUuid;
+  timeoutSeconds: number;
+  startedAtUnixNanos: bigint;
+}
+
+export function encodeTxnBeginResponse(p: TxnBeginResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["txn_id", p.txnId],
+      ["timeout_seconds", p.timeoutSeconds],
+      ["started_at_unix_nanos", p.startedAtUnixNanos],
+    ]),
+  );
+}
+
+export function decodeTxnBeginResponse(bytes: Uint8Array): TxnBeginResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    txnId: asBytes(field(m, "txn_id")),
+    timeoutSeconds: asNum(field(m, "timeout_seconds")),
+    startedAtUnixNanos: asBig(field(m, "started_at_unix_nanos")),
+  };
+}
+
+export interface TxnCommitRequest {
+  txnId: WireUuid;
+}
+
+export function encodeTxnCommit(p: TxnCommitRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>([["txn_id", p.txnId]]));
+}
+
+export function decodeTxnCommit(bytes: Uint8Array): TxnCommitRequest {
+  const m = asMap(fromCbor(bytes));
+  return { txnId: asBytes(field(m, "txn_id")) };
+}
+
+export interface TxnCommitResponse {
+  txnId: WireUuid;
+  committedAtUnixNanos: bigint;
+  operationsApplied: number;
+}
+
+export function encodeTxnCommitResponse(p: TxnCommitResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["txn_id", p.txnId],
+      ["committed_at_unix_nanos", p.committedAtUnixNanos],
+      ["operations_applied", p.operationsApplied],
+    ]),
+  );
+}
+
+export function decodeTxnCommitResponse(bytes: Uint8Array): TxnCommitResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    txnId: asBytes(field(m, "txn_id")),
+    committedAtUnixNanos: asBig(field(m, "committed_at_unix_nanos")),
+    operationsApplied: asNum(field(m, "operations_applied")),
+  };
+}
+
+export interface TxnAbortRequest {
+  txnId: WireUuid;
+}
+
+export function encodeTxnAbort(p: TxnAbortRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>([["txn_id", p.txnId]]));
+}
+
+export function decodeTxnAbort(bytes: Uint8Array): TxnAbortRequest {
+  const m = asMap(fromCbor(bytes));
+  return { txnId: asBytes(field(m, "txn_id")) };
+}
+
+export interface TxnAbortResponse {
+  txnId: WireUuid;
+  operationsDiscarded: number;
+}
+
+export function encodeTxnAbortResponse(p: TxnAbortResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["txn_id", p.txnId],
+      ["operations_discarded", p.operationsDiscarded],
+    ]),
+  );
+}
+
+export function decodeTxnAbortResponse(bytes: Uint8Array): TxnAbortResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    txnId: asBytes(field(m, "txn_id")),
+    operationsDiscarded: asNum(field(m, "operations_discarded")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET_CAPABILITIES.
+// ---------------------------------------------------------------------------
+
+/** Empty request body — capabilities are server-side state. */
+export interface GetCapabilitiesRequest {}
+
+export function encodeGetCapabilities(_p: GetCapabilitiesRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>());
+}
+
+export function decodeGetCapabilities(_bytes: Uint8Array): GetCapabilitiesRequest {
+  return {};
+}
+
+export interface Capabilities {
+  rerank: boolean;
+  llmExtractor: boolean;
+  classifierExtractor: boolean;
+  patternExtractor: boolean;
+  schemaNamespaces: string[];
+  vectorDim: number;
+}
+
+export interface GetCapabilitiesResponse {
+  capabilities: Capabilities;
+}
+
+export function encodeGetCapabilitiesResponse(p: GetCapabilitiesResponse): Uint8Array {
+  const c = p.capabilities;
+  return toCbor(
+    new Map<string, unknown>([
+      [
+        "capabilities",
+        new Map<string, unknown>([
+          ["rerank", c.rerank],
+          ["llm_extractor", c.llmExtractor],
+          ["classifier_extractor", c.classifierExtractor],
+          ["pattern_extractor", c.patternExtractor],
+          ["schema_namespaces", c.schemaNamespaces],
+          ["vector_dim", c.vectorDim],
+        ]),
+      ],
+    ]),
+  );
+}
+
+export function decodeGetCapabilitiesResponse(bytes: Uint8Array): GetCapabilitiesResponse {
+  const m = asMap(fromCbor(bytes));
+  const c = asMap(field(m, "capabilities"));
+  return {
+    capabilities: {
+      rerank: asBool(field(c, "rerank")),
+      llmExtractor: asBool(field(c, "llm_extractor")),
+      classifierExtractor: asBool(field(c, "classifier_extractor")),
+      patternExtractor: asBool(field(c, "pattern_extractor")),
+      schemaNamespaces: asArray(field(c, "schema_namespaces")).map(asStr),
+      vectorDim: asNum(field(c, "vector_dim")),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ENTITY_GET / ENTITY_LIST.
+// ---------------------------------------------------------------------------
+
+export interface EntityView {
+  entityId: WireUuid;
+  entityTypeId: number;
+  canonicalName: string;
+  normalizedName: string;
+  aliases: string[];
+  attributesBlob: Uint8Array;
+  mentionCount: number;
+  createdAtUnixNanos: bigint;
+  updatedAtUnixNanos: bigint;
+  /** All-zero (16 bytes) means "not merged". */
+  mergedInto: WireUuid;
+  embeddingVersion: number;
+  flags: number;
+}
+
+function encodeEntityView(e: EntityView): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["entity_id", e.entityId],
+    ["entity_type_id", e.entityTypeId],
+    ["canonical_name", e.canonicalName],
+    ["normalized_name", e.normalizedName],
+    ["aliases", e.aliases],
+    ["attributes_blob", Array.from(e.attributesBlob)],
+    ["mention_count", e.mentionCount],
+    ["created_at_unix_nanos", e.createdAtUnixNanos],
+    ["updated_at_unix_nanos", e.updatedAtUnixNanos],
+    ["merged_into", e.mergedInto],
+    ["embedding_version", e.embeddingVersion],
+    ["flags", e.flags],
+  ]);
+}
+
+function decodeEntityView(value: unknown): EntityView {
+  const m = asMap(value);
+  return {
+    entityId: asBytes(field(m, "entity_id")),
+    entityTypeId: asNum(field(m, "entity_type_id")),
+    canonicalName: asStr(field(m, "canonical_name")),
+    normalizedName: asStr(field(m, "normalized_name")),
+    aliases: asArray(field(m, "aliases")).map(asStr),
+    attributesBlob: Uint8Array.from(asArray(field(m, "attributes_blob")).map(asNum)),
+    mentionCount: asNum(field(m, "mention_count")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    updatedAtUnixNanos: asBig(field(m, "updated_at_unix_nanos")),
+    mergedInto: asBytes(field(m, "merged_into")),
+    embeddingVersion: asNum(field(m, "embedding_version")),
+    flags: asNum(field(m, "flags")),
+  };
+}
+
+export interface EntityGetRequest {
+  entityId: WireUuid;
+}
+
+export function encodeEntityGet(p: EntityGetRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>([["entity_id", p.entityId]]));
+}
+
+export function decodeEntityGet(bytes: Uint8Array): EntityGetRequest {
+  const m = asMap(fromCbor(bytes));
+  return { entityId: asBytes(field(m, "entity_id")) };
+}
+
+export interface EntityGetResponse {
+  entity: EntityView;
+}
+
+export function encodeEntityGetResponse(p: EntityGetResponse): Uint8Array {
+  return toCbor(new Map<string, unknown>([["entity", encodeEntityView(p.entity)]]));
+}
+
+export function decodeEntityGetResponse(bytes: Uint8Array): EntityGetResponse {
+  const m = asMap(fromCbor(bytes));
+  return { entity: decodeEntityView(field(m, "entity")) };
+}
+
+export interface EntityListRequest {
+  /** `0` = no filter. */
+  entityTypeId: number;
+  /** Empty = no filter. */
+  namePrefix: string;
+  mentionCountMin: number;
+  includeTombstoned: boolean;
+  includeMerged: boolean;
+  /** 1..=1000. */
+  limit: number;
+  /** Empty on first page; opaque continuation token otherwise. */
+  cursor: Uint8Array;
+}
+
+export function encodeEntityList(p: EntityListRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["entity_type_id", p.entityTypeId],
+      ["name_prefix", p.namePrefix],
+      ["mention_count_min", p.mentionCountMin],
+      ["include_tombstoned", p.includeTombstoned],
+      ["include_merged", p.includeMerged],
+      ["limit", p.limit],
+      ["cursor", Array.from(p.cursor)],
+    ]),
+  );
+}
+
+export function decodeEntityList(bytes: Uint8Array): EntityListRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    entityTypeId: asNum(field(m, "entity_type_id")),
+    namePrefix: asStr(field(m, "name_prefix")),
+    mentionCountMin: asNum(field(m, "mention_count_min")),
+    includeTombstoned: asBool(field(m, "include_tombstoned")),
+    includeMerged: asBool(field(m, "include_merged")),
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+  };
+}
+
+export interface EntityListItem {
+  entity: EntityView;
+}
+
+export interface EntityListResponseFrame {
+  items: EntityListItem[];
+  nextCursor: Uint8Array;
+  cumulativeCount: number;
+  isFinal: boolean;
+}
+
+export function encodeEntityListResponse(p: EntityListResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      [
+        "items",
+        p.items.map((it) => new Map<string, unknown>([["entity", encodeEntityView(it.entity)]])),
+      ],
+      ["next_cursor", Array.from(p.nextCursor)],
+      ["cumulative_count", p.cumulativeCount],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+export function decodeEntityListResponse(bytes: Uint8Array): EntityListResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    items: asArray(field(m, "items")).map((v) => ({
+      entity: decodeEntityView(field(asMap(v), "entity")),
+    })),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
+    cumulativeCount: asNum(field(m, "cumulative_count")),
+    isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// STATEMENT_GET / STATEMENT_LIST.
+// ---------------------------------------------------------------------------
+
+export interface StatementView {
+  statementId: WireUuid;
+  kind: StatementKindWire;
+  subject: WireUuid;
+  subjectPendingAuditId: WireUuid;
+  predicate: string;
+  object: StatementObjectWire;
+  confidence: number;
+  evidence: EvidenceRefWire;
+  extractorId: number;
+  extractedAtUnixNanos: bigint;
+  schemaVersion: number;
+  validFromUnixNanos: bigint;
+  validToUnixNanos: bigint;
+  eventAtUnixNanos: bigint;
+  version: number;
+  supersededBy: WireUuid;
+  supersedes: WireUuid;
+  chainRoot: WireUuid;
+  tombstoned: boolean;
+  tombstonedAtUnixNanos: bigint;
+  tombstoneReason: number;
+  flags: number;
+  isStateful: boolean;
+}
+
+function encodeStatementView(s: StatementView): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["statement_id", s.statementId],
+    ["kind", s.kind],
+    ["subject", s.subject],
+    ["subject_pending_audit_id", s.subjectPendingAuditId],
+    ["predicate", s.predicate],
+    ["object", encodeStatementObject(s.object)],
+    ["confidence", f32(s.confidence)],
+    ["evidence", encodeEvidence(s.evidence)],
+    ["extractor_id", s.extractorId],
+    ["extracted_at_unix_nanos", s.extractedAtUnixNanos],
+    ["schema_version", s.schemaVersion],
+    ["valid_from_unix_nanos", s.validFromUnixNanos],
+    ["valid_to_unix_nanos", s.validToUnixNanos],
+    ["event_at_unix_nanos", s.eventAtUnixNanos],
+    ["version", s.version],
+    ["superseded_by", s.supersededBy],
+    ["supersedes", s.supersedes],
+    ["chain_root", s.chainRoot],
+    ["tombstoned", s.tombstoned],
+    ["tombstoned_at_unix_nanos", s.tombstonedAtUnixNanos],
+    ["tombstone_reason", s.tombstoneReason],
+    ["flags", s.flags],
+    ["is_stateful", s.isStateful],
+  ]);
+}
+
+function decodeStatementView(value: unknown): StatementView {
+  const m = asMap(value);
+  return {
+    statementId: asBytes(field(m, "statement_id")),
+    kind: asStr(field(m, "kind")) as StatementKindWire,
+    subject: asBytes(field(m, "subject")),
+    subjectPendingAuditId: asBytes(field(m, "subject_pending_audit_id")),
+    predicate: asStr(field(m, "predicate")),
+    object: decodeStatementObject(field(m, "object")),
+    confidence: asNum(field(m, "confidence")),
+    evidence: decodeEvidence(field(m, "evidence")),
+    extractorId: asNum(field(m, "extractor_id")),
+    extractedAtUnixNanos: asBig(field(m, "extracted_at_unix_nanos")),
+    schemaVersion: asNum(field(m, "schema_version")),
+    validFromUnixNanos: asBig(field(m, "valid_from_unix_nanos")),
+    validToUnixNanos: asBig(field(m, "valid_to_unix_nanos")),
+    eventAtUnixNanos: asBig(field(m, "event_at_unix_nanos")),
+    version: asNum(field(m, "version")),
+    supersededBy: asBytes(field(m, "superseded_by")),
+    supersedes: asBytes(field(m, "supersedes")),
+    chainRoot: asBytes(field(m, "chain_root")),
+    tombstoned: asBool(field(m, "tombstoned")),
+    tombstonedAtUnixNanos: asBig(field(m, "tombstoned_at_unix_nanos")),
+    tombstoneReason: asNum(field(m, "tombstone_reason")),
+    flags: asNum(field(m, "flags")),
+    isStateful: asBool(field(m, "is_stateful")),
+  };
+}
+
+export interface StatementGetRequest {
+  statementId: WireUuid;
+  followSupersession: boolean;
+}
+
+export function encodeStatementGet(p: StatementGetRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["statement_id", p.statementId],
+      ["follow_supersession", p.followSupersession],
+    ]),
+  );
+}
+
+export function decodeStatementGet(bytes: Uint8Array): StatementGetRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    statementId: asBytes(field(m, "statement_id")),
+    followSupersession: asBool(field(m, "follow_supersession")),
+  };
+}
+
+export interface StatementGetResponse {
+  statement: StatementView;
+  returnedViaSupersession: boolean;
+}
+
+export function encodeStatementGetResponse(p: StatementGetResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["statement", encodeStatementView(p.statement)],
+      ["returned_via_supersession", p.returnedViaSupersession],
+    ]),
+  );
+}
+
+export function decodeStatementGetResponse(bytes: Uint8Array): StatementGetResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    statement: decodeStatementView(field(m, "statement")),
+    returnedViaSupersession: asBool(field(m, "returned_via_supersession")),
+  };
+}
+
+export interface StatementListRequest {
+  subject: WireUuid;
+  predicate: string;
+  /** `0` = no kind filter; `1`=Fact / `2`=Preference / `3`=Event. */
+  kind: number;
+  minConfidence: number;
+  timeRangeStartUnixNanos: bigint;
+  timeRangeEndUnixNanos: bigint;
+  onlyCurrent: boolean;
+  includeTombstoned: boolean;
+  limit: number;
+  cursor: Uint8Array;
+}
+
+export function encodeStatementList(p: StatementListRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["subject", p.subject],
+      ["predicate", p.predicate],
+      ["kind", p.kind],
+      ["min_confidence", f32(p.minConfidence)],
+      ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
+      ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
+      ["only_current", p.onlyCurrent],
+      ["include_tombstoned", p.includeTombstoned],
+      ["limit", p.limit],
+      ["cursor", Array.from(p.cursor)],
+    ]),
+  );
+}
+
+export function decodeStatementList(bytes: Uint8Array): StatementListRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    subject: asBytes(field(m, "subject")),
+    predicate: asStr(field(m, "predicate")),
+    kind: asNum(field(m, "kind")),
+    minConfidence: asNum(field(m, "min_confidence")),
+    timeRangeStartUnixNanos: asBig(field(m, "time_range_start_unix_nanos")),
+    timeRangeEndUnixNanos: asBig(field(m, "time_range_end_unix_nanos")),
+    onlyCurrent: asBool(field(m, "only_current")),
+    includeTombstoned: asBool(field(m, "include_tombstoned")),
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+  };
+}
+
+export interface StatementListResponseFrame {
+  items: StatementView[];
+  nextCursor: Uint8Array;
+  cumulativeCount: number;
+  isFinal: boolean;
+}
+
+export function encodeStatementListResponse(p: StatementListResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["items", p.items.map(encodeStatementView)],
+      ["next_cursor", Array.from(p.nextCursor)],
+      ["cumulative_count", p.cumulativeCount],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+export function decodeStatementListResponse(bytes: Uint8Array): StatementListResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    items: asArray(field(m, "items")).map(decodeStatementView),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
+    cumulativeCount: asNum(field(m, "cumulative_count")),
+    isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// RELATION_LIST_FROM / RELATION_LIST_TO.
+// ---------------------------------------------------------------------------
+
+export interface RelationView {
+  relationId: WireUuid;
+  chainRoot: WireUuid;
+  relationType: string;
+  fromEntity: WireUuid;
+  toEntity: WireUuid;
+  propertiesBlob: Uint8Array;
+  evidence: EvidenceRefWire;
+  extractorId: number;
+  extractedAtUnixNanos: bigint;
+  confidence: number;
+  validFromUnixNanos: bigint;
+  validToUnixNanos: bigint;
+  version: number;
+  supersededBy: WireUuid;
+  supersedes: WireUuid;
+  tombstoned: boolean;
+  tombstonedAtUnixNanos: bigint;
+  flags: number;
+}
+
+function encodeRelationView(r: RelationView): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["relation_id", r.relationId],
+    ["chain_root", r.chainRoot],
+    ["relation_type", r.relationType],
+    ["from_entity", r.fromEntity],
+    ["to_entity", r.toEntity],
+    ["properties_blob", Array.from(r.propertiesBlob)],
+    ["evidence", encodeEvidence(r.evidence)],
+    ["extractor_id", r.extractorId],
+    ["extracted_at_unix_nanos", r.extractedAtUnixNanos],
+    ["confidence", f32(r.confidence)],
+    ["valid_from_unix_nanos", r.validFromUnixNanos],
+    ["valid_to_unix_nanos", r.validToUnixNanos],
+    ["version", r.version],
+    ["superseded_by", r.supersededBy],
+    ["supersedes", r.supersedes],
+    ["tombstoned", r.tombstoned],
+    ["tombstoned_at_unix_nanos", r.tombstonedAtUnixNanos],
+    ["flags", r.flags],
+  ]);
+}
+
+function decodeRelationView(value: unknown): RelationView {
+  const m = asMap(value);
+  return {
+    relationId: asBytes(field(m, "relation_id")),
+    chainRoot: asBytes(field(m, "chain_root")),
+    relationType: asStr(field(m, "relation_type")),
+    fromEntity: asBytes(field(m, "from_entity")),
+    toEntity: asBytes(field(m, "to_entity")),
+    propertiesBlob: Uint8Array.from(asArray(field(m, "properties_blob")).map(asNum)),
+    evidence: decodeEvidence(field(m, "evidence")),
+    extractorId: asNum(field(m, "extractor_id")),
+    extractedAtUnixNanos: asBig(field(m, "extracted_at_unix_nanos")),
+    confidence: asNum(field(m, "confidence")),
+    validFromUnixNanos: asBig(field(m, "valid_from_unix_nanos")),
+    validToUnixNanos: asBig(field(m, "valid_to_unix_nanos")),
+    version: asNum(field(m, "version")),
+    supersededBy: asBytes(field(m, "superseded_by")),
+    supersedes: asBytes(field(m, "supersedes")),
+    tombstoned: asBool(field(m, "tombstoned")),
+    tombstonedAtUnixNanos: asBig(field(m, "tombstoned_at_unix_nanos")),
+    flags: asNum(field(m, "flags")),
+  };
+}
+
+export interface RelationListFromRequest {
+  fromEntity: WireUuid;
+  relationTypeFilter: string;
+  timeRangeStartUnixNanos: bigint;
+  timeRangeEndUnixNanos: bigint;
+  includeSuperseded: boolean;
+  includeTombstoned: boolean;
+  limit: number;
+  cursor: Uint8Array;
+}
+
+export function encodeRelationListFrom(p: RelationListFromRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["from_entity", p.fromEntity],
+      ["relation_type_filter", p.relationTypeFilter],
+      ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
+      ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
+      ["include_superseded", p.includeSuperseded],
+      ["include_tombstoned", p.includeTombstoned],
+      ["limit", p.limit],
+      ["cursor", Array.from(p.cursor)],
+    ]),
+  );
+}
+
+export function decodeRelationListFrom(bytes: Uint8Array): RelationListFromRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    fromEntity: asBytes(field(m, "from_entity")),
+    relationTypeFilter: asStr(field(m, "relation_type_filter")),
+    timeRangeStartUnixNanos: asBig(field(m, "time_range_start_unix_nanos")),
+    timeRangeEndUnixNanos: asBig(field(m, "time_range_end_unix_nanos")),
+    includeSuperseded: asBool(field(m, "include_superseded")),
+    includeTombstoned: asBool(field(m, "include_tombstoned")),
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+  };
+}
+
+export interface RelationListFromResponseFrame {
+  items: RelationView[];
+  nextCursor: Uint8Array;
+  cumulativeCount: number;
+  isFinal: boolean;
+}
+
+export function encodeRelationListFromResponse(p: RelationListFromResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["items", p.items.map(encodeRelationView)],
+      ["next_cursor", Array.from(p.nextCursor)],
+      ["cumulative_count", p.cumulativeCount],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+export function decodeRelationListFromResponse(bytes: Uint8Array): RelationListFromResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    items: asArray(field(m, "items")).map(decodeRelationView),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
+    cumulativeCount: asNum(field(m, "cumulative_count")),
+    isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+export interface RelationListToRequest {
+  toEntity: WireUuid;
+  relationTypeFilter: string;
+  timeRangeStartUnixNanos: bigint;
+  timeRangeEndUnixNanos: bigint;
+  includeSuperseded: boolean;
+  includeTombstoned: boolean;
+  limit: number;
+  cursor: Uint8Array;
+}
+
+export function encodeRelationListTo(p: RelationListToRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["to_entity", p.toEntity],
+      ["relation_type_filter", p.relationTypeFilter],
+      ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
+      ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
+      ["include_superseded", p.includeSuperseded],
+      ["include_tombstoned", p.includeTombstoned],
+      ["limit", p.limit],
+      ["cursor", Array.from(p.cursor)],
+    ]),
+  );
+}
+
+export function decodeRelationListTo(bytes: Uint8Array): RelationListToRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    toEntity: asBytes(field(m, "to_entity")),
+    relationTypeFilter: asStr(field(m, "relation_type_filter")),
+    timeRangeStartUnixNanos: asBig(field(m, "time_range_start_unix_nanos")),
+    timeRangeEndUnixNanos: asBig(field(m, "time_range_end_unix_nanos")),
+    includeSuperseded: asBool(field(m, "include_superseded")),
+    includeTombstoned: asBool(field(m, "include_tombstoned")),
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+  };
+}
+
+export interface RelationListToResponseFrame {
+  items: RelationView[];
+  nextCursor: Uint8Array;
+  cumulativeCount: number;
+  isFinal: boolean;
+}
+
+export function encodeRelationListToResponse(p: RelationListToResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["items", p.items.map(encodeRelationView)],
+      ["next_cursor", Array.from(p.nextCursor)],
+      ["cumulative_count", p.cumulativeCount],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+export function decodeRelationListToResponse(bytes: Uint8Array): RelationListToResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    items: asArray(field(m, "items")).map(decodeRelationView),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
+    cumulativeCount: asNum(field(m, "cumulative_count")),
+    isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// SCHEMA_GET / SCHEMA_LIST / SCHEMA_VALIDATE.
+// ---------------------------------------------------------------------------
+
+export interface SchemaGetRequest {
+  namespace: string;
+  /** `0` = active version. */
+  version: number;
+}
+
+export function encodeSchemaGet(p: SchemaGetRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["version", p.version],
+    ]),
+  );
+}
+
+export function decodeSchemaGet(bytes: Uint8Array): SchemaGetRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    version: asNum(field(m, "version")),
+  };
+}
+
+export interface SchemaGetResponse {
+  namespace: string;
+  schemaVersion: number;
+  schemaDocument: string;
+  sourceBlob: Uint8Array;
+  uploadedAtUnixNanos: bigint;
+  validatorVersion: number;
+}
+
+export function encodeSchemaGetResponse(p: SchemaGetResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["schema_version", p.schemaVersion],
+      ["schema_document", p.schemaDocument],
+      ["source_blob", Array.from(p.sourceBlob)],
+      ["uploaded_at_unix_nanos", p.uploadedAtUnixNanos],
+      ["validator_version", p.validatorVersion],
+    ]),
+  );
+}
+
+export function decodeSchemaGetResponse(bytes: Uint8Array): SchemaGetResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    schemaVersion: asNum(field(m, "schema_version")),
+    schemaDocument: asStr(field(m, "schema_document")),
+    sourceBlob: Uint8Array.from(asArray(field(m, "source_blob")).map(asNum)),
+    uploadedAtUnixNanos: asBig(field(m, "uploaded_at_unix_nanos")),
+    validatorVersion: asNum(field(m, "validator_version")),
+  };
+}
+
+export interface SchemaListRequest {
+  namespace: string;
+  /** `0` = unlimited (server-capped). */
+  limit: number;
+  cursor: Uint8Array;
+}
+
+export function encodeSchemaList(p: SchemaListRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["limit", p.limit],
+      ["cursor", Array.from(p.cursor)],
+    ]),
+  );
+}
+
+export function decodeSchemaList(bytes: Uint8Array): SchemaListRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+  };
+}
+
+export interface SchemaListItemWire {
+  schemaVersion: number;
+  uploadedAtUnixNanos: bigint;
+  validatorVersion: number;
+  hasSourceText: boolean;
+}
+
+function encodeSchemaListItem(s: SchemaListItemWire): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["schema_version", s.schemaVersion],
+    ["uploaded_at_unix_nanos", s.uploadedAtUnixNanos],
+    ["validator_version", s.validatorVersion],
+    ["has_source_text", s.hasSourceText],
+  ]);
+}
+
+function decodeSchemaListItem(value: unknown): SchemaListItemWire {
+  const m = asMap(value);
+  return {
+    schemaVersion: asNum(field(m, "schema_version")),
+    uploadedAtUnixNanos: asBig(field(m, "uploaded_at_unix_nanos")),
+    validatorVersion: asNum(field(m, "validator_version")),
+    hasSourceText: asBool(field(m, "has_source_text")),
+  };
+}
+
+export interface SchemaListResponseFrame {
+  namespace: string;
+  items: SchemaListItemWire[];
+  total: number;
+  nextCursor: Uint8Array;
+  isFinal: boolean;
+}
+
+export function encodeSchemaListResponse(p: SchemaListResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["items", p.items.map(encodeSchemaListItem)],
+      ["total", p.total],
+      ["next_cursor", Array.from(p.nextCursor)],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+export function decodeSchemaListResponse(bytes: Uint8Array): SchemaListResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    items: asArray(field(m, "items")).map(decodeSchemaListItem),
+    total: asNum(field(m, "total")),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
+    isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+export interface SchemaValidateRequest {
+  schemaDocument: string;
+}
+
+export function encodeSchemaValidate(p: SchemaValidateRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>([["schema_document", p.schemaDocument]]));
+}
+
+export function decodeSchemaValidate(bytes: Uint8Array): SchemaValidateRequest {
+  const m = asMap(fromCbor(bytes));
+  return { schemaDocument: asStr(field(m, "schema_document")) };
+}
+
+export interface SchemaValidateResponse {
+  namespace: string;
+  /** `current_active + 1` if validation passed; `0` otherwise. */
+  wouldBeVersion: number;
+  validationErrors: SchemaValidationErrorWire[];
+}
+
+export function encodeSchemaValidateResponse(p: SchemaValidateResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["would_be_version", p.wouldBeVersion],
+      [
+        "validation_errors",
+        p.validationErrors.map(
+          (e) =>
+            new Map<string, unknown>([
+              ["code", e.code],
+              ["message", e.message],
+              ["line", e.line],
+              ["column", e.column],
+              ["length", e.length],
+              ["severity", e.severity],
+            ]),
+        ),
+      ],
+    ]),
+  );
+}
+
+export function decodeSchemaValidateResponse(bytes: Uint8Array): SchemaValidateResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    wouldBeVersion: asNum(field(m, "would_be_version")),
+    validationErrors: asArray(field(m, "validation_errors")).map((v) => {
+      const e = asMap(v);
+      return {
+        code: asStr(field(e, "code")),
+        message: asStr(field(e, "message")),
+        line: asNum(field(e, "line")),
+        column: asNum(field(e, "column")),
+        length: asNum(field(e, "length")),
+        severity: asNum(field(e, "severity")),
+      };
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// SUBSCRIBE / UNSUBSCRIBE + the subscription event union.
+// ---------------------------------------------------------------------------
+
+export enum EventType {
+  Encoded = 0,
+  Forgotten = 1,
+  Reclaimed = 2,
+  KindChanged = 3,
+  EntityCreated = 16,
+  EntityUpdated = 17,
+  EntityRenamed = 18,
+  EntityMerged = 19,
+  EntityUnmerged = 20,
+  EntityTombstoned = 21,
+  StatementCreated = 22,
+  StatementSuperseded = 23,
+  StatementTombstoned = 24,
+  RelationCreated = 25,
+  RelationSuperseded = 26,
+  StageCompleted = 27,
+  SchemaUpdated = 29,
+  RelationTombstoned = 30,
+  EdgeAdded = 31,
+  EdgeRemoved = 32,
+  EdgeSuperseded = 33,
+}
+
+export enum StageOutcome {
+  Ok = 0,
+  Empty = 1,
+  Failed = 2,
+}
+
+export enum StageAuditStatus {
+  Succeeded = 0,
+  PartiallyApplied = 1,
+  Failed = 2,
+  Skipped = 3,
+}
+
+export interface StageAutoEdgePayload {
+  edgesWritten: number;
+}
+
+export interface StageTemporalEdgePayload {
+  edgesWritten: number;
+}
+
+export interface StageExtractorPayload {
+  entityCount: number;
+  statementCount: number;
+  relationCount: number;
+  auditStatus: StageAuditStatus;
+  errorMessage: string;
+}
+
+/** Per-stage detail sidecar on StageCompleted events. Externally tagged. */
+export type StagePayload =
+  | { kind: "AutoEdge"; value: StageAutoEdgePayload }
+  | { kind: "TemporalEdge"; value: StageTemporalEdgePayload }
+  | { kind: "Extractor"; value: StageExtractorPayload };
+
+function encodeStagePayload(s: StagePayload): unknown {
+  switch (s.kind) {
+    case "AutoEdge":
+      return new Map<string, unknown>([
+        ["AutoEdge", new Map<string, unknown>([["edges_written", s.value.edgesWritten]])],
+      ]);
+    case "TemporalEdge":
+      return new Map<string, unknown>([
+        ["TemporalEdge", new Map<string, unknown>([["edges_written", s.value.edgesWritten]])],
+      ]);
+    case "Extractor":
+      return new Map<string, unknown>([
+        [
+          "Extractor",
+          new Map<string, unknown>([
+            ["entity_count", s.value.entityCount],
+            ["statement_count", s.value.statementCount],
+            ["relation_count", s.value.relationCount],
+            ["audit_status", s.value.auditStatus as number],
+            ["error_message", s.value.errorMessage],
+          ]),
+        ],
+      ]);
+  }
+}
+
+function decodeStagePayload(value: unknown): StagePayload {
+  const m = asMap(value);
+  if (m.has("AutoEdge")) {
+    const inner = asMap(m.get("AutoEdge"));
+    return { kind: "AutoEdge", value: { edgesWritten: asNum(field(inner, "edges_written")) } };
+  }
+  if (m.has("TemporalEdge")) {
+    const inner = asMap(m.get("TemporalEdge"));
+    return {
+      kind: "TemporalEdge",
+      value: { edgesWritten: asNum(field(inner, "edges_written")) },
+    };
+  }
+  if (m.has("Extractor")) {
+    const inner = asMap(m.get("Extractor"));
+    return {
+      kind: "Extractor",
+      value: {
+        entityCount: asNum(field(inner, "entity_count")),
+        statementCount: asNum(field(inner, "statement_count")),
+        relationCount: asNum(field(inner, "relation_count")),
+        auditStatus: asNum(field(inner, "audit_status")) as StageAuditStatus,
+        errorMessage: asStr(field(inner, "error_message")),
+      },
+    };
+  }
+  throw new CborError("unknown StagePayload variant");
+}
+
+export interface SimilarityFilter {
+  referenceMemoryId: bigint;
+  threshold: number;
+}
+
+export interface SubscriptionFilter {
+  contexts: bigint[] | null;
+  kinds: MemoryKindWire[] | null;
+  similarTo: SimilarityFilter | null;
+  agents: WireUuid[] | null;
+}
+
+function encodeSubscriptionFilter(f: SubscriptionFilter): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["contexts", f.contexts === null ? null : f.contexts],
+    ["kinds", f.kinds === null ? null : f.kinds.map((k) => k as number)],
+    [
+      "similar_to",
+      f.similarTo === null
+        ? null
+        : new Map<string, unknown>([
+            ["reference_memory_id", f.similarTo.referenceMemoryId],
+            ["threshold", f32(f.similarTo.threshold)],
+          ]),
+    ],
+    ["agents", f.agents === null ? null : f.agents],
+  ]);
+}
+
+function decodeSubscriptionFilter(value: unknown): SubscriptionFilter {
+  const m = asMap(value);
+  return {
+    contexts: asOpt(field(m, "contexts"), (v) => asArray(v).map(asBig)),
+    kinds: asOpt(field(m, "kinds"), (v) => asArray(v).map((k) => asNum(k) as MemoryKindWire)),
+    similarTo: asOpt(field(m, "similar_to"), (v) => {
+      const sf = asMap(v);
+      return {
+        referenceMemoryId: asBig(field(sf, "reference_memory_id")),
+        threshold: asNum(field(sf, "threshold")),
+      };
+    }),
+    agents: asOpt(field(m, "agents"), (v) => asArray(v).map(asBytes)),
+  };
+}
+
+export interface SubscribeRequest {
+  filter: SubscriptionFilter;
+  includeHistory: boolean;
+  fromLsn: bigint | null;
+  maxInflight: number;
+}
+
+export function encodeSubscribe(p: SubscribeRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["filter", encodeSubscriptionFilter(p.filter)],
+      ["include_history", p.includeHistory],
+      ["from_lsn", p.fromLsn],
+      ["max_inflight", p.maxInflight],
+    ]),
+  );
+}
+
+export function decodeSubscribe(bytes: Uint8Array): SubscribeRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    filter: decodeSubscriptionFilter(field(m, "filter")),
+    includeHistory: asBool(field(m, "include_history")),
+    fromLsn: asOpt(field(m, "from_lsn"), asBig),
+    maxInflight: asNum(field(m, "max_inflight")),
+  };
+}
+
+export interface EdgeEventPayload {
+  /** `0` = Memory, `1` = Entity. */
+  fromKind: number;
+  fromId: WireUuid;
+  toKind: number;
+  toId: WireUuid;
+  /** `0` = Builtin, `1` = Mentions, `2` = Typed relation. */
+  edgeKindTag: number;
+  edgeKindByte: number;
+  relationTypeId: number | null;
+  weight: number;
+  relationId: WireUuid | null;
+  supersededRelationId: WireUuid | null;
+  /** `0` = EXPLICIT, `1` = AUTO_DERIVED. */
+  origin: number;
+}
+
+function encodeEdgeEventPayload(e: EdgeEventPayload): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["from_kind", e.fromKind],
+    ["from_id", e.fromId],
+    ["to_kind", e.toKind],
+    ["to_id", e.toId],
+    ["edge_kind_tag", e.edgeKindTag],
+    ["edge_kind_byte", e.edgeKindByte],
+    ["relation_type_id", e.relationTypeId],
+    ["weight", f32(e.weight)],
+    ["relation_id", e.relationId],
+    ["superseded_relation_id", e.supersededRelationId],
+    ["origin", e.origin],
+  ]);
+}
+
+function decodeEdgeEventPayload(value: unknown): EdgeEventPayload {
+  const m = asMap(value);
+  return {
+    fromKind: asNum(field(m, "from_kind")),
+    fromId: asBytes(field(m, "from_id")),
+    toKind: asNum(field(m, "to_kind")),
+    toId: asBytes(field(m, "to_id")),
+    edgeKindTag: asNum(field(m, "edge_kind_tag")),
+    edgeKindByte: asNum(field(m, "edge_kind_byte")),
+    relationTypeId: asOpt(field(m, "relation_type_id"), asNum),
+    weight: asNum(field(m, "weight")),
+    relationId: asOptBytes(field(m, "relation_id")),
+    supersededRelationId: asOptBytes(field(m, "superseded_relation_id")),
+    origin: asNum(field(m, "origin")),
+  };
+}
+
+// Typed-graph subscription event bodies.
+
+export interface EntityCreatedEvent {
+  entityId: WireUuid;
+  entityTypeId: number;
+  canonicalName: string;
+}
+
+export interface EntityUpdatedEvent {
+  entityId: WireUuid;
+  entityTypeId: number;
+  canonicalName: string;
+  embeddingVersionChanged: boolean;
+}
+
+export interface EntityRenamedEvent {
+  entityId: WireUuid;
+  oldCanonicalName: string;
+  newCanonicalName: string;
+  oldMovedToAlias: boolean;
+}
+
+export interface EntityMergedEvent {
+  survivor: WireUuid;
+  merged: WireUuid;
+  auditId: WireUuid;
+  confidence: number;
+  statementsRerouted: number;
+  relationsRerouted: number;
+}
+
+export interface EntityUnmergedEvent {
+  restoredEntityId: WireUuid;
+  fromSurvivor: WireUuid;
+  auditId: WireUuid;
+}
+
+export interface EntityTombstonedEvent {
+  entityId: WireUuid;
+  reason: string;
+}
+
+export interface StatementCreatedEvent {
+  statementId: WireUuid;
+  /** `1`=Fact, `2`=Preference, `3`=Event. */
+  kind: number;
+  subject: WireUuid;
+  predicate: string;
+  confidence: number;
+}
+
+export interface StatementSupersededEvent {
+  oldStatementId: WireUuid;
+  newStatementId: WireUuid;
+  chainRoot: WireUuid;
+}
+
+export interface StatementTombstonedEvent {
+  statementId: WireUuid;
+  reason: string;
+}
+
+export interface RelationCreatedEvent {
+  relationId: WireUuid;
+  relationType: string;
+  from: WireUuid;
+  to: WireUuid;
+}
+
+export interface RelationSupersededEvent {
+  oldRelationId: WireUuid;
+  newRelationId: WireUuid;
+}
+
+export interface RelationTombstonedEvent {
+  relationId: WireUuid;
+  reason: string;
+}
+
+export interface SchemaUpdatedEvent {
+  namespace: string;
+  fromVersion: number;
+  toVersion: number;
+  backwardCompatible: boolean;
+}
+
+/** Typed-graph event body. Externally tagged (one-entry map keyed by variant). */
+export type GraphEventPayload =
+  | { kind: "EntityCreated"; value: EntityCreatedEvent }
+  | { kind: "EntityUpdated"; value: EntityUpdatedEvent }
+  | { kind: "EntityRenamed"; value: EntityRenamedEvent }
+  | { kind: "EntityMerged"; value: EntityMergedEvent }
+  | { kind: "EntityUnmerged"; value: EntityUnmergedEvent }
+  | { kind: "EntityTombstoned"; value: EntityTombstonedEvent }
+  | { kind: "StatementCreated"; value: StatementCreatedEvent }
+  | { kind: "StatementSuperseded"; value: StatementSupersededEvent }
+  | { kind: "StatementTombstoned"; value: StatementTombstonedEvent }
+  | { kind: "RelationCreated"; value: RelationCreatedEvent }
+  | { kind: "RelationSuperseded"; value: RelationSupersededEvent }
+  | { kind: "RelationTombstoned"; value: RelationTombstonedEvent }
+  | { kind: "SchemaUpdated"; value: SchemaUpdatedEvent };
+
+function encodeGraphEventPayload(g: GraphEventPayload): unknown {
+  let inner: Map<string, unknown>;
+  switch (g.kind) {
+    case "EntityCreated":
+      inner = new Map<string, unknown>([
+        ["entity_id", g.value.entityId],
+        ["entity_type_id", g.value.entityTypeId],
+        ["canonical_name", g.value.canonicalName],
+      ]);
+      break;
+    case "EntityUpdated":
+      inner = new Map<string, unknown>([
+        ["entity_id", g.value.entityId],
+        ["entity_type_id", g.value.entityTypeId],
+        ["canonical_name", g.value.canonicalName],
+        ["embedding_version_changed", g.value.embeddingVersionChanged],
+      ]);
+      break;
+    case "EntityRenamed":
+      inner = new Map<string, unknown>([
+        ["entity_id", g.value.entityId],
+        ["old_canonical_name", g.value.oldCanonicalName],
+        ["new_canonical_name", g.value.newCanonicalName],
+        ["old_moved_to_alias", g.value.oldMovedToAlias],
+      ]);
+      break;
+    case "EntityMerged":
+      inner = new Map<string, unknown>([
+        ["survivor", g.value.survivor],
+        ["merged", g.value.merged],
+        ["audit_id", g.value.auditId],
+        ["confidence", f32(g.value.confidence)],
+        ["statements_rerouted", g.value.statementsRerouted],
+        ["relations_rerouted", g.value.relationsRerouted],
+      ]);
+      break;
+    case "EntityUnmerged":
+      inner = new Map<string, unknown>([
+        ["restored_entity_id", g.value.restoredEntityId],
+        ["from_survivor", g.value.fromSurvivor],
+        ["audit_id", g.value.auditId],
+      ]);
+      break;
+    case "EntityTombstoned":
+      inner = new Map<string, unknown>([
+        ["entity_id", g.value.entityId],
+        ["reason", g.value.reason],
+      ]);
+      break;
+    case "StatementCreated":
+      inner = new Map<string, unknown>([
+        ["statement_id", g.value.statementId],
+        ["kind", g.value.kind],
+        ["subject", g.value.subject],
+        ["predicate", g.value.predicate],
+        ["confidence", f32(g.value.confidence)],
+      ]);
+      break;
+    case "StatementSuperseded":
+      inner = new Map<string, unknown>([
+        ["old_statement_id", g.value.oldStatementId],
+        ["new_statement_id", g.value.newStatementId],
+        ["chain_root", g.value.chainRoot],
+      ]);
+      break;
+    case "StatementTombstoned":
+      inner = new Map<string, unknown>([
+        ["statement_id", g.value.statementId],
+        ["reason", g.value.reason],
+      ]);
+      break;
+    case "RelationCreated":
+      inner = new Map<string, unknown>([
+        ["relation_id", g.value.relationId],
+        ["relation_type", g.value.relationType],
+        ["from", g.value.from],
+        ["to", g.value.to],
+      ]);
+      break;
+    case "RelationSuperseded":
+      inner = new Map<string, unknown>([
+        ["old_relation_id", g.value.oldRelationId],
+        ["new_relation_id", g.value.newRelationId],
+      ]);
+      break;
+    case "RelationTombstoned":
+      inner = new Map<string, unknown>([
+        ["relation_id", g.value.relationId],
+        ["reason", g.value.reason],
+      ]);
+      break;
+    case "SchemaUpdated":
+      inner = new Map<string, unknown>([
+        ["namespace", g.value.namespace],
+        ["from_version", g.value.fromVersion],
+        ["to_version", g.value.toVersion],
+        ["backward_compatible", g.value.backwardCompatible],
+      ]);
+      break;
+  }
+  return new Map<string, unknown>([[g.kind, inner]]);
+}
+
+function decodeGraphEventPayload(value: unknown): GraphEventPayload {
+  const m = asMap(value);
+  if (m.has("EntityCreated")) {
+    const e = asMap(m.get("EntityCreated"));
+    return {
+      kind: "EntityCreated",
+      value: {
+        entityId: asBytes(field(e, "entity_id")),
+        entityTypeId: asNum(field(e, "entity_type_id")),
+        canonicalName: asStr(field(e, "canonical_name")),
+      },
+    };
+  }
+  if (m.has("EntityUpdated")) {
+    const e = asMap(m.get("EntityUpdated"));
+    return {
+      kind: "EntityUpdated",
+      value: {
+        entityId: asBytes(field(e, "entity_id")),
+        entityTypeId: asNum(field(e, "entity_type_id")),
+        canonicalName: asStr(field(e, "canonical_name")),
+        embeddingVersionChanged: asBool(field(e, "embedding_version_changed")),
+      },
+    };
+  }
+  if (m.has("EntityRenamed")) {
+    const e = asMap(m.get("EntityRenamed"));
+    return {
+      kind: "EntityRenamed",
+      value: {
+        entityId: asBytes(field(e, "entity_id")),
+        oldCanonicalName: asStr(field(e, "old_canonical_name")),
+        newCanonicalName: asStr(field(e, "new_canonical_name")),
+        oldMovedToAlias: asBool(field(e, "old_moved_to_alias")),
+      },
+    };
+  }
+  if (m.has("EntityMerged")) {
+    const e = asMap(m.get("EntityMerged"));
+    return {
+      kind: "EntityMerged",
+      value: {
+        survivor: asBytes(field(e, "survivor")),
+        merged: asBytes(field(e, "merged")),
+        auditId: asBytes(field(e, "audit_id")),
+        confidence: asNum(field(e, "confidence")),
+        statementsRerouted: asNum(field(e, "statements_rerouted")),
+        relationsRerouted: asNum(field(e, "relations_rerouted")),
+      },
+    };
+  }
+  if (m.has("EntityUnmerged")) {
+    const e = asMap(m.get("EntityUnmerged"));
+    return {
+      kind: "EntityUnmerged",
+      value: {
+        restoredEntityId: asBytes(field(e, "restored_entity_id")),
+        fromSurvivor: asBytes(field(e, "from_survivor")),
+        auditId: asBytes(field(e, "audit_id")),
+      },
+    };
+  }
+  if (m.has("EntityTombstoned")) {
+    const e = asMap(m.get("EntityTombstoned"));
+    return {
+      kind: "EntityTombstoned",
+      value: { entityId: asBytes(field(e, "entity_id")), reason: asStr(field(e, "reason")) },
+    };
+  }
+  if (m.has("StatementCreated")) {
+    const e = asMap(m.get("StatementCreated"));
+    return {
+      kind: "StatementCreated",
+      value: {
+        statementId: asBytes(field(e, "statement_id")),
+        kind: asNum(field(e, "kind")),
+        subject: asBytes(field(e, "subject")),
+        predicate: asStr(field(e, "predicate")),
+        confidence: asNum(field(e, "confidence")),
+      },
+    };
+  }
+  if (m.has("StatementSuperseded")) {
+    const e = asMap(m.get("StatementSuperseded"));
+    return {
+      kind: "StatementSuperseded",
+      value: {
+        oldStatementId: asBytes(field(e, "old_statement_id")),
+        newStatementId: asBytes(field(e, "new_statement_id")),
+        chainRoot: asBytes(field(e, "chain_root")),
+      },
+    };
+  }
+  if (m.has("StatementTombstoned")) {
+    const e = asMap(m.get("StatementTombstoned"));
+    return {
+      kind: "StatementTombstoned",
+      value: { statementId: asBytes(field(e, "statement_id")), reason: asStr(field(e, "reason")) },
+    };
+  }
+  if (m.has("RelationCreated")) {
+    const e = asMap(m.get("RelationCreated"));
+    return {
+      kind: "RelationCreated",
+      value: {
+        relationId: asBytes(field(e, "relation_id")),
+        relationType: asStr(field(e, "relation_type")),
+        from: asBytes(field(e, "from")),
+        to: asBytes(field(e, "to")),
+      },
+    };
+  }
+  if (m.has("RelationSuperseded")) {
+    const e = asMap(m.get("RelationSuperseded"));
+    return {
+      kind: "RelationSuperseded",
+      value: {
+        oldRelationId: asBytes(field(e, "old_relation_id")),
+        newRelationId: asBytes(field(e, "new_relation_id")),
+      },
+    };
+  }
+  if (m.has("RelationTombstoned")) {
+    const e = asMap(m.get("RelationTombstoned"));
+    return {
+      kind: "RelationTombstoned",
+      value: { relationId: asBytes(field(e, "relation_id")), reason: asStr(field(e, "reason")) },
+    };
+  }
+  if (m.has("SchemaUpdated")) {
+    const e = asMap(m.get("SchemaUpdated"));
+    return {
+      kind: "SchemaUpdated",
+      value: {
+        namespace: asStr(field(e, "namespace")),
+        fromVersion: asNum(field(e, "from_version")),
+        toVersion: asNum(field(e, "to_version")),
+        backwardCompatible: asBool(field(e, "backward_compatible")),
+      },
+    };
+  }
+  throw new CborError("unknown GraphEventPayload variant");
+}
+
+export interface SubscriptionEvent {
+  eventType: EventType;
+  memoryId: bigint;
+  contextId: bigint;
+  text: string;
+  kind: MemoryKindWire;
+  salience: number;
+  timestampUnixNanos: bigint;
+  lsn: bigint;
+  graphPayload: GraphEventPayload | null;
+  edgePayload: EdgeEventPayload | null;
+  stageKind: StageKind | null;
+  stageOutcome: StageOutcome | null;
+  stagePayload: StagePayload | null;
+}
+
+export function encodeSubscriptionEvent(p: SubscriptionEvent): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["event_type", p.eventType as number],
+      ["memory_id", p.memoryId],
+      ["context_id", p.contextId],
+      ["text", p.text],
+      ["kind", p.kind as number],
+      ["salience", f32(p.salience)],
+      ["timestamp_unix_nanos", p.timestampUnixNanos],
+      ["lsn", p.lsn],
+      ["graph_payload", p.graphPayload === null ? null : encodeGraphEventPayload(p.graphPayload)],
+      ["edge_payload", p.edgePayload === null ? null : encodeEdgeEventPayload(p.edgePayload)],
+      ["stage_kind", p.stageKind === null ? null : (p.stageKind as number)],
+      ["stage_outcome", p.stageOutcome === null ? null : (p.stageOutcome as number)],
+      ["stage_payload", p.stagePayload === null ? null : encodeStagePayload(p.stagePayload)],
+    ]),
+  );
+}
+
+export function decodeSubscriptionEvent(bytes: Uint8Array): SubscriptionEvent {
+  const m = asMap(fromCbor(bytes));
+  return {
+    eventType: asNum(field(m, "event_type")) as EventType,
+    memoryId: asBig(field(m, "memory_id")),
+    contextId: asBig(field(m, "context_id")),
+    text: asStr(field(m, "text")),
+    kind: asNum(field(m, "kind")) as MemoryKindWire,
+    salience: asNum(field(m, "salience")),
+    timestampUnixNanos: asBig(field(m, "timestamp_unix_nanos")),
+    lsn: asBig(field(m, "lsn")),
+    graphPayload: asOpt(field(m, "graph_payload"), decodeGraphEventPayload),
+    edgePayload: asOpt(field(m, "edge_payload"), decodeEdgeEventPayload),
+    stageKind: asOpt(field(m, "stage_kind"), (v) => asNum(v) as StageKind),
+    stageOutcome: asOpt(field(m, "stage_outcome"), (v) => asNum(v) as StageOutcome),
+    stagePayload: asOpt(field(m, "stage_payload"), decodeStagePayload),
+  };
+}
+
+export interface UnsubscribeRequest {
+  targetStreamId: number;
+}
+
+export function encodeUnsubscribe(p: UnsubscribeRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>([["target_stream_id", p.targetStreamId]]));
+}
+
+export function decodeUnsubscribe(bytes: Uint8Array): UnsubscribeRequest {
+  const m = asMap(fromCbor(bytes));
+  return { targetStreamId: asNum(field(m, "target_stream_id")) };
+}
+
+export interface UnsubscribeResponse {
+  targetStreamId: number;
+  finalLsn: bigint;
+}
+
+export function encodeUnsubscribeResponse(p: UnsubscribeResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["target_stream_id", p.targetStreamId],
+      ["final_lsn", p.finalLsn],
+    ]),
+  );
+}
+
+export function decodeUnsubscribeResponse(bytes: Uint8Array): UnsubscribeResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    targetStreamId: asNum(field(m, "target_stream_id")),
+    finalLsn: asBig(field(m, "final_lsn")),
+  };
+}
