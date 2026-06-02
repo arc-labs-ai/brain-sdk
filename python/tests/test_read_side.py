@@ -31,6 +31,8 @@ from brain_db_sdk.wire.types import (
     EntityListItem,
     EntityListRequest,
     EntityListResponseFrame,
+    EntityResolveRequest,
+    EntityResolveResponse,
     EntityView,
     EvidenceRef,
     GetCapabilitiesRequest,
@@ -56,6 +58,7 @@ from brain_db_sdk.wire.types import (
     RelationListToRequest,
     RelationListToResponseFrame,
     RelationView,
+    ResolutionOutcome,
     SchemaGetRequest,
     SchemaGetResponse,
     SchemaListItem,
@@ -196,6 +199,29 @@ def test_read_side_types_round_trip() -> None:
     _round_trip(
         EntityListResponseFrame([EntityListItem(_entity_view())], [9], 1, True),
         EntityListResponseFrame,
+    )
+
+    # Entity resolve.
+    _round_trip(
+        EntityResolveRequest("Ada Lovelace", "she joined in 2020", 1, True, _rid()),
+        EntityResolveRequest,
+    )
+    _round_trip(
+        EntityResolveResponse(
+            ResolutionOutcome.RESOLVED, 1, 1.0, ENTITY_ID, [], b"\x00" * 16
+        ),
+        EntityResolveResponse,
+    )
+    _round_trip(
+        EntityResolveResponse(
+            ResolutionOutcome.AMBIGUOUS,
+            0,
+            0.0,
+            b"\x00" * 16,
+            [ENTITY_ID, b"\x66" * 16],
+            b"\x77" * 16,
+        ),
+        EntityResolveResponse,
     )
 
     # Statement get/list.
@@ -359,6 +385,20 @@ def _serve_read_side(sock: socket.socket) -> None:
     f = read_frame(sock, buf)
     assert f.opcode == Opcode.ENTITY_GET_REQ
     _write(sock, Opcode.ENTITY_GET_RESP, f.stream_id, encode_payload(EntityGetResponse(_entity_view())))
+
+    # ENTITY_RESOLVE (unary).
+    f = read_frame(sock, buf)
+    assert f.opcode == Opcode.ENTITY_RESOLVE_REQ
+    _write(
+        sock,
+        Opcode.ENTITY_RESOLVE_RESP,
+        f.stream_id,
+        encode_payload(
+            EntityResolveResponse(
+                ResolutionOutcome.RESOLVED, 1, 1.0, ENTITY_ID, [], b"\x00" * 16
+            )
+        ),
+    )
 
     # STATEMENT_GET (unary).
     f = read_frame(sock, buf)
@@ -547,6 +587,12 @@ def test_read_edge_cognitive_txn_verbs() -> None:
 
         entity = client.get_entity(EntityGetRequest(ENTITY_ID))
         assert entity.entity.canonical_name == "Ada Lovelace"
+
+        resolved = client.resolve_entity(
+            EntityResolveRequest("Ada Lovelace", "", 1, False, _rid())
+        )
+        assert resolved.outcome == ResolutionOutcome.RESOLVED
+        assert resolved.resolved_entity == ENTITY_ID
 
         statement = client.get_statement(StatementGetRequest(STATEMENT_ID, True))
         assert statement.statement.predicate == "born_in"

@@ -31,6 +31,8 @@ from .wire.types import (
     EntityListItem,
     EntityListRequest,
     EntityListResponseFrame,
+    EntityResolveRequest,
+    EntityResolveResponse,
     ForgetRequest,
     ForgetResponse,
     GetCapabilitiesRequest,
@@ -342,6 +344,17 @@ class BrainClient:
     def get_entity(self, request: EntityGetRequest) -> EntityGetResponse:
         """Fetch one entity by id (ENTITY_GET)."""
         return self._unary(Opcode.ENTITY_GET_REQ, Opcode.ENTITY_GET_RESP, EntityGetResponse, request)
+
+    def resolve_entity(self, request: EntityResolveRequest) -> EntityResolveResponse:
+        """Resolve a candidate name to an entity (ENTITY_RESOLVE). The server
+        currently requires ``entity_type_hint != 0`` and resolves by exact
+        canonical name; ``allow_create`` lets it mint a new entity on a miss."""
+        return self._unary(
+            Opcode.ENTITY_RESOLVE_REQ,
+            Opcode.ENTITY_RESOLVE_RESP,
+            EntityResolveResponse,
+            request,
+        )
 
     def get_statement(self, request: StatementGetRequest) -> StatementGetResponse:
         """Fetch one statement by id (STATEMENT_GET). With ``follow_supersession``

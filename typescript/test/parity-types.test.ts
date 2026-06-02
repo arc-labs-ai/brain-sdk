@@ -25,6 +25,8 @@ import {
   decodeEntityGetResponse,
   decodeEntityList,
   decodeEntityListResponse,
+  decodeEntityResolve,
+  decodeEntityResolveResponse,
   decodeGetCapabilitiesResponse,
   decodeLink,
   decodeLinkResponse,
@@ -60,6 +62,8 @@ import {
   encodeEntityGetResponse,
   encodeEntityList,
   encodeEntityListResponse,
+  encodeEntityResolve,
+  encodeEntityResolveResponse,
   encodeGetCapabilitiesResponse,
   encodeLink,
   encodeLinkResponse,
@@ -92,6 +96,7 @@ import {
   encodeUnlinkResponse,
   encodeUnsubscribe,
   encodeUnsubscribeResponse,
+  ResolutionOutcomeWire,
   type EntityView,
   type RelationView,
   type StatementView,
@@ -344,6 +349,32 @@ describe("ENTITY read-side round-trip", () => {
       nextCursor: new Uint8Array([9, 9]),
       cumulativeCount: 1,
       isFinal: true,
+    });
+  });
+
+  it("resolve request + response", () => {
+    rt(encodeEntityResolve, decodeEntityResolve, {
+      candidateName: "Ada Lovelace",
+      context: "she joined in 2020",
+      entityTypeHint: 1,
+      allowCreate: true,
+      requestId: ID16(0x30),
+    });
+    rt(encodeEntityResolveResponse, decodeEntityResolveResponse, {
+      outcome: ResolutionOutcomeWire.Resolved,
+      tier: 1,
+      confidence: 1.0,
+      resolvedEntity: ID16(0x11),
+      candidateIds: [],
+      auditId: new Uint8Array(16),
+    });
+    rt(encodeEntityResolveResponse, decodeEntityResolveResponse, {
+      outcome: ResolutionOutcomeWire.Ambiguous,
+      tier: 0,
+      confidence: 0.0,
+      resolvedEntity: new Uint8Array(16),
+      candidateIds: [ID16(0x11), ID16(0x22)],
+      auditId: ID16(0x33),
     });
   });
 });

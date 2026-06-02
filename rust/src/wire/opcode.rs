@@ -69,6 +69,8 @@ pub enum Opcode {
     EntityCreateResp = 0x01B0,
     EntityGetReq = 0x0131,
     EntityGetResp = 0x01B1,
+    EntityResolveReq = 0x0136,
+    EntityResolveResp = 0x01B6,
     EntityListReq = 0x0137,
     EntityListResp = 0x01B7,
     StatementCreateReq = 0x0140,
@@ -152,6 +154,8 @@ mod tests {
         assert_eq!(Opcode::SchemaValidateResp.as_u16(), 0x01A3);
         assert_eq!(Opcode::EntityGetReq.as_u16(), 0x0131);
         assert_eq!(Opcode::EntityGetResp.as_u16(), 0x01B1);
+        assert_eq!(Opcode::EntityResolveReq.as_u16(), 0x0136);
+        assert_eq!(Opcode::EntityResolveResp.as_u16(), 0x01B6);
         assert_eq!(Opcode::EntityListReq.as_u16(), 0x0137);
         assert_eq!(Opcode::EntityListResp.as_u16(), 0x01B7);
         assert_eq!(Opcode::StatementGetReq.as_u16(), 0x0141);

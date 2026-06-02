@@ -139,6 +139,14 @@ export enum RetrieverNameWire {
   Graph = 2,
 }
 
+/** Resolution outcome discriminant (integer on the wire, 1-based). */
+export enum ResolutionOutcomeWire {
+  Resolved = 1,
+  Created = 2,
+  Ambiguous = 3,
+  NotFound = 4,
+}
+
 export enum RetrieverWire {
   Semantic = 0,
   Lexical = 1,
@@ -2461,6 +2469,80 @@ export function decodeEntityListResponse(bytes: Uint8Array): EntityListResponseF
     nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
     cumulativeCount: asNum(field(m, "cumulative_count")),
     isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ENTITY_RESOLVE.
+// ---------------------------------------------------------------------------
+
+export interface EntityResolveRequest {
+  candidateName: string;
+  context: string;
+  /** `0` = no hint; otherwise an entity type id. */
+  entityTypeHint: number;
+  allowCreate: boolean;
+  requestId: WireUuid;
+}
+
+export function encodeEntityResolve(p: EntityResolveRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["candidate_name", p.candidateName],
+      ["context", p.context],
+      ["entity_type_hint", p.entityTypeHint],
+      ["allow_create", p.allowCreate],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+export function decodeEntityResolve(bytes: Uint8Array): EntityResolveRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    candidateName: asStr(field(m, "candidate_name")),
+    context: asStr(field(m, "context")),
+    entityTypeHint: asNum(field(m, "entity_type_hint")),
+    allowCreate: asBool(field(m, "allow_create")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
+export interface EntityResolveResponse {
+  outcome: ResolutionOutcomeWire;
+  /** Which tier resolved (1..=5; 0 if unresolved). */
+  tier: number;
+  confidence: number;
+  /** All-zero (16 bytes) for Ambiguous / NotFound. */
+  resolvedEntity: WireUuid;
+  /** Populated when `outcome === Ambiguous`; ranked by score. */
+  candidateIds: WireUuid[];
+  /** All-zero (16 bytes) unless an ambiguity audit was written. */
+  auditId: WireUuid;
+}
+
+export function encodeEntityResolveResponse(p: EntityResolveResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["outcome", p.outcome],
+      ["tier", p.tier],
+      ["confidence", f32(p.confidence)],
+      ["resolved_entity", p.resolvedEntity],
+      ["candidate_ids", p.candidateIds],
+      ["audit_id", p.auditId],
+    ]),
+  );
+}
+
+export function decodeEntityResolveResponse(bytes: Uint8Array): EntityResolveResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    outcome: asNum(field(m, "outcome")) as ResolutionOutcomeWire,
+    tier: asNum(field(m, "tier")),
+    confidence: asNum(field(m, "confidence")),
+    resolvedEntity: asBytes(field(m, "resolved_entity")),
+    candidateIds: asArray(field(m, "candidate_ids")).map(asBytes),
+    auditId: asBytes(field(m, "audit_id")),
   };
 }
 

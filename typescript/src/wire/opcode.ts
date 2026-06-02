@@ -68,6 +68,8 @@ export const Opcode = {
   EntityCreateResp: 0x01b0,
   EntityGetReq: 0x0131,
   EntityGetResp: 0x01b1,
+  EntityResolveReq: 0x0136,
+  EntityResolveResp: 0x01b6,
   EntityListReq: 0x0137,
   EntityListResp: 0x01b7,
   StatementCreateReq: 0x0140,

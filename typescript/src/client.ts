@@ -30,6 +30,8 @@ import {
   type EntityListItem,
   type EntityListRequest,
   type EntityListResponseFrame,
+  type EntityResolveRequest,
+  type EntityResolveResponse,
   type ForgetRequest,
   type ForgetResponse,
   type GetCapabilitiesResponse,
@@ -87,6 +89,7 @@ import {
   decodeEntityCreateResponse,
   decodeEntityGetResponse,
   decodeEntityListResponse,
+  decodeEntityResolveResponse,
   decodeForgetResponse,
   decodeGetCapabilitiesResponse,
   decodeLinkResponse,
@@ -113,6 +116,7 @@ import {
   encodeEntityCreate,
   encodeEntityGet,
   encodeEntityList,
+  encodeEntityResolve,
   encodeForget,
   encodeGetCapabilities,
   encodeLink,
@@ -418,6 +422,17 @@ export class BrainClient {
     const frame = await this.conn.requestOne(Opcode.EntityGetReq, encodeEntityGet(request));
     this.expect(frame.opcode, Opcode.EntityGetResp, "ENTITY_GET_RESP");
     return decodeEntityGetResponse(frame.payload);
+  }
+
+  /**
+   * Resolve a candidate name to an entity (ENTITY_RESOLVE). The server
+   * currently requires `entityTypeHint !== 0` and resolves by exact canonical
+   * name; `allowCreate` lets it mint a new entity on a miss.
+   */
+  async resolveEntity(request: EntityResolveRequest): Promise<EntityResolveResponse> {
+    const frame = await this.conn.requestOne(Opcode.EntityResolveReq, encodeEntityResolve(request));
+    this.expect(frame.opcode, Opcode.EntityResolveResp, "ENTITY_RESOLVE_RESP");
+    return decodeEntityResolveResponse(frame.payload);
   }
 
   /**

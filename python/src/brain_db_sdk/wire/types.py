@@ -2781,6 +2781,79 @@ class EntityListResponseFrame:
 
 
 # ===========================================================================
+# ENTITY_RESOLVE.
+# ===========================================================================
+
+
+class ResolutionOutcome:
+    """Resolution outcome discriminant (integer on the wire, 1-based)."""
+
+    RESOLVED = 1
+    CREATED = 2
+    AMBIGUOUS = 3
+    NOT_FOUND = 4
+
+
+@dataclass
+class EntityResolveRequest:
+    candidate_name: str
+    context: str
+    entity_type_hint: int  # 0 = no hint
+    allow_create: bool
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "candidate_name": self.candidate_name,
+            "context": self.context,
+            "entity_type_hint": self.entity_type_hint,
+            "allow_create": self.allow_create,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityResolveRequest":
+        return cls(
+            m["candidate_name"],
+            m["context"],
+            m["entity_type_hint"],
+            m["allow_create"],
+            m["request_id"],
+        )
+
+
+@dataclass
+class EntityResolveResponse:
+    outcome: int  # ResolutionOutcome discriminant
+    tier: int
+    confidence: float
+    resolved_entity: bytes  # all-zero for Ambiguous / NotFound
+    candidate_ids: list[bytes]  # list of 16-byte byte strings; populated for Ambiguous
+    audit_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "outcome": self.outcome,
+            "tier": self.tier,
+            "confidence": round_f32(self.confidence),
+            "resolved_entity": self.resolved_entity,
+            "candidate_ids": list(self.candidate_ids),
+            "audit_id": self.audit_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityResolveResponse":
+        return cls(
+            m["outcome"],
+            m["tier"],
+            m["confidence"],
+            m["resolved_entity"],
+            list(m["candidate_ids"]),
+            m["audit_id"],
+        )
+
+
+# ===========================================================================
 # STATEMENT_GET / STATEMENT_LIST.
 # ===========================================================================
 

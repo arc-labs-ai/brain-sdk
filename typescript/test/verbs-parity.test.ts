@@ -20,6 +20,7 @@ import {
   EventType,
   MemoryKindWire,
   PlanStatus,
+  ResolutionOutcomeWire,
   type WelcomePayload,
   decodeAuth,
   decodeHello,
@@ -27,6 +28,7 @@ import {
   encodeAuthOk,
   encodeEntityGetResponse,
   encodeEntityListResponse,
+  encodeEntityResolveResponse,
   encodeGetCapabilitiesResponse,
   encodeLinkResponse,
   encodePlanResponse,
@@ -138,6 +140,24 @@ async function serveUnaryAndStreamed(sock: net.Socket): Promise<void> {
         embeddingVersion: 1,
         flags: 0,
       },
+    }),
+  });
+
+  // ENTITY_RESOLVE.
+  f = await chan.read();
+  seenStreamIds.push(f.streamId);
+  expect(f.opcode).toBe(Opcode.EntityResolveReq);
+  await chan.write({
+    opcode: Opcode.EntityResolveResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeEntityResolveResponse({
+      outcome: ResolutionOutcomeWire.Resolved,
+      tier: 1,
+      confidence: 1.0,
+      resolvedEntity: ENTITY_ID,
+      candidateIds: [],
+      auditId: new Uint8Array(16),
     }),
   });
 
@@ -319,6 +339,16 @@ describe("parity verbs over a mock server", () => {
 
       const entity = await client.getEntity({ entityId: ENTITY_ID });
       expect(entity.entity.canonicalName).toBe("Ada Lovelace");
+
+      const resolved = await client.resolveEntity({
+        candidateName: "Ada Lovelace",
+        context: "",
+        entityTypeHint: 1,
+        allowCreate: false,
+        requestId: new Uint8Array(16),
+      });
+      expect(resolved.outcome).toBe(ResolutionOutcomeWire.Resolved);
+      expect([...resolved.resolvedEntity]).toEqual([...ENTITY_ID]);
 
       const link = await client.link({
         source: 1n,
