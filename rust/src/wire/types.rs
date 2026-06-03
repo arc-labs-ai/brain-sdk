@@ -1479,6 +1479,56 @@ pub struct EntityListResponseFrame {
 }
 
 // ===========================================================================
+// ENTITY_RESOLVE.
+// ===========================================================================
+
+/// ENTITY_RESOLVE (`0x0136`). Resolves a candidate name to an existing entity
+/// (and optionally creates one). The server currently requires
+/// `entity_type_hint != 0` and resolves by exact canonical name (tier 1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityResolveRequest {
+    pub candidate_name: String,
+    pub context: String,
+    /// `0` = no hint; otherwise an entity type id.
+    pub entity_type_hint: u32,
+    pub allow_create: bool,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// Resolution outcome. Integer discriminant on the wire (`1`-based, mirroring
+/// the server's `ResolutionOutcomeWire`).
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum ResolutionOutcomeWire {
+    Resolved = 1,
+    Created = 2,
+    Ambiguous = 3,
+    NotFound = 4,
+}
+
+/// ENTITY_RESOLVE_RESP (`0x01B6`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntityResolveResponse {
+    pub outcome: ResolutionOutcomeWire,
+    /// Which tier resolved (1..=5; 0 if unresolved).
+    pub tier: u8,
+    pub confidence: f32,
+    /// Populated when `outcome == Resolved | Created` (single id);
+    /// `[0; 16]` for `Ambiguous | NotFound`.
+    #[serde(with = "serde_bytes")]
+    pub resolved_entity: WireUuid,
+    /// Populated when `outcome == Ambiguous`; ranked by score.
+    #[serde(with = "crate::wire::cbor::vec_byte_array16")]
+    pub candidate_ids: Vec<WireUuid>,
+    /// `[0; 16]` unless an ambiguity audit was written.
+    #[serde(with = "serde_bytes")]
+    pub audit_id: WireUuid,
+}
+
+// ===========================================================================
 // STATEMENT_GET / STATEMENT_LIST.
 // ===========================================================================
 

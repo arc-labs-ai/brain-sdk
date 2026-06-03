@@ -22,19 +22,20 @@ use crate::wire::opcode::Opcode;
 use crate::wire::types::{
     AgentPermissions, AuthCredentials, AuthMethod, AuthPayload, EncodeRequest, EncodeResponse,
     EntityCreateRequest, EntityCreateResponse, EntityGetRequest, EntityGetResponse, EntityListItem,
-    EntityListRequest, EntityListResponseFrame, ForgetRequest, ForgetResponse,
-    GetCapabilitiesRequest, GetCapabilitiesResponse, HelloCapabilities, HelloPayload,
-    InferenceStep, LinkRequest, LinkResponse, MaterializeProceduralRequest,
-    MaterializeProceduralResponse, MemoryResult, MtlsClaim, PlanRequest, PlanResponseFrame,
-    PlanStep, QueryRequest, QueryResponse, ReasonRequest, ReasonResponseFrame, RecallRequest,
-    RecallResponseFrame, RelationCreateRequest, RelationCreateResponse, RelationListFromRequest,
-    RelationListFromResponseFrame, RelationListToRequest, RelationListToResponseFrame,
-    RelationView, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
-    SchemaListResponseFrame, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
-    SchemaValidateResponse, ServerFeatures, StatementCreateRequest, StatementCreateResponse,
-    StatementGetRequest, StatementGetResponse, StatementListRequest, StatementListResponseFrame,
-    StatementView, SubscribeRequest, TxnAbortRequest, TxnAbortResponse, TxnBeginRequest,
-    TxnBeginResponse, TxnCommitRequest, TxnCommitResponse, UnlinkRequest, UnlinkResponse,
+    EntityListRequest, EntityListResponseFrame, EntityResolveRequest, EntityResolveResponse,
+    ForgetRequest, ForgetResponse, GetCapabilitiesRequest, GetCapabilitiesResponse,
+    HelloCapabilities, HelloPayload, InferenceStep, LinkRequest, LinkResponse,
+    MaterializeProceduralRequest, MaterializeProceduralResponse, MemoryResult, MtlsClaim,
+    PlanRequest, PlanResponseFrame, PlanStep, QueryRequest, QueryResponse, ReasonRequest,
+    ReasonResponseFrame, RecallRequest, RecallResponseFrame, RelationCreateRequest,
+    RelationCreateResponse, RelationListFromRequest, RelationListFromResponseFrame,
+    RelationListToRequest, RelationListToResponseFrame, RelationView, SchemaGetRequest,
+    SchemaGetResponse, SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame,
+    SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse,
+    ServerFeatures, StatementCreateRequest, StatementCreateResponse, StatementGetRequest,
+    StatementGetResponse, StatementListRequest, StatementListResponseFrame, StatementView,
+    SubscribeRequest, TxnAbortRequest, TxnAbortResponse, TxnBeginRequest, TxnBeginResponse,
+    TxnCommitRequest, TxnCommitResponse, UnlinkRequest, UnlinkResponse,
 };
 
 /// Default `client_id` advertised in HELLO.
@@ -414,6 +415,22 @@ impl BrainClient {
             Opcode::EntityGetReq,
             Opcode::EntityGetResp,
             "ENTITY_GET_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Resolve a candidate name to an entity (ENTITY_RESOLVE). The server
+    /// currently requires `entity_type_hint != 0` and resolves by exact
+    /// canonical name; `allow_create` lets it mint a new entity on a miss.
+    pub async fn resolve_entity(
+        &self,
+        request: &EntityResolveRequest,
+    ) -> Result<EntityResolveResponse> {
+        self.unary(
+            Opcode::EntityResolveReq,
+            Opcode::EntityResolveResp,
+            "ENTITY_RESOLVE_RESP",
             request,
         )
         .await

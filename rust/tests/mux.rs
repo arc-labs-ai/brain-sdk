@@ -68,6 +68,21 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
     let f2 = read_frame(&mut sock, &mut buf).await.expect("req 2");
     let r2: EncodeRequest = from_cbor_bytes(&f2.payload).expect("decode req 2");
 
+    // Client-initiated op streams MUST be non-zero and odd (the real server
+    // rejects even/zero client streams as BadFrame). A second request on a
+    // reused connection must not land on an even id — guards the mux's
+    // odd-only stream allocator against regression.
+    for (label, id) in [("req 1", f1.stream_id), ("req 2", f2.stream_id)] {
+        assert!(
+            id != 0 && id % 2 == 1,
+            "{label} used non-odd client stream id {id}"
+        );
+    }
+    assert_ne!(
+        f1.stream_id, f2.stream_id,
+        "concurrent requests need distinct streams"
+    );
+
     let resp2 = encode_response(&r2, auth.agent_id);
     write_one(&mut sock, Opcode::EncodeResp, f2.stream_id, &resp2).await;
     let resp1 = encode_response(&r1, auth.agent_id);

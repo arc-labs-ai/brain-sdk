@@ -140,10 +140,12 @@ export class Connection {
   }
 
   private takeStreamId(): number {
+    // Client-initiated op streams MUST be non-zero and ODD (stream 0 is the
+    // connection/handshake stream; the server rejects even/zero client streams
+    // as BadFrame). Start at 1 and step by 2 so every request on a reused
+    // connection stays odd, wrapping back to 1 at the u32 max.
     const id = this.nextStreamId;
-    // 32-bit wire field; wrap past the max back to 1 (0 stays reserved for
-    // the handshake).
-    this.nextStreamId = this.nextStreamId >= 0xffff_ffff ? 1 : this.nextStreamId + 1;
+    this.nextStreamId = this.nextStreamId + 2 > 0xffff_ffff ? 1 : this.nextStreamId + 2;
     return id;
   }
 }

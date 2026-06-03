@@ -108,6 +108,12 @@ def _serve_two_concurrent(sock: socket.socket) -> None:
     f2 = read_frame(sock, buf)
     r2 = decode_payload(EncodeRequest, f2.payload)
 
+    # Client-initiated op streams MUST be non-zero and odd (the real server
+    # rejects even/zero client streams as BadFrame). Pin the odd-only stream
+    # allocator against regression — this exact bug bit the pool/reuse path.
+    for label, sid in (("req 1", f1.stream_id), ("req 2", f2.stream_id)):
+        assert sid != 0 and sid % 2 == 1, f"{label} used non-odd client stream id {sid}"
+
     _write(sock, Opcode.ENCODE_RESP, f2.stream_id, encode_payload(_response(r2, auth.agent_id)))
     _write(sock, Opcode.ENCODE_RESP, f1.stream_id, encode_payload(_response(r1, auth.agent_id)))
 
@@ -169,5 +175,178 @@ def test_two_requests_in_flight_route_back_correctly() -> None:
         conn.send_bye()
         conn.close()
         server_thread.join(timeout=5)
+    finally:
+        listener.close()
+
+
+# ===========================================================================
+# SUBSCRIBE: a long-lived server-push stream.
+#
+# On SUBSCRIBE_REQ the mock server pushes two SUBSCRIBE_EVENT frames (non-EOS)
+# on the subscription's stream, then — on UNSUBSCRIBE_REQ — replies
+# UNSUBSCRIBE_RESP (EOS) plus a final EOS SUBSCRIBE_EVENT (empty terminator) on
+# the subscription stream. The client must drain exactly the two events,
+# unsubscribe() must succeed, next() must then return None, and the route table
+# must be empty afterward (no leaked subscription route).
+# ===========================================================================
+
+from brain_db_sdk.wire.types import (
+    EventType,
+    SubscribeRequest,
+    SubscriptionEvent,
+    SubscriptionFilter,
+    UnsubscribeRequest,
+    UnsubscribeResponse,
+)
+
+
+def _sample_event(lsn: int) -> SubscriptionEvent:
+    return SubscriptionEvent(
+        event_type=EventType.ENCODED,
+        memory_id=lsn,
+        context_id=1,
+        text=f"event {lsn}",
+        kind=MemoryKind.SEMANTIC,
+        salience=0.5,
+        timestamp_unix_nanos=lsn,
+        lsn=lsn,
+        graph_payload=None,
+        edge_payload=None,
+        stage_kind=None,
+        stage_outcome=None,
+        stage_payload=None,
+    )
+
+
+def _serve_subscription(sock: socket.socket) -> None:
+    buf = bytearray()
+
+    hello_frame = read_frame(sock, buf)
+    hello = decode_payload(HelloPayload, hello_frame.payload)
+    welcome = WelcomePayload(
+        server_id="mock-brain",
+        chosen_version=1,
+        session_id=b"\xAB" * 16,
+        capabilities=hello.capabilities,
+        server_features=ServerFeatures(
+            max_payload_size=1 << 20,
+            max_concurrent_streams=256,
+            idle_timeout_seconds=300,
+            auth_methods=[],
+        ),
+    )
+    _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
+
+    auth_frame = read_frame(sock, buf)
+    auth = decode_payload(AuthPayload, auth_frame.payload)
+    auth_ok = AuthOkPayload(
+        agent_id=auth.agent_id,
+        bound_shard_id=0,
+        permissions=AgentPermissions(
+            can_encode=True,
+            can_recall=True,
+            can_plan=True,
+            can_reason=True,
+            can_forget=True,
+            can_admin=False,
+        ),
+        server_time_unix_nanos=1,
+    )
+    _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
+
+    # SUBSCRIBE_REQ on stream N — a single EOS frame; must be a non-zero odd id.
+    f = read_frame(sock, buf)
+    assert f.opcode == Opcode.SUBSCRIBE_REQ
+    assert f.flags & FLAG_EOS, "SUBSCRIBE_REQ is a single EOS frame"
+    assert f.stream_id != 0 and f.stream_id % 2 == 1, "subscribe stream must be odd"
+    sub_stream = f.stream_id
+
+    # Two events, pushed without EOS (the stream stays open).
+    for lsn in (1, 2):
+        write_frame(
+            sock,
+            Frame(
+                opcode=int(Opcode.SUBSCRIBE_EVENT),
+                flags=0,
+                stream_id=sub_stream,
+                payload=encode_payload(_sample_event(lsn)),
+            ),
+        )
+
+    # UNSUBSCRIBE_REQ on a fresh (odd) stream M.
+    f = read_frame(sock, buf)
+    assert f.opcode == Opcode.UNSUBSCRIBE_REQ
+    assert f.stream_id != 0 and f.stream_id % 2 == 1, "unsubscribe stream must be odd"
+    unsub = decode_payload(UnsubscribeRequest, f.payload)
+    assert unsub.target_stream_id == sub_stream
+
+    # UNSUBSCRIBE_RESP (EOS) on stream M.
+    _write(
+        sock,
+        Opcode.UNSUBSCRIBE_RESP,
+        f.stream_id,
+        encode_payload(UnsubscribeResponse(target_stream_id=sub_stream, final_lsn=2)),
+    )
+
+    # Final EOS SUBSCRIBE_EVENT on stream N: an empty-payload terminator that
+    # closes the subscription stream. The client observes this as end-of-stream.
+    write_frame(
+        sock,
+        Frame(opcode=int(Opcode.SUBSCRIBE_EVENT), flags=FLAG_EOS, stream_id=sub_stream, payload=b""),
+    )
+
+    bye = read_frame(sock, buf)
+    assert bye.opcode == Opcode.BYE
+
+
+def test_subscription_drains_events_unsubscribes_and_leaks_no_route() -> None:
+    host, port, server_thread, listener = _spawn(_serve_subscription)
+    try:
+        hello = HelloPayload(
+            client_id="sub-test",
+            supported_versions=[1],
+            capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=True),
+            client_session_token=None,
+        )
+        auth = AuthPayload(method=AuthMethod.NONE, agent_id=new_id(), credentials=AuthCredentials.none())
+        conn, outcome = MuxConnection.connect(host, port, hello, auth)
+        assert outcome.welcome.chosen_version == 1
+
+        sub = conn.subscribe(
+            SubscribeRequest(
+                filter=SubscriptionFilter(contexts=None, kinds=None, similar_to=None, agents=None),
+                include_history=False,
+                from_lsn=None,
+                max_inflight=8,
+            )
+        )
+
+        # The subscription occupies exactly one route while live.
+        assert conn.route_count() == 1
+
+        # Drain exactly the two pushed events (no deadlock: the subscription
+        # path does not collect to EOS the way request() does).
+        e1 = sub.next()
+        assert e1 is not None and e1.lsn == 1
+        e2 = sub.next()
+        assert e2 is not None and e2.lsn == 2
+
+        # Clean teardown: UNSUBSCRIBE on a fresh stream; server EOS-closes the
+        # subscription stream in response.
+        resp = sub.unsubscribe()
+        assert resp.final_lsn == 2
+
+        # The terminating EOS event ends the stream.
+        assert sub.next() is None
+
+        # No leaked route: the subscription stream's route was removed on EOS,
+        # and the unsubscribe stream's route on its own EOS response.
+        sub.close()
+        assert conn.route_count() == 0
+
+        conn.send_bye()
+        conn.close()
+        server_thread.join(timeout=5)
+        assert not server_thread.is_alive()
     finally:
         listener.close()

@@ -302,12 +302,13 @@ async fn typed_graph_verbs_round_trip() {
 
 use brain_db_sdk::wire::types::{
     Capabilities, EntityGetRequest, EntityGetResponse, EntityListItem, EntityListRequest,
-    EntityListResponseFrame, EntityView, GetCapabilitiesRequest, GetCapabilitiesResponse,
-    RelationListFromRequest, RelationListFromResponseFrame, RelationListToRequest,
-    RelationListToResponseFrame, RelationView, SchemaGetRequest, SchemaGetResponse,
-    SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame, SchemaValidateRequest,
-    SchemaValidateResponse, SchemaValidationErrorWire, StatementGetRequest, StatementGetResponse,
-    StatementListRequest, StatementListResponseFrame, StatementView,
+    EntityListResponseFrame, EntityResolveRequest, EntityResolveResponse, EntityView,
+    GetCapabilitiesRequest, GetCapabilitiesResponse, RelationListFromRequest,
+    RelationListFromResponseFrame, RelationListToRequest, RelationListToResponseFrame,
+    RelationView, ResolutionOutcomeWire, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire,
+    SchemaListRequest, SchemaListResponseFrame, SchemaValidateRequest, SchemaValidateResponse,
+    SchemaValidationErrorWire, StatementGetRequest, StatementGetResponse, StatementListRequest,
+    StatementListResponseFrame, StatementView,
 };
 
 fn id(seed: u8) -> [u8; 16] {
@@ -429,6 +430,30 @@ fn read_side_types_round_trip() {
         next_cursor: vec![0xAB, 0xCD],
         cumulative_count: 1,
         is_final: true,
+    });
+
+    round_trip(&EntityResolveRequest {
+        candidate_name: "Alice".to_string(),
+        context: "she joined in 2020".to_string(),
+        entity_type_hint: 1,
+        allow_create: true,
+        request_id: id(30),
+    });
+    round_trip(&EntityResolveResponse {
+        outcome: ResolutionOutcomeWire::Resolved,
+        tier: 1,
+        confidence: 1.0,
+        resolved_entity: id(7),
+        candidate_ids: Vec::new(),
+        audit_id: [0; 16],
+    });
+    round_trip(&EntityResolveResponse {
+        outcome: ResolutionOutcomeWire::Ambiguous,
+        tier: 0,
+        confidence: 0.0,
+        resolved_entity: [0; 16],
+        candidate_ids: vec![id(7), id(8)],
+        audit_id: id(9),
     });
 
     round_trip(&StatementGetRequest {
@@ -603,6 +628,26 @@ async fn serve_read(mut sock: TcpStream) {
         f.stream_id,
         &EntityGetResponse {
             entity: sample_entity_view(),
+        },
+    )
+    .await;
+
+    // ENTITY_RESOLVE (unary).
+    let f = read_frame(&mut sock, &mut buf)
+        .await
+        .expect("entity resolve");
+    assert_eq!(f.opcode, Opcode::EntityResolveReq as u16);
+    write_one(
+        &mut sock,
+        Opcode::EntityResolveResp,
+        f.stream_id,
+        &EntityResolveResponse {
+            outcome: ResolutionOutcomeWire::Resolved,
+            tier: 1,
+            confidence: 1.0,
+            resolved_entity: id(7),
+            candidate_ids: Vec::new(),
+            audit_id: [0; 16],
         },
     )
     .await;
@@ -789,6 +834,19 @@ async fn read_side_verbs_over_connection() {
         .await
         .expect("get_entity");
     assert_eq!(entity.entity.canonical_name, "Alice");
+
+    let resolved = client
+        .resolve_entity(&EntityResolveRequest {
+            candidate_name: "Alice".to_string(),
+            context: String::new(),
+            entity_type_hint: 1,
+            allow_create: false,
+            request_id: id(30),
+        })
+        .await
+        .expect("resolve_entity");
+    assert_eq!(resolved.outcome, ResolutionOutcomeWire::Resolved);
+    assert_eq!(resolved.resolved_entity, id(7));
 
     let statement = client
         .get_statement(&StatementGetRequest {
