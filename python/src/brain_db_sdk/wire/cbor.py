@@ -26,7 +26,6 @@ Determinism is field-order plus per-field float width:
 
 from __future__ import annotations
 
-import io
 import struct
 
 import cbor2
@@ -146,16 +145,110 @@ def from_cbor_prefix(data: bytes) -> tuple[object, int]:
 
     Returns ``(value, consumed)`` so a caller can read a trailing raw
     section from ``data[consumed:]`` (used by vector-bearing payloads).
+
+    Implementation note: cbor2's incremental ``CBORDecoder(fileobj)`` reader
+    panics ("buffer size mismatch") on valid multi-item payloads in the 6.x
+    Rust extension, so we don't use it. ``cbor2.loads`` (the one-shot
+    in-memory path) is sound but silently ignores trailing bytes, giving no
+    consumed count. We therefore measure the first item's byte length with a
+    dependency-free scanner, then decode exactly that slice with ``loads``.
     """
-    # cbor2's stream decoder leaves the file position at the end of the
-    # item, which is the consumed-byte count.
-    buf = io.BytesIO(data)
-    decoder = cbor2.CBORDecoder(buf)
+    consumed = _cbor_item_end(data, 0)
     try:
-        value = decoder.decode()
+        value = cbor2.loads(data[:consumed])
     except Exception as exc:  # cbor2 raises CBORDecodeError subclasses
         raise CborError(f"CBOR decode failed: {exc}") from exc
-    return value, buf.tell()
+    return value, consumed
+
+
+def _cbor_item_end(data: bytes, start: int) -> int:
+    """Return the offset one past the end of the CBOR item at ``start``.
+
+    A structural scanner only — it walks lengths without materialising
+    values, so it never allocates the decoded tree and is immune to the
+    decoder bug above. Raises :class:`CborError` on a truncated or
+    malformed item.
+    """
+    n = len(data)
+
+    def need(i: int, k: int) -> None:
+        if i + k > n:
+            raise CborError(
+                f"truncated CBOR: need {k} byte(s) at offset {i}, have {n - i}"
+            )
+
+    def scan(i: int) -> int:
+        need(i, 1)
+        ib = data[i]
+        i += 1
+        major = ib >> 5
+        ai = ib & 0x1F
+
+        # Resolve the argument (length / value) for additional-info codes.
+        if ai < 24:
+            arg = ai
+        elif ai == 24:
+            need(i, 1)
+            arg = data[i]
+            i += 1
+        elif ai == 25:
+            need(i, 2)
+            arg = int.from_bytes(data[i : i + 2], "big")
+            i += 2
+        elif ai == 26:
+            need(i, 4)
+            arg = int.from_bytes(data[i : i + 4], "big")
+            i += 4
+        elif ai == 27:
+            need(i, 8)
+            arg = int.from_bytes(data[i : i + 8], "big")
+            i += 8
+        elif ai == 31:
+            arg = None  # indefinite length
+        else:
+            raise CborError(f"reserved additional-info {ai} at offset {i - 1}")
+
+        if major in (0, 1):  # unsigned / negative integer
+            return i
+        if major == 7:  # simple value / float / break
+            # ai 25/26/27 already consumed the 2/4/8 float bytes via `arg`.
+            return i
+        if major in (2, 3):  # byte string / text string
+            if arg is None:  # indefinite: concatenated definite chunks until break
+                while True:
+                    need(i, 1)
+                    if data[i] == 0xFF:
+                        return i + 1
+                    i = scan(i)
+            need(i, arg)
+            return i + arg
+        if major == 4:  # array
+            if arg is None:
+                while True:
+                    need(i, 1)
+                    if data[i] == 0xFF:
+                        return i + 1
+                    i = scan(i)
+            for _ in range(arg):
+                i = scan(i)
+            return i
+        if major == 5:  # map
+            if arg is None:
+                while True:
+                    need(i, 1)
+                    if data[i] == 0xFF:
+                        return i + 1
+                    i = scan(i)  # key
+                    i = scan(i)  # value
+            for _ in range(arg):
+                i = scan(i)  # key
+                i = scan(i)  # value
+            return i
+        if major == 6:  # tag — one nested data item follows
+            return scan(i)
+        raise CborError(f"unreachable major type {major}")
+
+    return scan(start)
 
 
 def round_f32(x: float) -> F32:
