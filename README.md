@@ -21,9 +21,6 @@ Published package names share the `brain-db` identity:
 
 Each package has its own README with a quickstart and the exact test commands.
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — the internal design: layer stack, connection actor, stream multiplexer, request queue, buffer/packet management, error taxonomy, design patterns.
-- [`PLAN.md`](PLAN.md) — the phased build plan, "done when" criteria, and design decisions.
-
 ## Wire-version compatibility
 
 All three SDKs target Brain wire protocol **version 1** (the `version` byte in the `BRN0` header; clients advertise `supported_versions = [1]` in HELLO). A server that negotiates any other version is rejected with a clear `VersionMismatch`.
