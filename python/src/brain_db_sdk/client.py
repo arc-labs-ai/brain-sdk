@@ -303,7 +303,7 @@ class BrainClient:
         )
 
     def query(self, request: QueryRequest) -> QueryResponse:
-        """Run a hybrid typed-graph query (QUERY). Returns fused, ranked results
+        """Run a typed-graph query (QUERY). Returns fused, ranked results
         with per-retriever contributions and outcome diagnostics."""
         return self._unary(Opcode.QUERY_REQ, Opcode.QUERY_RESP, QueryResponse, request)
 

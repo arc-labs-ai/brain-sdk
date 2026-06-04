@@ -372,7 +372,7 @@ impl BrainClient {
         .await
     }
 
-    /// Run a hybrid typed-graph query (QUERY). Returns fused, ranked results
+    /// Run a typed-graph query (QUERY). Returns fused, ranked results
     /// with per-retriever contributions and outcome diagnostics.
     pub async fn query(&self, request: &QueryRequest) -> Result<QueryResponse> {
         self.unary(Opcode::QueryReq, Opcode::QueryResp, "QUERY_RESP", request)

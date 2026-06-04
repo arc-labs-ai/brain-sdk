@@ -368,7 +368,7 @@ export class BrainClient {
   }
 
   /**
-   * Run a hybrid typed-graph query (QUERY). Returns fused, ranked results with
+   * Run a typed-graph query (QUERY). Returns fused, ranked results with
    * per-retriever contributions and outcome diagnostics.
    */
   async query(request: QueryRequest): Promise<QueryResponse> {
