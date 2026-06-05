@@ -11,10 +11,15 @@
  * general-purpose JS encoder gets wrong out of the box:
  *
  *   - Maps keep insertion (struct-declaration) order, not bytewise-sorted keys.
- *   - Each float field has a fixed width: f32 fields encode with the 0xfa
- *     single-precision head, f64 fields with the 0xfb double head. A heuristic
- *     "shortest float" encoder would collapse a value like 12.5 to half
- *     precision and diverge from the server.
+ *   - Floats use shortest round-tripping width, exactly like the server's
+ *     `ciborium`: a value is emitted as half precision (0xf9) if half round-
+ *     trips it exactly, else single (0xfa) if single does, else double (0xfb).
+ *     This applies to BOTH f32 and f64 fields (an f32 field's value is already
+ *     rounded to f32, so single is its widest form; an f64 field can need all
+ *     three). Do NOT "fix" this back to a fixed width per type — emitting f32
+ *     fields as 0xfa and f64 fields as 0xfb unconditionally would diverge from
+ *     the server and the Python (`cbor.py _shortest_float_bytes`) and Rust
+ *     ports, breaking byte-exactness (e.g. 0.25 and 12.5 must collapse to half).
  *   - Integers above the u64 range encode as a CBOR bignum (tag 2 + byte
  *     string), exactly as `ciborium` emits a u128; everything that fits in u64
  *     uses the shortest-form major-0 integer.

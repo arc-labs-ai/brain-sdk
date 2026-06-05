@@ -6,7 +6,7 @@ Brain ships no client of its own — its public interface is a binary wire proto
 
 A shared **conformance corpus** (vendored from Brain's reference implementation) is the byte-level drift guard every SDK tests against: each language decodes all 38 golden `.bin`/`.json` cases and re-encodes them to identical bytes, so all three agree on the wire.
 
-**Status: feature-complete, pre-1.0.** Every SDK implements the full client surface — wire codec, async transport, handshake, a multiplexed connection (concurrent requests over one socket, demultiplexed by `stream_id`), the v1 verbs (`encode` / `recall` streaming / `forget`) with ergonomic builders, a retry layer (exponential backoff honoring the server's `retry_after_ms`), and the typed-graph verbs (`entity` / `statement` / `relation` / `schema` / `query` / `materialize_procedural`). Connection pooling, transparent reconnect, and registry publishing are the remaining work.
+**Status: feature-complete, pre-1.0.** Every SDK implements the full client surface — wire codec, async transport, handshake, a multiplexed connection (concurrent requests over one socket, demultiplexed by `stream_id`), the v1 verbs (`encode` / `recall` streaming / `forget`) with ergonomic builders, a retry layer (exponential backoff with full jitter, honoring the server's `retry_after_ms`), the typed-graph verbs (`entity` / `statement` / `relation` / `schema` / `query` / `materialize_procedural`), and a round-robin connection pool that spreads requests across its members. Pool-member health-checking and reconnect, transparent reconnect, and registry publishing are the remaining work.
 
 ## Layout
 
