@@ -5,7 +5,9 @@
  * call in `withRetry` and it re-runs the operation while the error is retryable
  * (`isRetryable`) and attempts remain, sleeping a backoff between tries. The
  * backoff honors a server-supplied `retryAfterMs` when present, else grows
- * exponentially from `baseDelayMs`, capped at `maxDelayMs`.
+ * exponentially from `baseDelayMs`, capped at `maxDelayMs`; the actual sleep
+ * then gets full jitter (a random point in `[floor, delay]`, with the server
+ * hint as the floor) so clients that failed together don't retry in lockstep.
  *
  * Because every request builder mints a stable `requestId`, re-sending the
  * *same* request is idempotent on the server (24h idempotency window), so a
@@ -67,6 +69,19 @@ function serverRetryAfterMs(err: unknown): number | null {
   return null;
 }
 
+/**
+ * Apply full jitter to a computed backoff: a uniformly random delay in
+ * `[floor, delay]`. `floor` honors a server-supplied `retryAfter` (we never
+ * wake sooner than the server asked); with no server floor it is zero, so the
+ * sleep is anywhere in `[0, delay]`. Spreads a herd of clients that failed
+ * together so they don't re-hit the server in lockstep.
+ */
+function jittered(delayMs: number, floorMs: number): number {
+  const floor = Math.min(floorMs, delayMs);
+  if (delayMs <= floor) return floor;
+  return floor + Math.random() * (delayMs - floor);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -87,8 +102,15 @@ export async function withRetry<T>(
       return await op();
     } catch (err) {
       if (attempt < policy.maxAttempts && isRetryable(err)) {
-        const delay = backoffMs(policy, attempt, serverRetryAfterMs(err));
-        if (delay !== null) await sleep(delay);
+        const serverFloor = serverRetryAfterMs(err);
+        const delay = backoffMs(policy, attempt, serverFloor);
+        if (delay !== null) {
+          // The server hint is the floor; jitter spreads the actual sleep
+          // across [floor, delay] so a herd doesn't retry in lockstep.
+          // `backoffMs` already capped the hint at maxDelayMs.
+          const floor = serverFloor !== null ? Math.min(serverFloor, policy.maxDelayMs) : 0;
+          await sleep(jittered(delay, floor));
+        }
         attempt += 1;
         continue;
       }

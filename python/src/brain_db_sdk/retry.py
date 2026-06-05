@@ -5,7 +5,9 @@ call in :func:`with_retry` and it re-runs the operation while the error is
 retryable (:func:`brain_db_sdk.errors.is_retryable`) and attempts remain,
 sleeping a backoff between tries. The backoff honors a server-supplied
 ``retry_after_ms`` when present, else grows exponentially from ``base_delay``,
-capped at ``max_delay``.
+capped at ``max_delay``; the actual sleep then gets full jitter (a random point
+in ``[floor, delay]``, with the server hint as the floor) so clients that failed
+together don't retry in lockstep.
 
 Because every request builder mints a stable ``request_id``, re-sending the
 *same* request is idempotent on the server (24h idempotency window), so a
@@ -18,6 +20,7 @@ reconnect is a later phase.
 
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional, TypeVar
@@ -25,6 +28,18 @@ from typing import Callable, Optional, TypeVar
 from .errors import ServerError, is_retryable
 
 T = TypeVar("T")
+
+
+def _jittered(delay: float, floor: float) -> float:
+    """Apply full jitter to a computed backoff: a uniformly random delay in
+    ``[floor, delay]``. ``floor`` honors a server-supplied ``retry_after`` (we
+    never wake sooner than the server asked); with no server floor it is zero,
+    so the sleep is anywhere in ``[0, delay]``. Spreads a herd of clients that
+    failed together so they don't re-hit the server in lockstep."""
+    floor = min(floor, delay)
+    if delay <= floor:
+        return floor
+    return random.uniform(floor, delay)
 
 
 @dataclass
@@ -78,9 +93,14 @@ def with_retry(op: Callable[[], T], policy: Optional[RetryPolicy] = None) -> T:
             return op()
         except Exception as exc:  # noqa: BLE001 — re-raised below if not retryable
             if attempt < policy.max_attempts and is_retryable(exc):
-                delay = policy.backoff(attempt, _server_retry_after_seconds(exc))
+                server_floor = _server_retry_after_seconds(exc)
+                delay = policy.backoff(attempt, server_floor)
                 if delay:
-                    time.sleep(delay)
+                    # The server hint is the floor; jitter spreads the actual
+                    # sleep across [floor, delay] so a herd doesn't retry in
+                    # lockstep. `backoff` already capped the hint at max_delay.
+                    floor = min(server_floor, policy.max_delay) if server_floor is not None else 0.0
+                    time.sleep(_jittered(delay, floor))
                 attempt += 1
                 continue
             raise

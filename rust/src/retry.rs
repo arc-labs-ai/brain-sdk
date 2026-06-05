@@ -5,7 +5,9 @@
 //! retryable ([`BrainError::is_retryable`]) and attempts remain, sleeping a
 //! backoff between tries. The backoff honors a server-supplied `retry_after_ms`
 //! when present, else grows exponentially from `base_delay`, capped at
-//! `max_delay`.
+//! `max_delay`; the actual sleep then gets full jitter (a random point in
+//! `[floor, delay]`, with the server hint as the floor) so clients that failed
+//! together don't retry in lockstep.
 //!
 //! Because every request builder mints a stable `request_id`, re-sending the
 //! *same* request is idempotent on the server (24h idempotency window), so a
@@ -19,6 +21,35 @@ use std::future::Future;
 use std::time::Duration;
 
 use crate::error::{BrainError, Result};
+
+/// Apply full jitter to a computed backoff: return a uniformly random delay in
+/// `[floor, delay]`. `floor` honors a server-supplied `retry_after` (we never
+/// retry sooner than the server asked); when there is no server floor it is
+/// zero, so the sleep is anywhere in `[0, delay]`. Full jitter spreads a herd
+/// of clients that failed together so they don't re-hit the server in lockstep.
+///
+/// The randomness needs no cryptographic quality — it only has to decorrelate
+/// clients — so we draw from a SplitMix64 seeded from the wall clock rather than
+/// pull in a `rand` dependency.
+fn jittered(delay: Duration, floor: Duration) -> Duration {
+    let floor = floor.min(delay);
+    let span = delay.saturating_sub(floor);
+    let span_nanos = u64::try_from(span.as_nanos()).unwrap_or(u64::MAX);
+    if span_nanos == 0 {
+        return floor;
+    }
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15);
+    // SplitMix64: one mix is plenty to pick a point in the span.
+    let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    let extra = z % span_nanos;
+    floor + Duration::from_nanos(extra)
+}
 
 /// What to do after an attempt failed: wait the given backoff then retry, or
 /// give up and surface the error. Produced by [`RetryPolicy::step`] and driven
@@ -92,7 +123,18 @@ impl RetryPolicy {
     #[must_use]
     pub fn step(&self, attempt: u32, err: &BrainError) -> RetryStep {
         if attempt < self.max_attempts && err.is_retryable() {
-            RetryStep::Retry(self.backoff(attempt, err.retry_after()))
+            let server_floor = err.retry_after();
+            // `backoff` already folds the server hint in and caps at max_delay;
+            // jitter then spreads the actual sleep across [floor, delay] so a
+            // herd that failed together doesn't retry in lockstep. The server
+            // hint is the floor — we never wake earlier than it asked.
+            let delay = self.backoff(attempt, server_floor).map(|delay| {
+                jittered(
+                    delay,
+                    server_floor.unwrap_or(Duration::ZERO).min(self.max_delay),
+                )
+            });
+            RetryStep::Retry(delay)
         } else {
             RetryStep::GiveUp
         }
@@ -173,6 +215,44 @@ mod tests {
             Some(Duration::from_secs(2)),
             "server hint is capped at max_delay"
         );
+    }
+
+    #[test]
+    fn jitter_stays_within_bounds_and_honors_the_floor() {
+        let delay = Duration::from_millis(800);
+        // No floor: result lands in [0, delay].
+        for _ in 0..1000 {
+            let j = jittered(delay, Duration::ZERO);
+            assert!(j <= delay, "jitter must not exceed the base delay");
+        }
+        // With a floor: result lands in [floor, delay] and never below the floor.
+        let floor = Duration::from_millis(200);
+        for _ in 0..1000 {
+            let j = jittered(delay, floor);
+            assert!(j >= floor, "jitter must never wake before the server floor");
+            assert!(j <= delay, "jitter must not exceed the base delay");
+        }
+    }
+
+    #[test]
+    fn jitter_with_zero_span_returns_the_floor() {
+        // floor == delay leaves no room to jitter.
+        let d = Duration::from_millis(500);
+        assert_eq!(jittered(d, d), d);
+        // floor clamped to delay when it would exceed it.
+        assert_eq!(jittered(d, Duration::from_secs(99)), d);
+    }
+
+    #[test]
+    fn step_jitters_within_the_scheduled_delay() {
+        let p = RetryPolicy::new(5, Duration::from_millis(100), Duration::from_secs(1));
+        // attempt 4 schedules 800ms; jittered sleep stays within [0, 800ms].
+        for _ in 0..1000 {
+            match p.step(4, &BrainError::Closed) {
+                RetryStep::Retry(Some(d)) => assert!(d <= Duration::from_millis(800)),
+                other => panic!("expected a jittered retry, got {other:?}"),
+            }
+        }
     }
 
     #[test]
