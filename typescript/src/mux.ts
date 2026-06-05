@@ -282,26 +282,39 @@ export class MuxConnection {
   }
 
   private onData(chunk: Buffer): void {
+    // Concatenate the new chunk onto whatever leftover bytes remained from the
+    // last drain — once per chunk, not once per frame. Frame consumption then
+    // advances a read offset into this single buffer; we only re-slice (compact)
+    // the unconsumed tail once, after the drain loop, instead of reallocating
+    // the whole pending buffer on every frame. This keeps a busy stream of many
+    // small frames at amortized-linear cost rather than O(n²).
     const merged = new Uint8Array(this.buf.length + chunk.length);
     merged.set(this.buf, 0);
     merged.set(chunk, this.buf.length);
     this.buf = merged;
 
+    let offset = 0;
     for (;;) {
       let decoded: { frame: Frame; rest: Uint8Array };
       try {
-        decoded = decodeFrame(this.buf);
+        decoded = decodeFrame(this.buf.subarray(offset));
       } catch (err) {
         if (err instanceof FrameError && err.kind === "Truncated") break;
         // Any other codec error desynchronizes the stream — fatal.
         this.failAll(err instanceof Error ? err : new Error(String(err)));
         return;
       }
-      this.buf = decoded.rest;
+      // `rest` is a view onto the same tail; the consumed length is the shrink
+      // in remaining bytes. Advancing `offset` (rather than reslicing here)
+      // leaves frame-straddling correct: a partial trailing frame stays in
+      // `this.buf` and is retried after the next chunk arrives.
+      offset += this.buf.length - offset - decoded.rest.length;
       // Route to the request that owns this stream; an unknown id is a late
       // frame for a cancelled/timed-out request and is dropped.
       this.routes.get(decoded.frame.streamId)?.push(decoded.frame);
     }
+    // Compact once: drop the bytes consumed this drain, keep the partial tail.
+    this.buf = offset === 0 ? this.buf : this.buf.subarray(offset);
   }
 
   private failAll(err: Error): void {
