@@ -65,6 +65,27 @@ PAYLOAD_TYPES = {
     "resp_query": t.QueryResponse,
     "req_materialize_procedural": t.MaterializeProceduralRequest,
     "resp_materialize_procedural": t.MaterializeProceduralResponse,
+    # Read-side typed-graph responses.
+    "resp_entity_get": t.EntityGetResponse,
+    "resp_entity_list": t.EntityListResponseFrame,
+    "resp_entity_resolve": t.EntityResolveResponse,
+    "resp_statement_get": t.StatementGetResponse,
+    "resp_statement_list": t.StatementListResponseFrame,
+    "resp_relation_list": t.RelationListFromResponseFrame,
+    # Cognitive read-side responses.
+    "resp_plan": t.PlanResponseFrame,
+    "resp_reason": t.ReasonResponseFrame,
+    "resp_link": t.LinkResponse,
+    # Transaction responses.
+    "resp_txn_begin": t.TxnBeginResponse,
+    "resp_txn_commit": t.TxnCommitResponse,
+    "resp_txn_abort": t.TxnAbortResponse,
+    # Capabilities + subscription event.
+    "resp_get_capabilities": t.GetCapabilitiesResponse,
+    "resp_subscribe_event": t.SubscriptionEvent,
+    # Keepalive responses.
+    "resp_pong": t.PongResponse,
+    "resp_server_ping": t.ServerPingResponse,
     # ERROR body, one per category.
     "resp_error_protocol": t.ErrorResponse,
     "resp_error_authentication": t.ErrorResponse,
@@ -206,9 +227,9 @@ def test_frame_round_trip(name):
 
 
 def test_all_38_cases_present():
-    """The corpus has 38 .bin/.json pairs; every one must be covered."""
+    """The corpus has 54 .bin/.json pairs; every one must be covered."""
     index = _load_index()
-    assert len(index) == 38, f"expected 38 corpus cases, index has {len(index)}"
+    assert len(index) == 54, f"expected 54 corpus cases, index has {len(index)}"
     covered = set(PAYLOAD_TYPES) | set(FRAME_PAYLOAD_TYPES)
     names = {c["name"] for c in index}
     missing = names - covered

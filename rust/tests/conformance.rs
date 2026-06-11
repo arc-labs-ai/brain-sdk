@@ -157,6 +157,32 @@ fn payload_cases_round_trip() {
     check_payload::<MaterializeProceduralRequest>("req_materialize_procedural");
     check_payload::<MaterializeProceduralResponse>("resp_materialize_procedural");
 
+    // Read-side typed-graph responses.
+    check_payload::<EntityGetResponse>("resp_entity_get");
+    check_payload::<EntityListResponseFrame>("resp_entity_list");
+    check_payload::<EntityResolveResponse>("resp_entity_resolve");
+    check_payload::<StatementGetResponse>("resp_statement_get");
+    check_payload::<StatementListResponseFrame>("resp_statement_list");
+    check_payload::<RelationListFromResponseFrame>("resp_relation_list");
+
+    // Cognitive read-side responses.
+    check_payload::<PlanResponseFrame>("resp_plan");
+    check_payload::<ReasonResponseFrame>("resp_reason");
+    check_payload::<LinkResponse>("resp_link");
+
+    // Transaction responses.
+    check_payload::<TxnBeginResponse>("resp_txn_begin");
+    check_payload::<TxnCommitResponse>("resp_txn_commit");
+    check_payload::<TxnAbortResponse>("resp_txn_abort");
+
+    // Capabilities + subscription event.
+    check_payload::<GetCapabilitiesResponse>("resp_get_capabilities");
+    check_payload::<SubscriptionEvent>("resp_subscribe_event");
+
+    // Keepalive responses.
+    check_payload::<PongResponse>("resp_pong");
+    check_payload::<ServerPingResponse>("resp_server_ping");
+
     // ERROR frame body, one per category.
     for name in [
         "resp_error_protocol",

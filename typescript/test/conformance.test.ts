@@ -127,6 +127,48 @@ const handlers: Record<string, Handler> = {
     t.encodeMaterializeProceduralResponse,
   ),
 
+  resp_entity_get: payloadRoundTrip(t.decodeEntityGetResponse, t.encodeEntityGetResponse),
+  resp_entity_list: payloadRoundTrip(
+    t.decodeEntityListResponse,
+    t.encodeEntityListResponse,
+  ),
+  resp_entity_resolve: payloadRoundTrip(
+    t.decodeEntityResolveResponse,
+    t.encodeEntityResolveResponse,
+  ),
+  resp_statement_get: payloadRoundTrip(
+    t.decodeStatementGetResponse,
+    t.encodeStatementGetResponse,
+  ),
+  resp_statement_list: payloadRoundTrip(
+    t.decodeStatementListResponse,
+    t.encodeStatementListResponse,
+  ),
+  resp_relation_list: payloadRoundTrip(
+    t.decodeRelationListFromResponse,
+    t.encodeRelationListFromResponse,
+  ),
+
+  resp_plan: payloadRoundTrip(t.decodePlanResponse, t.encodePlanResponse),
+  resp_reason: payloadRoundTrip(t.decodeReasonResponse, t.encodeReasonResponse),
+  resp_link: payloadRoundTrip(t.decodeLinkResponse, t.encodeLinkResponse),
+
+  resp_txn_begin: payloadRoundTrip(t.decodeTxnBeginResponse, t.encodeTxnBeginResponse),
+  resp_txn_commit: payloadRoundTrip(t.decodeTxnCommitResponse, t.encodeTxnCommitResponse),
+  resp_txn_abort: payloadRoundTrip(t.decodeTxnAbortResponse, t.encodeTxnAbortResponse),
+
+  resp_get_capabilities: payloadRoundTrip(
+    t.decodeGetCapabilitiesResponse,
+    t.encodeGetCapabilitiesResponse,
+  ),
+  resp_subscribe_event: payloadRoundTrip(
+    t.decodeSubscriptionEvent,
+    t.encodeSubscriptionEvent,
+  ),
+
+  resp_pong: payloadRoundTrip(t.decodePong, t.encodePong),
+  resp_server_ping: payloadRoundTrip(t.decodeServerPing, t.encodeServerPing),
+
   resp_error_protocol: payloadRoundTrip(t.decodeError, t.encodeError),
   resp_error_authentication: payloadRoundTrip(t.decodeError, t.encodeError),
   resp_error_authorization: payloadRoundTrip(t.decodeError, t.encodeError),

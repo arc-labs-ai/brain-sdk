@@ -425,6 +425,15 @@ export interface PongResponse {
   serverTimestampUnixNanos: bigint;
 }
 
+export function encodePong(p: PongResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["client_timestamp_unix_nanos", p.clientTimestampUnixNanos],
+      ["server_timestamp_unix_nanos", p.serverTimestampUnixNanos],
+    ]),
+  );
+}
+
 export function decodePong(bytes: Uint8Array): PongResponse {
   const m = asMap(fromCbor(bytes));
   return {
