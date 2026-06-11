@@ -1763,3 +1763,40 @@ pub struct SchemaValidateResponse {
     pub would_be_version: u32,
     pub validation_errors: Vec<SchemaValidationErrorWire>,
 }
+
+// ---------------------------------------------------------------------------
+// Keepalive (PING / PONG / SERVER_PING / CLIENT_PONG).
+//
+// Field names are the CBOR map keys on the wire, so they must match the
+// server's `brain-protocol` definitions byte-for-byte.
+// ---------------------------------------------------------------------------
+
+/// PING (`0x0010`, client→server) — RTT probe.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PingRequest {
+    pub client_timestamp_unix_nanos: u64,
+}
+
+/// PONG (`0x0090`, server→client) — reply to PING, echoes the client's
+/// timestamp and adds the server's so the client can measure RTT.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PongResponse {
+    pub client_timestamp_unix_nanos: u64,
+    pub server_timestamp_unix_nanos: u64,
+}
+
+/// SERVER_PING (`0x0091`, server→client) — the server's idle-timer
+/// heartbeat. The client MUST answer with `CLIENT_PONG` or the server
+/// closes the connection after its ping timeout.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ServerPingResponse {
+    pub server_timestamp_unix_nanos: u64,
+}
+
+/// CLIENT_PONG (`0x0011`, client→server) — reply to `SERVER_PING`,
+/// echoing the server's timestamp plus the client's own.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ClientPongRequest {
+    pub server_timestamp_unix_nanos: u64,
+    pub client_timestamp_unix_nanos: u64,
+}

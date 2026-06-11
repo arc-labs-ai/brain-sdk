@@ -17,6 +17,14 @@ pub enum Opcode {
     AuthOk = 0x0082,
     Bye = 0x001F,
 
+    // Keepalive. PING/PONG are client-initiated RTT probes; SERVER_PING is
+    // the server's idle-timer heartbeat that the client MUST answer with
+    // CLIENT_PONG or the server closes the connection.
+    Ping = 0x0010,
+    Pong = 0x0090,
+    ClientPong = 0x0011,
+    ServerPing = 0x0091,
+
     // v1 cognitive verbs.
     EncodeReq = 0x0020,
     EncodeResp = 0x00A0,
@@ -111,6 +119,10 @@ mod tests {
         assert_eq!(Opcode::Auth.as_u16(), 0x0002);
         assert_eq!(Opcode::AuthOk.as_u16(), 0x0082);
         assert_eq!(Opcode::Bye.as_u16(), 0x001F);
+        assert_eq!(Opcode::Ping.as_u16(), 0x0010);
+        assert_eq!(Opcode::Pong.as_u16(), 0x0090);
+        assert_eq!(Opcode::ClientPong.as_u16(), 0x0011);
+        assert_eq!(Opcode::ServerPing.as_u16(), 0x0091);
         assert_eq!(Opcode::EncodeReq.as_u16(), 0x0020);
         assert_eq!(Opcode::EncodeResp.as_u16(), 0x00A0);
         assert_eq!(Opcode::RecallReq.as_u16(), 0x0021);

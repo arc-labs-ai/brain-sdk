@@ -14,8 +14,9 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloCapabilities,
-    HelloPayload, MemoryKindWire, ServerFeatures, WelcomePayload,
+    AgentPermissions, AuthOkPayload, AuthPayload, ClientPongRequest, EncodeRequest, EncodeResponse,
+    HelloCapabilities, HelloPayload, MemoryKindWire, ServerFeatures, ServerPingResponse,
+    WelcomePayload,
 };
 
 async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u32, p: &T) {
@@ -411,4 +412,108 @@ async fn subscription_drains_events_unsubscribes_and_leaks_no_route() {
 
     conn.send_bye().await.expect("bye");
     server.await.expect("server task");
+}
+
+// ===========================================================================
+// Keepalive: the server's idle-timer SERVER_PING must be answered by the
+// client's reader task with a CLIENT_PONG on stream 0 (echoing the server
+// timestamp), or the real server would reap the connection. The client issues
+// no op here — the auto-reply must come purely from the reader.
+// ===========================================================================
+
+async fn serve_keepalive(mut sock: TcpStream) {
+    let mut buf = Vec::new();
+
+    let hello_frame = read_frame(&mut sock, &mut buf).await.expect("hello");
+    let hello: HelloPayload = from_cbor_bytes(&hello_frame.payload).expect("decode hello");
+    let welcome = WelcomePayload {
+        server_id: "mock-brain".to_string(),
+        chosen_version: 1,
+        session_id: [0xAB; 16],
+        capabilities: hello.capabilities,
+        server_features: ServerFeatures {
+            max_payload_size: 1 << 20,
+            max_concurrent_streams: 256,
+            idle_timeout_seconds: 300,
+            auth_methods: vec![],
+        },
+    };
+    write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
+
+    let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
+    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let auth_ok = AuthOkPayload {
+        agent_id: auth.agent_id,
+        bound_shard_id: 0,
+        permissions: AgentPermissions {
+            can_encode: true,
+            can_recall: true,
+            can_plan: true,
+            can_reason: true,
+            can_forget: true,
+            can_admin: false,
+        },
+        server_time_unix_nanos: 1,
+    };
+    write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
+
+    // Idle-timer heartbeat.
+    write_one(
+        &mut sock,
+        Opcode::ServerPing,
+        0,
+        &ServerPingResponse {
+            server_timestamp_unix_nanos: 0xDEAD_BEEF,
+        },
+    )
+    .await;
+
+    // The client's reader must answer with CLIENT_PONG on stream 0, echoing
+    // the server timestamp. This is the only frame the client sends.
+    let f = read_frame(&mut sock, &mut buf).await.expect("client pong");
+    assert_eq!(
+        f.opcode,
+        Opcode::ClientPong as u16,
+        "SERVER_PING must be answered with CLIENT_PONG"
+    );
+    assert_eq!(f.stream_id, 0, "CLIENT_PONG rides the connection stream 0");
+    let pong: ClientPongRequest = from_cbor_bytes(&f.payload).expect("decode client pong");
+    assert_eq!(
+        pong.server_timestamp_unix_nanos, 0xDEAD_BEEF,
+        "CLIENT_PONG must echo the SERVER_PING timestamp"
+    );
+}
+
+#[tokio::test]
+async fn server_ping_is_answered_with_client_pong() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let server = tokio::spawn(async move {
+        let (sock, _peer) = listener.accept().await.expect("accept");
+        serve_keepalive(sock).await;
+    });
+
+    let stream = TcpStream::connect(addr).await.expect("connect");
+    let hello = HelloPayload {
+        client_id: "keepalive-test".to_string(),
+        supported_versions: vec![1],
+        capabilities: HelloCapabilities {
+            streaming: true,
+            compression_zstd: false,
+            server_push: false,
+        },
+        client_session_token: None,
+    };
+    let auth = AuthPayload {
+        method: brain_db_sdk::wire::types::AuthMethod::None,
+        agent_id: new_id(),
+        credentials: brain_db_sdk::wire::types::AuthCredentials::None,
+    };
+    // Hold `conn` across `server.await` so its reader task stays alive long
+    // enough to observe SERVER_PING and auto-reply. The server task returns
+    // only once it has read and asserted the CLIENT_PONG.
+    let (_conn, _outcome) = MuxConnection::handshake(stream, hello, auth, None)
+        .await
+        .expect("handshake");
+    server.await.expect("server task: SERVER_PING answered");
 }

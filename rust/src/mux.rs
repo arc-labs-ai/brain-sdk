@@ -31,9 +31,9 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use tokio::io::{split, AsyncRead, AsyncWrite, WriteHalf};
+use tokio::io::{split, AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -44,11 +44,20 @@ use crate::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use crate::wire::frame::{Frame, FLAG_EOS};
 use crate::wire::opcode::Opcode;
 use crate::wire::types::{
-    AuthOkPayload, AuthPayload, ErrorResponse, HelloPayload, SubscribeRequest, SubscriptionEvent,
-    UnsubscribeRequest, UnsubscribeResponse, WelcomePayload,
+    AuthOkPayload, AuthPayload, ClientPongRequest, ErrorResponse, HelloPayload, ServerPingResponse,
+    SubscribeRequest, SubscriptionEvent, UnsubscribeRequest, UnsubscribeResponse, WelcomePayload,
 };
 
 const HANDSHAKE_STREAM_ID: u32 = 0;
+
+/// Wall-clock nanoseconds since the Unix epoch, saturating at 0 if the
+/// clock is before the epoch. Used to stamp CLIENT_PONG replies.
+fn now_unix_nanos() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
 
 /// The route table the reader task delivers frames into. `closed` is set once
 /// the reader exits, so a request started after the connection died fails fast
@@ -63,7 +72,9 @@ struct RouteTable {
 /// the per-request timeout. Held behind an `Arc` so a subscription can send its
 /// own UNSUBSCRIBE on a fresh stream without borrowing the `MuxConnection`.
 struct Shared<S> {
-    writer: tokio::sync::Mutex<WriteHalf<S>>,
+    // Shared with the reader task so it can answer SERVER_PING with
+    // CLIENT_PONG without a separate writer handle.
+    writer: Arc<tokio::sync::Mutex<WriteHalf<S>>>,
     table: Arc<Mutex<RouteTable>>,
     next_stream_id: AtomicU32,
     request_timeout: Option<Duration>,
@@ -219,10 +230,16 @@ where
             routes: HashMap::new(),
             closed: None,
         }));
-        let reader = tokio::spawn(reader_loop(read_half, buf, Arc::clone(&table)));
+        let writer = Arc::new(tokio::sync::Mutex::new(write_half));
+        let reader = tokio::spawn(reader_loop(
+            read_half,
+            buf,
+            Arc::clone(&table),
+            Arc::clone(&writer),
+        ));
 
         let shared = Arc::new(Shared {
-            writer: tokio::sync::Mutex::new(write_half),
+            writer,
             table,
             next_stream_id: AtomicU32::new(1),
             request_timeout,
@@ -411,14 +428,44 @@ impl<S> Drop for Subscription<S> {
 
 /// Demultiplex inbound frames to waiting requests until the stream ends or a
 /// fatal error occurs, then fail every outstanding request.
-async fn reader_loop<R: AsyncRead + Unpin>(
-    mut read_half: R,
+async fn reader_loop<S>(
+    mut read_half: ReadHalf<S>,
     mut buf: Vec<u8>,
     table: Arc<Mutex<RouteTable>>,
-) {
+    writer: Arc<tokio::sync::Mutex<WriteHalf<S>>>,
+) where
+    // `ReadHalf<S>`/`WriteHalf<S>` are `Unpin` regardless of `S`, so the
+    // read/write calls need only `S: AsyncRead + AsyncWrite`. Send/'static
+    // for the spawned task come from the call site (handshake bound).
+    S: AsyncRead + AsyncWrite,
+{
     loop {
         match read_frame(&mut read_half, &mut buf).await {
             Ok(frame) => {
+                // Server idle-timer heartbeat: reply CLIENT_PONG on stream 0
+                // so the server doesn't reap an otherwise-idle connection.
+                // The reply echoes the server timestamp (0 if the payload
+                // can't be decoded — the server only needs *a* frame to reset
+                // its idle timer). Best-effort: a write failure surfaces as
+                // the next read error, which closes the connection cleanly.
+                if frame.opcode == Opcode::ServerPing.as_u16() {
+                    let server_ts = from_cbor_bytes::<ServerPingResponse>(&frame.payload)
+                        .map(|p| p.server_timestamp_unix_nanos)
+                        .unwrap_or(0);
+                    let pong = ClientPongRequest {
+                        server_timestamp_unix_nanos: server_ts,
+                        client_timestamp_unix_nanos: now_unix_nanos(),
+                    };
+                    let reply = Frame::new(
+                        Opcode::ClientPong.as_u16(),
+                        FLAG_EOS,
+                        HANDSHAKE_STREAM_ID,
+                        to_cbor_bytes(&pong),
+                    );
+                    let mut w = writer.lock().await;
+                    let _ = write_frame(&mut *w, &reply).await;
+                    continue;
+                }
                 let stream_id = frame.stream_id;
                 let is_last = frame.flags & FLAG_EOS != 0;
                 let mut t = table.lock().expect("route table mutex poisoned");
