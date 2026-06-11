@@ -403,6 +403,75 @@ export function decodeAuthOk(bytes: Uint8Array): AuthOkPayload {
   };
 }
 
+// ===========================================================================
+// Keepalive (PING / PONG / SERVER_PING / CLIENT_PONG).
+//
+// Map keys are the CBOR field names on the wire and must match the server's
+// brain-protocol definitions byte-for-byte. Timestamps are u64 → bigint.
+// ===========================================================================
+
+export interface PingRequest {
+  clientTimestampUnixNanos: bigint;
+}
+
+export function encodePing(p: PingRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([["client_timestamp_unix_nanos", p.clientTimestampUnixNanos]]),
+  );
+}
+
+export interface PongResponse {
+  clientTimestampUnixNanos: bigint;
+  serverTimestampUnixNanos: bigint;
+}
+
+export function decodePong(bytes: Uint8Array): PongResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    clientTimestampUnixNanos: asBig(field(m, "client_timestamp_unix_nanos")),
+    serverTimestampUnixNanos: asBig(field(m, "server_timestamp_unix_nanos")),
+  };
+}
+
+export interface ServerPingResponse {
+  serverTimestampUnixNanos: bigint;
+}
+
+export function encodeServerPing(p: ServerPingResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([["server_timestamp_unix_nanos", p.serverTimestampUnixNanos]]),
+  );
+}
+
+export function decodeServerPing(bytes: Uint8Array): ServerPingResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    serverTimestampUnixNanos: asBig(field(m, "server_timestamp_unix_nanos")),
+  };
+}
+
+export interface ClientPongRequest {
+  serverTimestampUnixNanos: bigint;
+  clientTimestampUnixNanos: bigint;
+}
+
+export function encodeClientPong(p: ClientPongRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["server_timestamp_unix_nanos", p.serverTimestampUnixNanos],
+      ["client_timestamp_unix_nanos", p.clientTimestampUnixNanos],
+    ]),
+  );
+}
+
+export function decodeClientPong(bytes: Uint8Array): ClientPongRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    serverTimestampUnixNanos: asBig(field(m, "server_timestamp_unix_nanos")),
+    clientTimestampUnixNanos: asBig(field(m, "client_timestamp_unix_nanos")),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // ENCODE / ENCODE_VECTOR_DIRECT.
 // ---------------------------------------------------------------------------

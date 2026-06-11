@@ -16,6 +16,13 @@ export const Opcode = {
   AuthOk: 0x0082,
   Bye: 0x001f,
 
+  // Keepalive. SERVER_PING is the server's idle-timer heartbeat; the client
+  // MUST answer it with CLIENT_PONG or the server closes the connection.
+  Ping: 0x0010,
+  Pong: 0x0090,
+  ClientPong: 0x0011,
+  ServerPing: 0x0091,
+
   // v1 cognitive verbs.
   EncodeReq: 0x0020,
   EncodeResp: 0x00a0,

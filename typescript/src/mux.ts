@@ -35,10 +35,12 @@ import {
   type WelcomePayload,
   decodeAuthOk,
   decodeError,
+  decodeServerPing,
   decodeSubscriptionEvent,
   decodeUnsubscribeResponse,
   decodeWelcome,
   encodeAuth,
+  encodeClientPong,
   encodeHello,
   encodeSubscribe,
   encodeUnsubscribe,
@@ -309,9 +311,15 @@ export class MuxConnection {
       // leaves frame-straddling correct: a partial trailing frame stays in
       // `this.buf` and is retried after the next chunk arrives.
       offset += this.buf.length - offset - decoded.rest.length;
-      // Route to the request that owns this stream; an unknown id is a late
-      // frame for a cancelled/timed-out request and is dropped.
-      this.routes.get(decoded.frame.streamId)?.push(decoded.frame);
+      // Server idle-timer heartbeat: answer with CLIENT_PONG on stream 0 so an
+      // idle connection isn't reaped. Otherwise route to the request that owns
+      // this stream; an unknown id is a late frame for a cancelled/timed-out
+      // request and is dropped.
+      if (decoded.frame.opcode === Opcode.ServerPing) {
+        this.answerServerPing(decoded.frame);
+      } else {
+        this.routes.get(decoded.frame.streamId)?.push(decoded.frame);
+      }
     }
     // Compact once: drop the bytes consumed this drain, keep the partial tail.
     this.buf = offset === 0 ? this.buf : this.buf.subarray(offset);
@@ -321,6 +329,26 @@ export class MuxConnection {
     if (this.closedError === null) this.closedError = err;
     for (const sink of this.routes.values()) sink.fail(err);
     this.routes.clear();
+  }
+
+  /**
+   * Answer a SERVER_PING with a CLIENT_PONG on stream 0, echoing the server
+   * timestamp (0 if the payload can't be decoded — the server only needs a
+   * frame to reset its idle timer). Best-effort: a write failure surfaces as
+   * the next socket error/close.
+   */
+  private answerServerPing(frame: Frame): void {
+    let serverTs = 0n;
+    try {
+      serverTs = decodeServerPing(frame.payload).serverTimestampUnixNanos;
+    } catch {
+      serverTs = 0n;
+    }
+    const payload = encodeClientPong({
+      serverTimestampUnixNanos: serverTs,
+      clientTimestampUnixNanos: nowUnixNanos(),
+    });
+    void this.writeFrame(Opcode.ClientPong, HANDSHAKE_STREAM_ID, payload).catch(() => {});
   }
 
   private takeStreamId(): number {
@@ -436,6 +464,11 @@ export class Subscription implements AsyncIterableIterator<SubscriptionEvent> {
   [Symbol.asyncIterator](): AsyncIterableIterator<SubscriptionEvent> {
     return this;
   }
+}
+
+/** Wall-clock nanoseconds since the Unix epoch (ms precision). Stamps CLIENT_PONG. */
+function nowUnixNanos(): bigint {
+  return BigInt(Date.now()) * 1_000_000n;
 }
 
 function connectTcp(

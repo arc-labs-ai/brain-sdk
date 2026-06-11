@@ -11,7 +11,7 @@ import * as net from "node:net";
 import { MuxConnection } from "../src/mux.js";
 import { newId } from "../src/client.js";
 import { FrameChannel } from "../src/transport.js";
-import { FLAG_EOS } from "../src/wire/frame.js";
+import { FLAG_EOS, type Frame } from "../src/wire/frame.js";
 import { Opcode } from "../src/wire/opcode.js";
 import {
   type AuthOkPayload,
@@ -22,12 +22,14 @@ import {
   MemoryKindWire,
   type WelcomePayload,
   decodeAuth,
+  decodeClientPong,
   decodeEncode,
   decodeEncodeResponse,
   decodeHello,
   encodeAuthOk,
   encodeEncode,
   encodeEncodeResponse,
+  encodeServerPing,
   encodeWelcome,
 } from "../src/wire/types.js";
 
@@ -185,6 +187,95 @@ describe("mux connection", () => {
         expect(id % 2).toBe(1);
       }
       expect(observedStreamIds).toEqual([1, 3]);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+// ===========================================================================
+// Keepalive: the server's idle-timer SERVER_PING must be answered by the data
+// pump with a CLIENT_PONG on stream 0 (echoing the server timestamp), or the
+// real server would reap the connection. The client issues no op — the
+// auto-reply must come purely from the pump.
+// ===========================================================================
+
+async function serveKeepalive(
+  sock: net.Socket,
+  resolvePong: (f: Frame) => void,
+): Promise<void> {
+  const chan = new FrameChannel(sock);
+
+  const helloFrame = await chan.read();
+  const hello = decodeHello(helloFrame.payload);
+  const welcome: WelcomePayload = {
+    serverId: "mock-brain",
+    chosenVersion: 1,
+    sessionId: new Uint8Array(16).fill(0xab),
+    capabilities: hello.capabilities,
+    serverFeatures: {
+      maxPayloadSize: 1 << 20,
+      maxConcurrentStreams: 256,
+      idleTimeoutSeconds: 300,
+      authMethods: [],
+    },
+  };
+  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+
+  const authFrame = await chan.read();
+  const auth = decodeAuth(authFrame.payload);
+  const authOk: AuthOkPayload = {
+    agentId: auth.agentId,
+    boundShardId: 0,
+    permissions: {
+      canEncode: true,
+      canRecall: true,
+      canPlan: true,
+      canReason: true,
+      canForget: true,
+      canAdmin: false,
+    },
+    serverTimeUnixNanos: 1n,
+  };
+  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+
+  // Idle-timer heartbeat.
+  await chan.write({
+    opcode: Opcode.ServerPing,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeServerPing({ serverTimestampUnixNanos: 0xdead_beefn }),
+  });
+
+  // The pump must answer with CLIENT_PONG on stream 0. This is the only frame
+  // the client sends.
+  const f = await chan.read();
+  resolvePong(f);
+  sock.end();
+}
+
+describe("mux keepalive", () => {
+  it("answers SERVER_PING with CLIENT_PONG on stream 0", async () => {
+    let resolvePong!: (f: Frame) => void;
+    const pongSeen = new Promise<Frame>((r) => {
+      resolvePong = r;
+    });
+    const { server, port } = await startServer((sock) => serveKeepalive(sock, resolvePong));
+    try {
+      const hello: HelloPayload = {
+        clientId: "keepalive-test",
+        supportedVersions: [1],
+        capabilities: { streaming: true, compressionZstd: false, serverPush: false },
+        clientSessionToken: null,
+      };
+      const auth: AuthPayload = { method: 2, agentId: newId(), credentials: { kind: "None" } };
+      // Hold `conn` alive while the pump answers SERVER_PING.
+      const { conn } = await MuxConnection.connect("127.0.0.1", port, hello, auth);
+      const pong = await pongSeen;
+      expect(pong.opcode).toBe(Opcode.ClientPong);
+      expect(pong.streamId).toBe(0);
+      expect(decodeClientPong(pong.payload).serverTimestampUnixNanos).toBe(0xdead_beefn);
+      conn.close();
     } finally {
       server.close();
     }
