@@ -3,14 +3,14 @@ Vendored wire-protocol conformance corpus
 
 Source: brain  (https://github.com/brain-db-io/brain-db)
 Path:   crates/brain-protocol/tests/conformance/corpus/
-Files:  38 (*.bin, *.json) pairs + index.json
+Files:  54 (*.bin, *.json) pairs + index.json
 
 Vendored: 2026-06-11
 
 PROVENANCE — reproducible pin.
 This corpus is a verbatim copy of brain's committed conformance corpus at:
 
-    111dd68b5221aad48023fe2a7cfb5fb1874c0b60
+    3fd6868   (test(conformance): pin read-side response types in the corpus)
 
 Verified reproducible: running brain's generator at that revision with
 `BRAIN_CONFORMANCE_BLESS=1 cargo test -p brain-protocol --test conformance`
@@ -18,18 +18,22 @@ regenerates these exact bytes (zero diff). The bytes are the CBOR wire
 format (post rkyv->CBOR migration), with 16-byte ids encoded as CBOR byte
 strings even through Option/Vec (the P1-6 fix).
 
-COVERAGE (known gap, tracked separately).
+COVERAGE.
 The corpus pins a representative payload for the handshake, the cognitive
-verbs, ENCODE_VECTOR_DIRECT, the *create* typed-graph responses
-(resp_entity_create, resp_statement_create, resp_relation_create),
-schema upload, QUERY, MATERIALIZE_PROCEDURAL, and the 9 error categories.
-It does NOT yet pin the read-side response types — entity/statement GET,
-LIST, RESOLVE, HISTORY, SUPERSEDE, TXN begin/commit/abort, LINK/UNLINK,
-PLAN/REASON, SUBSCRIBE_EVENT, GET_CAPABILITIES, or the keepalive
-PONG/SERVER_PING frames. Adding generator cases for those in brain's
-`tests/conformance.rs` (then re-blessing + re-copying) is the corpus
-expansion work; until then, byte-fidelity of those types across the
-hand-written SDK ports is unverified.
+verbs (encode/recall/forget/plan/reason), ENCODE_VECTOR_DIRECT, link,
+the typed-graph create + read responses (entity create/get/list/resolve,
+statement create/get/list, relation create/list), schema upload, QUERY,
+MATERIALIZE_PROCEDURAL, TXN begin/commit/abort, GET_CAPABILITIES,
+SUBSCRIBE_EVENT, the keepalive PONG/SERVER_PING frames, and the 9 error
+categories. Each is round-trip + byte-exact verified in all three SDK
+conformance suites.
+
+Still unpinned (the SDKs do not implement these verbs yet, so there is
+nothing to drift-guard): entity update/rename/merge/tombstone, statement
+supersede/history/retract/tombstone, relation supersede/tombstone/
+traverse, schema get/list/validate responses, QUERY explain/trace/text,
+unsubscribe, and the admin surface. Add generator cases for those when
+the SDKs gain the corresponding verbs.
 
 Refresh procedure (deliberate, reviewed — never automated cross-repo):
     cd <brain> && BRAIN_CONFORMANCE_BLESS=1 \
