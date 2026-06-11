@@ -339,6 +339,85 @@ class AuthOkPayload:
 
 
 # ===========================================================================
+# Keepalive (PING / PONG / SERVER_PING / CLIENT_PONG).
+#
+# Map keys are the CBOR field names on the wire and must match the server's
+# brain-protocol definitions byte-for-byte. `from_map` tolerates a missing
+# timestamp (defaults 0) so a malformed heartbeat still round-trips.
+# ===========================================================================
+
+
+@dataclass
+class PingRequest:
+    """PING (0x0010, client->server) — RTT probe."""
+
+    client_timestamp_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {"client_timestamp_unix_nanos": self.client_timestamp_unix_nanos}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "PingRequest":
+        return cls(m.get("client_timestamp_unix_nanos", 0))
+
+
+@dataclass
+class PongResponse:
+    """PONG (0x0090, server->client) — reply to PING."""
+
+    client_timestamp_unix_nanos: int
+    server_timestamp_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {
+            "client_timestamp_unix_nanos": self.client_timestamp_unix_nanos,
+            "server_timestamp_unix_nanos": self.server_timestamp_unix_nanos,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "PongResponse":
+        return cls(
+            m.get("client_timestamp_unix_nanos", 0),
+            m.get("server_timestamp_unix_nanos", 0),
+        )
+
+
+@dataclass
+class ServerPingResponse:
+    """SERVER_PING (0x0091, server->client) — idle-timer heartbeat."""
+
+    server_timestamp_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {"server_timestamp_unix_nanos": self.server_timestamp_unix_nanos}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ServerPingResponse":
+        return cls(m.get("server_timestamp_unix_nanos", 0))
+
+
+@dataclass
+class ClientPongRequest:
+    """CLIENT_PONG (0x0011, client->server) — reply to SERVER_PING."""
+
+    server_timestamp_unix_nanos: int
+    client_timestamp_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {
+            "server_timestamp_unix_nanos": self.server_timestamp_unix_nanos,
+            "client_timestamp_unix_nanos": self.client_timestamp_unix_nanos,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ClientPongRequest":
+        return cls(
+            m.get("server_timestamp_unix_nanos", 0),
+            m.get("client_timestamp_unix_nanos", 0),
+        )
+
+
+# ===========================================================================
 # ENCODE / ENCODE_VECTOR_DIRECT.
 # ===========================================================================
 

@@ -19,12 +19,14 @@ from brain_db_sdk.wire.types import (
     AuthMethod,
     AuthOkPayload,
     AuthPayload,
+    ClientPongRequest,
     EncodeRequest,
     EncodeResponse,
     HelloCapabilities,
     HelloPayload,
     MemoryKind,
     ServerFeatures,
+    ServerPingResponse,
     WelcomePayload,
     decode_payload,
     encode_payload,
@@ -348,5 +350,86 @@ def test_subscription_drains_events_unsubscribes_and_leaks_no_route() -> None:
         conn.close()
         server_thread.join(timeout=5)
         assert not server_thread.is_alive()
+    finally:
+        listener.close()
+
+
+# ===========================================================================
+# Keepalive: the server's idle-timer SERVER_PING must be answered by the
+# reader thread with a CLIENT_PONG on stream 0 (echoing the server timestamp),
+# or the real server would reap the connection. The client issues no op here —
+# the auto-reply must come purely from the reader thread.
+# ===========================================================================
+
+
+def _serve_keepalive(sock: socket.socket) -> None:
+    buf = bytearray()
+
+    hello_frame = read_frame(sock, buf)
+    hello = decode_payload(HelloPayload, hello_frame.payload)
+    welcome = WelcomePayload(
+        server_id="mock-brain",
+        chosen_version=1,
+        session_id=b"\xAB" * 16,
+        capabilities=hello.capabilities,
+        server_features=ServerFeatures(
+            max_payload_size=1 << 20,
+            max_concurrent_streams=256,
+            idle_timeout_seconds=300,
+            auth_methods=[],
+        ),
+    )
+    _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
+
+    auth_frame = read_frame(sock, buf)
+    auth = decode_payload(AuthPayload, auth_frame.payload)
+    auth_ok = AuthOkPayload(
+        agent_id=auth.agent_id,
+        bound_shard_id=0,
+        permissions=AgentPermissions(
+            can_encode=True,
+            can_recall=True,
+            can_plan=True,
+            can_reason=True,
+            can_forget=True,
+            can_admin=False,
+        ),
+        server_time_unix_nanos=1,
+    )
+    _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
+
+    # Idle-timer heartbeat.
+    _write(
+        sock,
+        Opcode.SERVER_PING,
+        0,
+        encode_payload(ServerPingResponse(server_timestamp_unix_nanos=0xDEAD_BEEF)),
+    )
+
+    # The reader thread must answer with CLIENT_PONG on stream 0, echoing the
+    # server timestamp. This is the only frame the client sends.
+    f = read_frame(sock, buf)
+    assert f.opcode == Opcode.CLIENT_PONG, "SERVER_PING must be answered with CLIENT_PONG"
+    assert f.stream_id == 0, "CLIENT_PONG rides the connection stream 0"
+    pong = decode_payload(ClientPongRequest, f.payload)
+    assert pong.server_timestamp_unix_nanos == 0xDEAD_BEEF, "CLIENT_PONG echoes server ts"
+
+
+def test_server_ping_is_answered_with_client_pong() -> None:
+    host, port, server_thread, listener = _spawn(_serve_keepalive)
+    try:
+        hello = HelloPayload(
+            client_id="keepalive-test",
+            supported_versions=[1],
+            capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=False),
+            client_session_token=None,
+        )
+        auth = AuthPayload(method=AuthMethod.NONE, agent_id=new_id(), credentials=AuthCredentials.none())
+        # Hold `conn` (and its reader thread) alive while the server sends
+        # SERVER_PING and reads back the auto-replied CLIENT_PONG.
+        conn, _outcome = MuxConnection.connect(host, port, hello, auth)
+        server_thread.join(timeout=5)
+        assert not server_thread.is_alive(), "server did not observe a CLIENT_PONG"
+        conn.close()
     finally:
         listener.close()

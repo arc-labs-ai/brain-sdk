@@ -20,6 +20,7 @@ from __future__ import annotations
 import queue
 import socket
 import threading
+import time
 from dataclasses import dataclass
 
 from .errors import BrainTimeout, ConnectionClosed, ProtocolError, ServerError, VersionMismatch
@@ -29,8 +30,10 @@ from .wire.opcode import Opcode
 from .wire.types import (
     AuthOkPayload,
     AuthPayload,
+    ClientPongRequest,
     ErrorResponse,
     HelloPayload,
+    ServerPingResponse,
     SubscribeRequest,
     SubscriptionEvent,
     UnsubscribeRequest,
@@ -178,6 +181,27 @@ class MuxConnection:
             except Exception as exc:  # noqa: BLE001 — transport/codec failure ends the loop
                 self._fail_all(exc)
                 return
+            if frame.opcode == int(Opcode.SERVER_PING):
+                # Idle-timer heartbeat: answer with CLIENT_PONG on stream 0 so
+                # the server doesn't reap an otherwise-idle connection. The
+                # reply echoes the server timestamp (0 if the payload can't be
+                # decoded — the server only needs a frame to reset its timer).
+                # Best-effort: a write failure surfaces as the next read error.
+                try:
+                    server_ts = decode_payload(
+                        ServerPingResponse, frame.payload
+                    ).server_timestamp_unix_nanos
+                except Exception:  # noqa: BLE001 — tolerate a malformed heartbeat
+                    server_ts = 0
+                pong = ClientPongRequest(
+                    server_timestamp_unix_nanos=server_ts,
+                    client_timestamp_unix_nanos=time.time_ns(),
+                )
+                try:
+                    self._write(Opcode.CLIENT_PONG, HANDSHAKE_STREAM_ID, encode_payload(pong))
+                except Exception:  # noqa: BLE001 — closed socket ends the loop on next read
+                    pass
+                continue
             with self._routes_lock:
                 q = self._routes.get(frame.stream_id)
             # An unknown stream_id is a late frame for a cancelled/timed-out

@@ -20,6 +20,13 @@ class Opcode(IntEnum):
     AUTH_OK = 0x0082
     BYE = 0x001F
 
+    # Keepalive. SERVER_PING is the server's idle-timer heartbeat; the client
+    # MUST answer it with CLIENT_PONG or the server closes the connection.
+    PING = 0x0010
+    PONG = 0x0090
+    CLIENT_PONG = 0x0011
+    SERVER_PING = 0x0091
+
     # v1 cognitive verbs.
     ENCODE_REQ = 0x0020
     ENCODE_RESP = 0x00A0
