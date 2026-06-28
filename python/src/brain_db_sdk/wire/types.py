@@ -79,7 +79,6 @@ class StageKind:
 class AuthMethod:
     TOKEN = 0
     MTLS = 1
-    NONE = 2
 
 
 class RetrieverName:
@@ -168,8 +167,9 @@ class MtlsClaim:
 @dataclass
 class AuthCredentials:
     """Externally-tagged credential variant: ``Token(bytes)`` is a CBOR map
-    ``{"Token": [bytes...]}`` (the token is a Vec<u8> array), ``Mtls`` is
-    ``{"Mtls": {claim}}``, and ``None`` is the unit string ``"None"``.
+    ``{"Token": [bytes...]}`` (the token is a Vec<u8> array) and ``Mtls`` is
+    ``{"Mtls": {claim}}``. A credential is the connection's whole identity, so
+    there is no credential-less variant.
     """
 
     variant: str
@@ -183,13 +183,7 @@ class AuthCredentials:
     def mtls(cls, claim: MtlsClaim) -> "AuthCredentials":
         return cls("Mtls", claim)
 
-    @classmethod
-    def none(cls) -> "AuthCredentials":
-        return cls("None")
-
     def to_cbor_value(self) -> object:
-        if self.variant == "None":
-            return "None"
         if self.variant == "Token":
             return {"Token": list(self.value)}
         if self.variant == "Mtls":
@@ -198,8 +192,6 @@ class AuthCredentials:
 
     @classmethod
     def from_cbor_value(cls, v: object) -> "AuthCredentials":
-        if v == "None":
-            return cls("None")
         if isinstance(v, dict) and "Token" in v:
             return cls("Token", list(v["Token"]))
         if isinstance(v, dict) and "Mtls" in v:
@@ -209,14 +201,18 @@ class AuthCredentials:
 
 @dataclass
 class AuthPayload:
+    """The AUTH frame. Carries only the method and credential — the credential
+    is the connection's whole identity, and the server assigns the agent id and
+    namespace it resolves to (returned in AUTH_OK). The client never sends an
+    agent id.
+    """
+
     method: int
-    agent_id: bytes  # 16-byte byte string
     credentials: AuthCredentials
 
     def to_map(self) -> dict:
         return {
             "method": self.method,
-            "agent_id": self.agent_id,
             "credentials": self.credentials.to_cbor_value(),
         }
 
@@ -224,7 +220,6 @@ class AuthPayload:
     def from_map(cls, m: dict) -> "AuthPayload":
         return cls(
             m["method"],
-            m["agent_id"],
             AuthCredentials.from_cbor_value(m["credentials"]),
         )
 
@@ -318,6 +313,10 @@ class AuthOkPayload:
     agent_id: bytes
     bound_shard_id: int
     permissions: AgentPermissions
+    # Owning tenant the connection resolved to (server-derived from auth).
+    # Empty when the connection resolves to the reserved `brain` system
+    # namespace. Read-only — the client never sends a namespace.
+    namespace: str
     server_time_unix_nanos: int
 
     def to_map(self) -> dict:
@@ -325,6 +324,7 @@ class AuthOkPayload:
             "agent_id": self.agent_id,
             "bound_shard_id": self.bound_shard_id,
             "permissions": self.permissions.to_map(),
+            "namespace": self.namespace,
             "server_time_unix_nanos": self.server_time_unix_nanos,
         }
 
@@ -334,6 +334,8 @@ class AuthOkPayload:
             m["agent_id"],
             m["bound_shard_id"],
             AgentPermissions.from_map(m["permissions"]),
+            # Tolerate older servers that don't emit the field yet.
+            m.get("namespace", ""),
             m["server_time_unix_nanos"],
         )
 
@@ -444,23 +446,17 @@ class EdgeRequest:
 class EncodeRequest:
     text: str
     context_id: int  # u64
-    kind: int
-    salience_hint: float  # f32
-    edges: list[EdgeRequest]
     request_id: bytes  # 16-byte byte string
     txn_id: Optional[bytes]  # 16-byte byte string or None
-    deduplicate: bool
+    occurred_at_unix_nanos: Optional[int]  # event time, or None
 
     def to_map(self) -> dict:
         return {
             "text": self.text,
             "context_id": self.context_id,
-            "kind": self.kind,
-            "salience_hint": round_f32(self.salience_hint),
-            "edges": [e.to_map() for e in self.edges],
             "request_id": self.request_id,
             "txn_id": self.txn_id,
-            "deduplicate": self.deduplicate,
+            "occurred_at_unix_nanos": self.occurred_at_unix_nanos,
         }
 
     @classmethod
@@ -468,12 +464,9 @@ class EncodeRequest:
         return cls(
             m["text"],
             m["context_id"],
-            m["kind"],
-            m["salience_hint"],
-            [EdgeRequest.from_map(e) for e in m["edges"]],
             m["request_id"],
             m["txn_id"],
-            m["deduplicate"],
+            m["occurred_at_unix_nanos"],
         )
 
 
@@ -580,13 +573,29 @@ class EncodeResponse:
 # ===========================================================================
 
 
+class AnswerKind:
+    """The shape of a recall answer. Encoded as the variant-name string on
+    the wire.
+
+      * ``Single`` — exactly one memory answers the cue.
+      * ``Many``   — several memories answer the cue.
+      * ``None``   — nothing is stored that answers the cue.
+    """
+
+    SINGLE = "Single"
+    MANY = "Many"
+    NONE = "None"
+
+
 @dataclass
 class RecallRequest:
     cue_text: str
-    top_k: int
+    subject_name: str
+    max_results: int
     confidence_threshold: float  # f32
     context_filter: Optional[list[int]]
     age_bound_unix_nanos: Optional[int]
+    as_of_record_time_unix_nanos: Optional[int]
     kind_filter: Optional[list[int]]
     salience_floor: float  # f32
     include_edges: bool
@@ -600,12 +609,14 @@ class RecallRequest:
     def to_map(self) -> dict:
         return {
             "cue_text": self.cue_text,
-            "top_k": self.top_k,
+            "subject_name": self.subject_name,
+            "max_results": self.max_results,
             "confidence_threshold": round_f32(self.confidence_threshold),
             "context_filter": (
                 None if self.context_filter is None else list(self.context_filter)
             ),
             "age_bound_unix_nanos": self.age_bound_unix_nanos,
+            "as_of_record_time_unix_nanos": self.as_of_record_time_unix_nanos,
             "kind_filter": None if self.kind_filter is None else list(self.kind_filter),
             "salience_floor": round_f32(self.salience_floor),
             "include_edges": self.include_edges,
@@ -621,10 +632,12 @@ class RecallRequest:
     def from_map(cls, m: dict) -> "RecallRequest":
         return cls(
             m["cue_text"],
-            m["top_k"],
+            m["subject_name"],
+            m["max_results"],
             m["confidence_threshold"],
             None if m["context_filter"] is None else list(m["context_filter"]),
             m["age_bound_unix_nanos"],
+            m["as_of_record_time_unix_nanos"],
             None if m["kind_filter"] is None else list(m["kind_filter"]),
             m["salience_floor"],
             m["include_edges"],
@@ -744,6 +757,7 @@ class MemoryResult:
     lsn: int
     flags: int
     consolidated_at_unix_nanos: Optional[int]
+    occurred_at_unix_nanos: Optional[int]
     edges_out_count: int
     edges_in_count: int
     graph: Optional[GraphEnrichment]
@@ -769,6 +783,7 @@ class MemoryResult:
             "lsn": self.lsn,
             "flags": self.flags,
             "consolidated_at_unix_nanos": self.consolidated_at_unix_nanos,
+            "occurred_at_unix_nanos": self.occurred_at_unix_nanos,
             "edges_out_count": self.edges_out_count,
             "edges_in_count": self.edges_in_count,
             "graph": None if self.graph is None else self.graph.to_map(),
@@ -796,6 +811,7 @@ class MemoryResult:
             m["lsn"],
             m["flags"],
             m["consolidated_at_unix_nanos"],
+            m["occurred_at_unix_nanos"],
             m["edges_out_count"],
             m["edges_in_count"],
             None if m["graph"] is None else GraphEnrichment.from_map(m["graph"]),
@@ -804,14 +820,16 @@ class MemoryResult:
 
 @dataclass
 class RecallResponseFrame:
-    results: list[MemoryResult]
+    answer_kind: str  # AnswerKind variant-name string
+    memories: list[MemoryResult]
     is_final: bool
     cumulative_count: int
     estimated_remaining: Optional[int]
 
     def to_map(self) -> dict:
         return {
-            "results": [r.to_map() for r in self.results],
+            "answer_kind": self.answer_kind,
+            "memories": [r.to_map() for r in self.memories],
             "is_final": self.is_final,
             "cumulative_count": self.cumulative_count,
             "estimated_remaining": self.estimated_remaining,
@@ -820,11 +838,31 @@ class RecallResponseFrame:
     @classmethod
     def from_map(cls, m: dict) -> "RecallResponseFrame":
         return cls(
-            [MemoryResult.from_map(r) for r in m["results"]],
+            m["answer_kind"],
+            [MemoryResult.from_map(r) for r in m["memories"]],
             m["is_final"],
             m["cumulative_count"],
             m["estimated_remaining"],
         )
+
+
+@dataclass
+class RecallAnswer:
+    """A drained recall answer: the terminal frame's ``answer_kind`` plus the
+    ``memories`` concatenated across every streamed frame.
+
+    ``answer_kind`` says how to read it: ``Single`` / ``Many`` carry the
+    answering ``memories``; ``None`` carries an empty list (nothing stored
+    answers the cue).
+    """
+
+    answer_kind: str  # AnswerKind variant-name string
+    memories: list[MemoryResult]
+
+    @property
+    def is_empty(self) -> bool:
+        """True when nothing stored answers the cue."""
+        return self.answer_kind == AnswerKind.NONE or not self.memories
 
 
 # ===========================================================================
@@ -923,11 +961,55 @@ class ErrorResponse:
 
 
 class StatementKind:
-    """Statement kind. Encoded as the variant-name string on the wire."""
+    """Statement kind.
+
+    The six fieldless variants encode on the wire as their variant-name
+    string ("Fact"/"Preference"/"Event"/"Attribute"/"Relation"/"Directive").
+    The catch-all ``Custom(byte)`` encodes as a single-entry CBOR map
+    ``{"Custom": <int>}`` (ciborium newtype-variant form).
+
+    A ``kind`` field on a statement payload is therefore either a ``str``
+    (a fieldless variant) or a ``{"Custom": int}`` dict; both pass through
+    the CBOR codec unchanged. :meth:`custom` builds the dict form and
+    :meth:`from_storage_byte` / :meth:`to_storage_byte` map to the
+    storage-byte discriminant (0=Fact, 1=Preference, 2=Event, 3=Attribute,
+    4=Relation, 5=Directive, >=6 => Custom).
+    """
 
     FACT = "Fact"
     PREFERENCE = "Preference"
     EVENT = "Event"
+    ATTRIBUTE = "Attribute"
+    RELATION = "Relation"
+    DIRECTIVE = "Directive"
+
+    _BY_BYTE = {
+        0: "Fact",
+        1: "Preference",
+        2: "Event",
+        3: "Attribute",
+        4: "Relation",
+        5: "Directive",
+    }
+    _TO_BYTE = {name: b for b, name in _BY_BYTE.items()}
+
+    @staticmethod
+    def custom(byte: int) -> dict:
+        """The wire value for a ``Custom`` statement kind."""
+        return {"Custom": byte}
+
+    @classmethod
+    def from_storage_byte(cls, byte: int):
+        """Map a storage-byte discriminant to a wire ``kind`` value."""
+        name = cls._BY_BYTE.get(byte)
+        return name if name is not None else cls.custom(byte)
+
+    @classmethod
+    def to_storage_byte(cls, kind) -> int:
+        """Map a wire ``kind`` value back to its storage-byte discriminant."""
+        if isinstance(kind, dict) and "Custom" in kind:
+            return kind["Custom"]
+        return cls._TO_BYTE[kind]
 
 
 @dataclass
@@ -1312,6 +1394,7 @@ class QueryRequest:
     kind_filter: list[int]  # Vec<u8> -> array of ints
     predicate_filter: list[str]
     time_filter: Optional[TimeRange]
+    as_of_record_time_unix_nanos: Optional[int]
     confidence_min: Optional[float]  # f32 or None
     include_tombstoned: bool
     include_superseded: bool
@@ -1327,6 +1410,7 @@ class QueryRequest:
             "kind_filter": list(self.kind_filter),
             "predicate_filter": list(self.predicate_filter),
             "time_filter": None if self.time_filter is None else self.time_filter.to_map(),
+            "as_of_record_time_unix_nanos": self.as_of_record_time_unix_nanos,
             "confidence_min": (
                 None if self.confidence_min is None else round_f32(self.confidence_min)
             ),
@@ -1346,6 +1430,7 @@ class QueryRequest:
             list(m["kind_filter"]),
             list(m["predicate_filter"]),
             None if m["time_filter"] is None else TimeRange.from_map(m["time_filter"]),
+            m["as_of_record_time_unix_nanos"],
             m["confidence_min"],
             m["include_tombstoned"],
             m["include_superseded"],

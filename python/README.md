@@ -29,7 +29,9 @@ from brain_db_sdk import (
 
 with BrainClient.connect("127.0.0.1", 7878) as client:
     stored = client.encode(EncodeBuilder("the user prefers dark mode").build())
-    hits = client.recall(RecallBuilder("ui preferences").limit(5).build())
+    answer = client.recall(RecallBuilder("ui preferences").limit(5).build())
+    # answer.answer_kind is Single/Set (fact answer.values) or Episodic
+    # (memory answer.results); NoSubject/NoMemory means "don't know".
     # Ride out transient ResourceExhausted/Unavailable; the stable request_id
     # makes the resend idempotent.
     req = ForgetBuilder(stored.memory_id).build()

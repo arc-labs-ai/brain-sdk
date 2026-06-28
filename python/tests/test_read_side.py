@@ -16,7 +16,7 @@ import socket
 import threading
 import uuid
 
-from brain_db_sdk import BrainClient
+from brain_db_sdk import Auth, BrainClient
 from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
@@ -93,6 +93,9 @@ ENTITY_ID = b"\x11" * 16
 STATEMENT_ID = b"\x22" * 16
 RELATION_ID = b"\x33" * 16
 TXN_ID = b"\x44" * 16
+
+# The server assigns the agent id from the credential; the client never sends one.
+SERVER_AGENT_ID = b"\x22" * 16
 
 
 def _rid() -> bytes:
@@ -336,9 +339,10 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     auth_frame = read_frame(sock, buf)
     auth = decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=auth.agent_id,
+        agent_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(True, True, True, True, True, True),
+        namespace="",
         server_time_unix_nanos=1,
     )
     _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
@@ -573,7 +577,7 @@ def _spawn(handler) -> tuple[str, int, threading.Thread, socket.socket]:
 def test_read_edge_cognitive_txn_verbs() -> None:
     host, port, thread, listener = _spawn(_serve_read_side)
     try:
-        client = BrainClient.connect(host, port)
+        client = BrainClient.connect(host, port, Auth.token(b"opaque-token"))
 
         caps = client.capabilities()
         assert caps.capabilities.vector_dim == 384

@@ -11,12 +11,13 @@ from __future__ import annotations
 import socket
 import threading
 
-from brain_db_sdk import BrainClient, ForgetBuilder, RecallBuilder
+from brain_db_sdk import Auth, BrainClient, ForgetBuilder, RecallBuilder
 from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
     AgentPermissions,
+    AnswerKind,
     AuthOkPayload,
     AuthPayload,
     ForgetMode,
@@ -37,6 +38,10 @@ from brain_db_sdk.wire.types import (
 def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes, eos: bool = True) -> None:
     flags = FLAG_EOS if eos else 0
     write_frame(sock, Frame(opcode=int(opcode), flags=flags, stream_id=stream_id, payload=payload))
+
+
+# The server assigns the agent id from the credential; the client never sends one.
+SERVER_AGENT_ID = b"\x22" * 16
 
 
 def _sample_result(tag: int, text: str) -> MemoryResult:
@@ -60,6 +65,7 @@ def _sample_result(tag: int, text: str) -> MemoryResult:
         lsn=1,
         flags=0,
         consolidated_at_unix_nanos=None,
+        occurred_at_unix_nanos=None,
         edges_out_count=0,
         edges_in_count=0,
         graph=None,
@@ -87,9 +93,9 @@ def _serve_recall_forget(sock: socket.socket) -> None:
     _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
 
     auth_frame = read_frame(sock, buf)
-    auth = decode_payload(AuthPayload, auth_frame.payload)
+    decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=auth.agent_id,
+        agent_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -99,6 +105,7 @@ def _serve_recall_forget(sock: socket.socket) -> None:
             can_forget=True,
             can_admin=False,
         ),
+        namespace="",
         server_time_unix_nanos=1,
     )
     _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
@@ -111,7 +118,8 @@ def _serve_recall_forget(sock: socket.socket) -> None:
     sid = recall_frame.stream_id
 
     first = RecallResponseFrame(
-        results=[_sample_result(0xAA, "first hit")],
+        answer_kind=AnswerKind.MANY,
+        memories=[_sample_result(0xAA, "first hit")],
         is_final=False,
         cumulative_count=1,
         estimated_remaining=1,
@@ -119,7 +127,8 @@ def _serve_recall_forget(sock: socket.socket) -> None:
     _write(sock, Opcode.RECALL_RESP, sid, encode_payload(first), eos=False)
 
     second = RecallResponseFrame(
-        results=[_sample_result(0xBB, "second hit")],
+        answer_kind=AnswerKind.MANY,
+        memories=[_sample_result(0xBB, "second hit")],
         is_final=True,
         cumulative_count=2,
         estimated_remaining=0,
@@ -158,12 +167,13 @@ def _spawn_server(handler) -> tuple[str, int, threading.Thread, socket.socket]:
 def test_recall_streams_and_flattens_then_forget() -> None:
     host, port, thread, listener = _spawn_server(_serve_recall_forget)
     try:
-        client = BrainClient.connect(host, port)
+        client = BrainClient.connect(host, port, Auth.token(b"opaque-token"))
 
-        results = client.recall(RecallBuilder("dark mode").limit(5).build())
-        assert len(results) == 2
-        assert results[0].text == "first hit"
-        assert results[1].text == "second hit"
+        answer = client.recall(RecallBuilder("dark mode").limit(5).build())
+        assert answer.answer_kind == AnswerKind.MANY
+        assert len(answer.memories) == 2
+        assert answer.memories[0].text == "first hit"
+        assert answer.memories[1].text == "second hit"
 
         resp = client.forget(ForgetBuilder(0xAA).build())
         assert resp.memory_id == 0xAA
@@ -178,7 +188,8 @@ def test_recall_streams_and_flattens_then_forget() -> None:
 
 def test_builder_defaults_are_sane() -> None:
     recall = RecallBuilder("hi").build()
-    assert recall.top_k == 10
+    assert recall.max_results == 10
+    assert recall.subject_name == ""
     assert recall.include_text
     assert recall.include_edges
     assert not recall.include_other_agents

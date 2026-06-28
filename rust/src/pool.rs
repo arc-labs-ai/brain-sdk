@@ -21,7 +21,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::client::{BrainClient, ClientConfig};
+use crate::client::{Auth, BrainClient, ClientConfig};
 use crate::error::{BrainError, Result};
 
 /// A fixed-size set of [`BrainClient`] connections handed out round-robin.
@@ -31,17 +31,18 @@ pub struct Pool {
 }
 
 impl Pool {
-    /// Open `size` connections to `addr`, each with the default configuration,
-    /// and run every handshake. Fails (closing any already-opened members) if
-    /// `size` is 0 or any connection's handshake fails.
-    pub async fn connect(addr: SocketAddr, size: usize) -> Result<Self> {
-        Self::connect_with(addr, size, &ClientConfig::default()).await
+    /// Open `size` connections to `addr` with the given credential and default
+    /// transport settings, and run every handshake. Fails (closing any
+    /// already-opened members) if `size` is 0 or any connection's handshake
+    /// fails.
+    pub async fn connect(addr: SocketAddr, size: usize, auth: Auth) -> Result<Self> {
+        Self::connect_with(addr, size, &ClientConfig::new(auth)).await
     }
 
     /// Open `size` connections to `addr` with an explicit configuration
-    /// template, cloned per connection. Each member runs its own handshake; a
-    /// fresh agent id is minted per member (so they are distinguishable
-    /// server-side) unless the template pins one.
+    /// template, cloned per connection. Each member runs its own handshake.
+    /// All members share the template's credential, so the server binds them to
+    /// the same agent; they remain individually identifiable by session id.
     pub async fn connect_with(
         addr: SocketAddr,
         size: usize,
@@ -54,10 +55,7 @@ impl Pool {
         }
         let mut clients = Vec::with_capacity(size);
         for _ in 0..size {
-            let mut cfg = config.clone();
-            // Distinct agent per socket unless the caller pinned one — keeps
-            // pooled connections individually identifiable in server logs.
-            cfg.agent_id = crate::client::new_id();
+            let cfg = config.clone();
             match BrainClient::connect_with(addr, cfg).await {
                 Ok(client) => clients.push(Arc::new(client)),
                 Err(e) => {

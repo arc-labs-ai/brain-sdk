@@ -32,7 +32,7 @@ pub mod transport;
 pub mod verbs;
 pub mod wire;
 
-pub use client::{new_id, Auth, BrainClient, ClientConfig, SessionInfo};
+pub use client::{new_id, Auth, BrainClient, ClientConfig, RecallAnswer, SessionInfo};
 pub use connection::{Connection, HandshakeOutcome};
 pub use error::{BrainError, Result};
 pub use mux::{MuxConnection, Subscription};

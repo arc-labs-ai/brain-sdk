@@ -130,7 +130,6 @@ export enum StageKind {
 export enum AuthMethod {
   Token = 0,
   Mtls = 1,
-  None = 2,
 }
 
 export enum RetrieverNameWire {
@@ -280,8 +279,7 @@ export function decodeWelcome(bytes: Uint8Array): WelcomePayload {
  */
 export type AuthCredentials =
   | { kind: "Token"; token: Uint8Array }
-  | { kind: "Mtls"; certFingerprint: Uint8Array; assertedSubject: string }
-  | { kind: "None" };
+  | { kind: "Mtls"; certFingerprint: Uint8Array; assertedSubject: string };
 
 function encodeCredentials(c: AuthCredentials): unknown {
   switch (c.kind) {
@@ -299,14 +297,10 @@ function encodeCredentials(c: AuthCredentials): unknown {
           ]),
         ],
       ]);
-    case "None":
-      // A unit variant serializes as the bare variant-name string.
-      return "None";
   }
 }
 
 function decodeCredentials(value: unknown): AuthCredentials {
-  if (value === "None") return { kind: "None" };
   const m = asMap(value);
   if (m.has("Token")) {
     return { kind: "Token", token: Uint8Array.from(asArray(m.get("Token")).map(asNum)) };
@@ -322,9 +316,13 @@ function decodeCredentials(value: unknown): AuthCredentials {
   throw new CborError("unknown AuthCredentials variant");
 }
 
+/**
+ * An AUTH frame. The credential is the connection's whole identity — the
+ * server resolves `(namespace, agent, permissions)` from it and assigns the
+ * agent id. The client never sends an agent id.
+ */
 export interface AuthPayload {
   method: AuthMethod;
-  agentId: WireUuid;
   credentials: AuthCredentials;
 }
 
@@ -332,7 +330,6 @@ export function encodeAuth(p: AuthPayload): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
       ["method", p.method as number],
-      ["agent_id", p.agentId],
       ["credentials", encodeCredentials(p.credentials)],
     ]),
   );
@@ -342,7 +339,6 @@ export function decodeAuth(bytes: Uint8Array): AuthPayload {
   const m = asMap(fromCbor(bytes));
   return {
     method: asNum(field(m, "method")) as AuthMethod,
-    agentId: asBytes(field(m, "agent_id")),
     credentials: decodeCredentials(field(m, "credentials")),
   };
 }
@@ -360,6 +356,10 @@ export interface AuthOkPayload {
   agentId: WireUuid;
   boundShardId: number;
   permissions: AgentPermissions;
+  /** Owning tenant the connection resolved to (server-derived from auth).
+   * Empty when the connection resolves to the reserved `brain` system
+   * namespace. Read-only — the client never sends a namespace. */
+  namespace: string;
   serverTimeUnixNanos: bigint;
 }
 
@@ -380,6 +380,7 @@ export function encodeAuthOk(p: AuthOkPayload): Uint8Array {
           ["can_admin", perm.canAdmin],
         ]),
       ],
+      ["namespace", p.namespace],
       ["server_time_unix_nanos", p.serverTimeUnixNanos],
     ]),
   );
@@ -399,6 +400,8 @@ export function decodeAuthOk(bytes: Uint8Array): AuthOkPayload {
       canForget: asBool(field(perm, "can_forget")),
       canAdmin: asBool(field(perm, "can_admin")),
     },
+    // Tolerate older servers that don't emit the field yet.
+    namespace: m.has("namespace") ? asStr(field(m, "namespace")) : "",
     serverTimeUnixNanos: asBig(field(m, "server_time_unix_nanos")),
   };
 }
@@ -511,12 +514,9 @@ function decodeEdge(value: unknown): EdgeRequest {
 export interface EncodeRequest {
   text: string;
   contextId: bigint;
-  kind: MemoryKindWire;
-  salienceHint: number;
-  edges: EdgeRequest[];
   requestId: WireUuid;
   txnId: WireUuid | null;
-  deduplicate: boolean;
+  occurredAtUnixNanos: bigint | null;
 }
 
 export function encodeEncode(p: EncodeRequest): Uint8Array {
@@ -524,12 +524,9 @@ export function encodeEncode(p: EncodeRequest): Uint8Array {
     new Map<string, unknown>([
       ["text", p.text],
       ["context_id", p.contextId],
-      ["kind", p.kind as number],
-      ["salience_hint", f32(p.salienceHint)],
-      ["edges", p.edges.map(encodeEdge)],
       ["request_id", p.requestId],
       ["txn_id", p.txnId],
-      ["deduplicate", p.deduplicate],
+      ["occurred_at_unix_nanos", p.occurredAtUnixNanos],
     ]),
   );
 }
@@ -539,12 +536,9 @@ export function decodeEncode(bytes: Uint8Array): EncodeRequest {
   return {
     text: asStr(field(m, "text")),
     contextId: asBig(field(m, "context_id")),
-    kind: asNum(field(m, "kind")) as MemoryKindWire,
-    salienceHint: asNum(field(m, "salience_hint")),
-    edges: asArray(field(m, "edges")).map(decodeEdge),
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
-    deduplicate: asBool(field(m, "deduplicate")),
+    occurredAtUnixNanos: asOpt(field(m, "occurred_at_unix_nanos"), asBig),
   };
 }
 
@@ -660,12 +654,21 @@ export function decodeEncodeResponse(bytes: Uint8Array): EncodeResponse {
 // RECALL.
 // ---------------------------------------------------------------------------
 
+/**
+ * What kind of answer RECALL produced. On the wire this is the variant-name
+ * text string. `None` is the "don't know" outcome; `Single` resolves to one
+ * memory; `Many` carries several ranked memories.
+ */
+export type AnswerKind = "Single" | "Many" | "None";
+
 export interface RecallRequest {
   cueText: string;
-  topK: number;
+  subjectName: string;
+  maxResults: number;
   confidenceThreshold: number;
   contextFilter: bigint[] | null;
   ageBoundUnixNanos: bigint | null;
+  asOfRecordTimeUnixNanos: bigint | null;
   kindFilter: MemoryKindWire[] | null;
   salienceFloor: number;
   includeEdges: boolean;
@@ -681,10 +684,12 @@ export function encodeRecall(p: RecallRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
       ["cue_text", p.cueText],
-      ["top_k", p.topK],
+      ["subject_name", p.subjectName],
+      ["max_results", p.maxResults],
       ["confidence_threshold", f32(p.confidenceThreshold)],
       ["context_filter", p.contextFilter === null ? null : p.contextFilter],
       ["age_bound_unix_nanos", p.ageBoundUnixNanos],
+      ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
       ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k as number)],
       ["salience_floor", f32(p.salienceFloor)],
       ["include_edges", p.includeEdges],
@@ -702,10 +707,12 @@ export function decodeRecall(bytes: Uint8Array): RecallRequest {
   const m = asMap(fromCbor(bytes));
   return {
     cueText: asStr(field(m, "cue_text")),
-    topK: asNum(field(m, "top_k")),
+    subjectName: asStr(field(m, "subject_name")),
+    maxResults: asNum(field(m, "max_results")),
     confidenceThreshold: asNum(field(m, "confidence_threshold")),
     contextFilter: asOpt(field(m, "context_filter"), (v) => asArray(v).map(asBig)),
     ageBoundUnixNanos: asOpt(field(m, "age_bound_unix_nanos"), asBig),
+    asOfRecordTimeUnixNanos: asOpt(field(m, "as_of_record_time_unix_nanos"), asBig),
     kindFilter: asOpt(field(m, "kind_filter"), (v) =>
       asArray(v).map((k) => asNum(k) as MemoryKindWire),
     ),
@@ -820,6 +827,7 @@ export interface MemoryResult {
   lsn: bigint;
   flags: number;
   consolidatedAtUnixNanos: bigint | null;
+  occurredAtUnixNanos: bigint | null;
   edgesOutCount: number;
   edgesInCount: number;
   graph: GraphEnrichment | null;
@@ -846,6 +854,7 @@ function encodeMemoryResult(r: MemoryResult): Map<string, unknown> {
     ["lsn", r.lsn],
     ["flags", r.flags],
     ["consolidated_at_unix_nanos", r.consolidatedAtUnixNanos],
+    ["occurred_at_unix_nanos", r.occurredAtUnixNanos],
     ["edges_out_count", r.edgesOutCount],
     ["edges_in_count", r.edgesInCount],
     ["graph", r.graph === null ? null : encodeGraph(r.graph)],
@@ -917,14 +926,26 @@ function decodeMemoryResult(value: unknown): MemoryResult {
     lsn: asBig(field(m, "lsn")),
     flags: asNum(field(m, "flags")),
     consolidatedAtUnixNanos: asOpt(field(m, "consolidated_at_unix_nanos"), asBig),
+    occurredAtUnixNanos: asOpt(field(m, "occurred_at_unix_nanos"), asBig),
     edgesOutCount: asNum(field(m, "edges_out_count")),
     edgesInCount: asNum(field(m, "edges_in_count")),
     graph: asOpt(field(m, "graph"), decodeGraph),
   };
 }
 
+/**
+ * The drained result of a RECALL: the final frame's `answerKind` with every
+ * frame's `memories` concatenated. `answerKind` says how to read them — `Single`
+ * resolves to one memory, `Many` to several, `None` to a "don't know".
+ */
+export interface RecallAnswer {
+  answerKind: AnswerKind;
+  memories: MemoryResult[];
+}
+
 export interface RecallResponseFrame {
-  results: MemoryResult[];
+  answerKind: AnswerKind;
+  memories: MemoryResult[];
   isFinal: boolean;
   cumulativeCount: number;
   estimatedRemaining: number | null;
@@ -933,7 +954,8 @@ export interface RecallResponseFrame {
 export function encodeRecallResponse(p: RecallResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
-      ["results", p.results.map(encodeMemoryResult)],
+      ["answer_kind", p.answerKind],
+      ["memories", p.memories.map(encodeMemoryResult)],
       ["is_final", p.isFinal],
       ["cumulative_count", p.cumulativeCount],
       ["estimated_remaining", p.estimatedRemaining],
@@ -944,7 +966,8 @@ export function encodeRecallResponse(p: RecallResponseFrame): Uint8Array {
 export function decodeRecallResponse(bytes: Uint8Array): RecallResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
-    results: asArray(field(m, "results")).map(decodeMemoryResult),
+    answerKind: asStr(field(m, "answer_kind")) as AnswerKind,
+    memories: asArray(field(m, "memories")).map(decodeMemoryResult),
     isFinal: asBool(field(m, "is_final")),
     cumulativeCount: asNum(field(m, "cumulative_count")),
     estimatedRemaining: asOpt(field(m, "estimated_remaining"), asNum),
@@ -1069,8 +1092,48 @@ export function decodeError(bytes: Uint8Array): ErrorResponse {
 // Typed-graph payloads.
 // ---------------------------------------------------------------------------
 
-/** Statement kind. Encodes as a variant-name text string, not an integer. */
-export type StatementKindWire = "Fact" | "Preference" | "Event";
+/**
+ * Statement kind. The fieldless variants encode as a variant-name text string
+ * ("Fact"/"Preference"/"Event"/"Attribute"/"Relation"/"Directive"); the
+ * open-ended `Custom` variant carries a single storage byte and encodes as a
+ * one-entry CBOR map `{"Custom": <byte>}` (ciborium newtype-variant). The
+ * storage-byte map is 0=Fact, 1=Preference, 2=Event, 3=Attribute, 4=Relation,
+ * 5=Directive, and >=6 ⇒ Custom(byte).
+ */
+export type StatementKindWire =
+  | "Fact"
+  | "Preference"
+  | "Event"
+  | "Attribute"
+  | "Relation"
+  | "Directive"
+  | { Custom: number };
+
+function encodeStatementKind(k: StatementKindWire): unknown {
+  // A fieldless variant is the bare variant-name string; `Custom` is the
+  // ciborium newtype-variant one-entry map.
+  if (typeof k === "string") return k;
+  return new Map<string, unknown>([["Custom", k.Custom]]);
+}
+
+function decodeStatementKind(value: unknown): StatementKindWire {
+  if (typeof value === "string") {
+    switch (value) {
+      case "Fact":
+      case "Preference":
+      case "Event":
+      case "Attribute":
+      case "Relation":
+      case "Directive":
+        return value;
+      default:
+        throw new CborError(`unknown StatementKind variant: ${value}`);
+    }
+  }
+  const m = asMap(value);
+  if (m.has("Custom")) return { Custom: asNum(m.get("Custom")) };
+  throw new CborError("unknown StatementKind variant");
+}
 
 /** Scalar object value. Externally tagged (one-entry map keyed by variant). */
 export type StatementValueWire =
@@ -1220,7 +1283,7 @@ export interface StatementCreateRequest {
 export function encodeStatementCreate(p: StatementCreateRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
-      ["kind", p.kind],
+      ["kind", encodeStatementKind(p.kind)],
       ["subject", p.subject],
       ["predicate", p.predicate],
       ["object", encodeStatementObject(p.object)],
@@ -1239,7 +1302,7 @@ export function encodeStatementCreate(p: StatementCreateRequest): Uint8Array {
 export function decodeStatementCreate(bytes: Uint8Array): StatementCreateRequest {
   const m = asMap(fromCbor(bytes));
   return {
-    kind: asStr(field(m, "kind")) as StatementKindWire,
+    kind: decodeStatementKind(field(m, "kind")),
     subject: asBytes(field(m, "subject")),
     predicate: asStr(field(m, "predicate")),
     object: decodeStatementObject(field(m, "object")),
@@ -1469,6 +1532,7 @@ export interface QueryRequest {
   kindFilter: number[];
   predicateFilter: string[];
   timeFilter: TimeRangeWire | null;
+  asOfRecordTimeUnixNanos: bigint | null;
   confidenceMin: number | null;
   includeTombstoned: boolean;
   includeSuperseded: boolean;
@@ -1494,6 +1558,7 @@ export function encodeQuery(p: QueryRequest): Uint8Array {
               ["to_unix_ms", p.timeFilter.toUnixMs],
             ]),
       ],
+      ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
       ["confidence_min", p.confidenceMin === null ? null : f32(p.confidenceMin)],
       ["include_tombstoned", p.includeTombstoned],
       ["include_superseded", p.includeSuperseded],
@@ -1529,6 +1594,7 @@ export function decodeQuery(bytes: Uint8Array): QueryRequest {
         toUnixMs: asOpt(field(ti, "to_unix_ms"), asBig),
       };
     }),
+    asOfRecordTimeUnixNanos: asOpt(field(m, "as_of_record_time_unix_nanos"), asBig),
     confidenceMin: asOpt(field(m, "confidence_min"), asNum),
     includeTombstoned: asBool(field(m, "include_tombstoned")),
     includeSuperseded: asBool(field(m, "include_superseded")),
@@ -2657,7 +2723,7 @@ export interface StatementView {
 function encodeStatementView(s: StatementView): Map<string, unknown> {
   return new Map<string, unknown>([
     ["statement_id", s.statementId],
-    ["kind", s.kind],
+    ["kind", encodeStatementKind(s.kind)],
     ["subject", s.subject],
     ["subject_pending_audit_id", s.subjectPendingAuditId],
     ["predicate", s.predicate],
@@ -2686,7 +2752,7 @@ function decodeStatementView(value: unknown): StatementView {
   const m = asMap(value);
   return {
     statementId: asBytes(field(m, "statement_id")),
-    kind: asStr(field(m, "kind")) as StatementKindWire,
+    kind: decodeStatementKind(field(m, "kind")),
     subject: asBytes(field(m, "subject")),
     subjectPendingAuditId: asBytes(field(m, "subject_pending_audit_id")),
     predicate: asStr(field(m, "predicate")),

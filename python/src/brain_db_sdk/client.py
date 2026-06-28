@@ -19,6 +19,7 @@ from .mux import MuxConnection, Subscription
 from .wire.opcode import Opcode
 from .wire.types import (
     AgentPermissions,
+    AnswerKind,
     AuthCredentials,
     AuthMethod,
     AuthPayload,
@@ -53,6 +54,7 @@ from .wire.types import (
     QueryResponse,
     ReasonRequest,
     ReasonResponseFrame,
+    RecallAnswer,
     RecallRequest,
     RecallResponseFrame,
     RelationCreateRequest,
@@ -103,15 +105,13 @@ def new_id() -> bytes:
 
 @dataclass(frozen=True)
 class Auth:
-    """How the client authenticates after WELCOME."""
+    """How the client authenticates after WELCOME. Auth is mandatory: there is
+    no anonymous mode. The credential is the connection's whole identity — the
+    server resolves ``(namespace, agent, permissions)`` from it and refuses any
+    connection it cannot resolve."""
 
     method: AuthMethod
     credentials: AuthCredentials
-
-    @staticmethod
-    def anonymous() -> "Auth":
-        """Anonymous — only succeeds when the server allows it (dev/local)."""
-        return Auth(AuthMethod.NONE, AuthCredentials.none())
 
     @staticmethod
     def token(token: bytes) -> "Auth":
@@ -126,18 +126,19 @@ class Auth:
 
 @dataclass
 class ClientConfig:
-    """Connection configuration. The defaults suit a local/dev server:
-    anonymous auth, wire version 1, streaming advertised."""
+    """Connection configuration. ``auth`` is mandatory — the credential is the
+    connection's identity and the server assigns the agent and namespace; a
+    config cannot be built without one. The remaining fields default to a
+    local/dev server: wire version 1, streaming advertised."""
 
+    auth: Auth
     client_id: str = DEFAULT_CLIENT_ID
-    agent_id: bytes = field(default_factory=new_id)
     supported_versions: list[int] = field(default_factory=lambda: [1])
     capabilities: HelloCapabilities = field(
         default_factory=lambda: HelloCapabilities(
             streaming=True, compression_zstd=False, server_push=False
         )
     )
-    auth: Auth = field(default_factory=Auth.anonymous)
     connect_timeout: float | None = 10.0
     request_timeout: float | None = 30.0
 
@@ -152,6 +153,10 @@ class SessionInfo:
     session_id: bytes
     bound_shard_id: int
     permissions: AgentPermissions
+    # Owning tenant the server bound this connection to (server-derived from
+    # auth). Empty when the connection resolves to the reserved `brain` system
+    # namespace. Read-only — the client never sends a namespace.
+    namespace: str
     server_features: ServerFeatures
 
 
@@ -172,11 +177,24 @@ class BrainClient:
         cls,
         host: str,
         port: int,
-        config: ClientConfig | None = None,
+        auth: Auth,
     ) -> "BrainClient":
-        """Connect to ``host:port``, run the handshake, and return the
-        bound client."""
-        config = config or ClientConfig()
+        """Connect to ``host:port`` with the given credential and default
+        transport settings, run the handshake, and return the bound client. The
+        credential is mandatory — the server resolves the connection's identity
+        from it. For full control over the configuration, use
+        :meth:`connect_with`."""
+        return cls.connect_with(host, port, ClientConfig(auth=auth))
+
+    @classmethod
+    def connect_with(
+        cls,
+        host: str,
+        port: int,
+        config: ClientConfig,
+    ) -> "BrainClient":
+        """Connect to ``host:port`` with an explicit configuration, run the
+        handshake, and return the bound client."""
         hello = HelloPayload(
             client_id=config.client_id,
             supported_versions=list(config.supported_versions),
@@ -185,7 +203,6 @@ class BrainClient:
         )
         auth = AuthPayload(
             method=config.auth.method,
-            agent_id=config.agent_id,
             credentials=config.auth.credentials,
         )
         conn, outcome = MuxConnection.connect(
@@ -208,6 +225,7 @@ class BrainClient:
             session_id=outcome.welcome.session_id,
             bound_shard_id=outcome.auth_ok.bound_shard_id,
             permissions=permissions,
+            namespace=outcome.auth_ok.namespace,
             server_features=outcome.welcome.server_features,
         )
         return cls(conn, session)
@@ -222,6 +240,13 @@ class BrainClient:
         """The agent id this connection acts as."""
         return self._session.agent_id
 
+    @property
+    def namespace(self) -> str:
+        """The owning tenant the server bound this connection to (server-derived
+        from auth). Empty when the connection resolves to the reserved ``brain``
+        system namespace. Read-only — the client never sends a namespace."""
+        return self._session.namespace
+
     def encode(self, request: EncodeRequest) -> EncodeResponse:
         """Store a memory from text. A minimal typed round-trip over the
         connection; the ergonomic request builder lands in a later phase."""
@@ -233,16 +258,24 @@ class BrainClient:
             )
         return decode_payload(EncodeResponse, frame.payload)
 
-    def recall(self, request: RecallRequest) -> list[MemoryResult]:
-        """Retrieve memories by cue. RECALL streams one or more ``RECALL_RESP``
-        frames terminated by EOS; this collects them and flattens every frame's
-        ``results`` into one ordered list. For the raw streamed frames
-        (cumulative counts, ``estimated_remaining``), use :meth:`recall_frames`.
+    def recall(self, request: RecallRequest) -> RecallAnswer:
+        """Retrieve the memory for a cue. RECALL streams one or more
+        ``RECALL_RESP`` frames terminated by EOS; this drains them into a
+        :class:`RecallAnswer` whose ``answer_kind`` is the terminal frame's and
+        whose ``memories`` are concatenated across every frame.
+
+        ``answer_kind`` says how to read it: ``Single`` / ``Many`` carry the
+        answering ``memories``; ``None`` carries an empty list (nothing stored
+        answers the cue). Use :meth:`recall_frames` for the raw streamed frames
+        (cumulative counts, ``estimated_remaining``).
         """
-        results: list[MemoryResult] = []
-        for frame in self.recall_frames(request):
-            results.extend(frame.results)
-        return results
+        frames = self.recall_frames(request)
+        memories: list[MemoryResult] = []
+        answer_kind = AnswerKind.NONE
+        for frame in frames:
+            memories.extend(frame.memories)
+            answer_kind = frame.answer_kind
+        return RecallAnswer(answer_kind=answer_kind, memories=memories)
 
     def recall_frames(self, request: RecallRequest) -> list[RecallResponseFrame]:
         """Retrieve memories by cue, returning each decoded ``RECALL_RESP``

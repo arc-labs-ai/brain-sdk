@@ -10,6 +10,7 @@ import * as net from "node:net";
 
 import { BrainClient } from "../src/client.js";
 import { newId } from "../src/client.js";
+import { SERVER_AGENT_ID, TEST_AUTH } from "./_auth.js";
 import { FrameChannel } from "../src/transport.js";
 import { FLAG_EOS } from "../src/wire/frame.js";
 import { Opcode } from "../src/wire/opcode.js";
@@ -76,9 +77,9 @@ async function serveGraph(sock: net.Socket): Promise<void> {
   await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
 
   const authFrame = await chan.read();
-  const auth = decodeAuth(authFrame.payload);
+  decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -88,6 +89,7 @@ async function serveGraph(sock: net.Socket): Promise<void> {
       canForget: true,
       canAdmin: true,
     },
+    namespace: "",
     serverTimeUnixNanos: 1n,
   };
   await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
@@ -162,7 +164,7 @@ describe("typed-graph verbs", () => {
   it("round-trip ENTITY/STATEMENT/RELATION/SCHEMA/QUERY/MATERIALIZE", async () => {
     const { server, port } = await startServer(serveGraph);
     try {
-      const client = await BrainClient.connect("127.0.0.1", port);
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
       const entity = await client.createEntity({
         entityTypeId: 1,
@@ -219,6 +221,7 @@ describe("typed-graph verbs", () => {
         kindFilter: [],
         predicateFilter: [],
         timeFilter: null,
+        asOfRecordTimeUnixNanos: null,
         confidenceMin: null,
         includeTombstoned: false,
         includeSuperseded: false,

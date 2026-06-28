@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import * as net from "node:net";
 
 import { newId } from "../src/client.js";
+import { SERVER_AGENT_ID, TEST_AUTH } from "./_auth.js";
 import { ProtocolError } from "../src/errors.js";
 import { Pool } from "../src/pool.js";
 import { FrameChannel } from "../src/transport.js";
@@ -50,9 +51,9 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
   await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
 
   const authFrame = await chan.read();
-  const auth = decodeAuth(authFrame.payload);
+  decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -62,6 +63,7 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
       canForget: true,
       canAdmin: false,
     },
+    namespace: "",
     serverTimeUnixNanos: 1n,
   };
   await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
@@ -82,9 +84,9 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
       salience: 0.5,
       autoEdgesAdded: 0,
       lsn: 1n,
-      agentId: auth.agentId,
+      agentId: SERVER_AGENT_ID,
       contextId: req.contextId,
-      kind: req.kind,
+      kind: MemoryKindWire.Semantic,
       createdAtUnixNanos: 1n,
       edgesOutCount: 0,
       embeddingModelFp: new Uint8Array(16),
@@ -104,12 +106,9 @@ function request(): EncodeRequest {
   return {
     text: "pooled",
     contextId: 1n,
-    kind: MemoryKindWire.Semantic,
-    salienceHint: 0.5,
-    edges: [],
     requestId: newId(),
     txnId: null,
-    deduplicate: true,
+    occurredAtUnixNanos: null,
   };
 }
 
@@ -127,7 +126,7 @@ describe("connection pool", () => {
     const port = (server.address() as net.AddressInfo).port;
 
     try {
-      const pool = await Pool.connect("127.0.0.1", port, size);
+      const pool = await Pool.connect("127.0.0.1", port, size, { auth: TEST_AUTH });
       expect(pool.size()).toBe(size);
 
       // Three round-robin encodes should touch three distinct sockets, so the
@@ -148,7 +147,7 @@ describe("connection pool", () => {
   it("rejects zero size", async () => {
     let caught: unknown;
     try {
-      await Pool.connect("127.0.0.1", 1, 0);
+      await Pool.connect("127.0.0.1", 1, 0, { auth: TEST_AUTH });
     } catch (e) {
       caught = e;
     }

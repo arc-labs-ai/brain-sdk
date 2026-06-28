@@ -27,7 +27,11 @@ use brain_db_sdk::{BrainClient, EncodeBuilder, RecallBuilder, ForgetBuilder};
 
 let client = BrainClient::connect(addr).await?;
 let stored = client.encode(&EncodeBuilder::new("the user prefers dark mode").build()).await?;
-let hits = client.recall(&RecallBuilder::new("ui preferences").top_k(5).build()).await?;
+// Recall answers like a real memory: a grounded value, a set, or episodic hits.
+let answer = client.recall(&RecallBuilder::new("ui preferences").max_results(5).build()).await?;
+for hit in answer.episodic() {
+    println!("{}", hit.text);
+}
 client.forget(&ForgetBuilder::new(stored.memory_id).build()).await?;
 client.close().await?;
 ```

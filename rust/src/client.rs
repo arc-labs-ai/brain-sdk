@@ -20,14 +20,14 @@ use crate::mux::{MuxConnection, Subscription};
 use crate::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use crate::wire::opcode::Opcode;
 use crate::wire::types::{
-    AgentPermissions, AuthCredentials, AuthMethod, AuthPayload, EncodeRequest, EncodeResponse,
-    EntityCreateRequest, EntityCreateResponse, EntityGetRequest, EntityGetResponse, EntityListItem,
-    EntityListRequest, EntityListResponseFrame, EntityResolveRequest, EntityResolveResponse,
-    ForgetRequest, ForgetResponse, GetCapabilitiesRequest, GetCapabilitiesResponse,
-    HelloCapabilities, HelloPayload, InferenceStep, LinkRequest, LinkResponse,
-    MaterializeProceduralRequest, MaterializeProceduralResponse, MemoryResult, MtlsClaim,
-    PlanRequest, PlanResponseFrame, PlanStep, QueryRequest, QueryResponse, ReasonRequest,
-    ReasonResponseFrame, RecallRequest, RecallResponseFrame, RelationCreateRequest,
+    AgentPermissions, AnswerKindWire, AuthCredentials, AuthMethod, AuthPayload, EncodeRequest,
+    EncodeResponse, EntityCreateRequest, EntityCreateResponse, EntityGetRequest, EntityGetResponse,
+    EntityListItem, EntityListRequest, EntityListResponseFrame, EntityResolveRequest,
+    EntityResolveResponse, ForgetRequest, ForgetResponse, GetCapabilitiesRequest,
+    GetCapabilitiesResponse, HelloCapabilities, HelloPayload, InferenceStep, LinkRequest,
+    LinkResponse, MaterializeProceduralRequest, MaterializeProceduralResponse, MemoryResult,
+    MtlsClaim, PlanRequest, PlanResponseFrame, PlanStep, QueryRequest, QueryResponse,
+    ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame, RelationCreateRequest,
     RelationCreateResponse, RelationListFromRequest, RelationListFromResponseFrame,
     RelationListToRequest, RelationListToResponseFrame, RelationView, SchemaGetRequest,
     SchemaGetResponse, SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame,
@@ -41,11 +41,12 @@ use crate::wire::types::{
 /// Default `client_id` advertised in HELLO.
 const DEFAULT_CLIENT_ID: &str = "brain-db-sdk-rust";
 
-/// How the client authenticates after WELCOME.
+/// How the client authenticates after WELCOME. Auth is mandatory: there is no
+/// anonymous mode. The credential is the connection's whole identity — the
+/// server resolves `(namespace, agent, permissions)` from it and refuses any
+/// connection it cannot resolve.
 #[derive(Clone, Debug)]
 pub enum Auth {
-    /// Anonymous — only succeeds when the server allows it (dev/local).
-    Anonymous,
     /// A shared bearer token.
     Token(Vec<u8>),
     /// An mTLS subject claim.
@@ -55,7 +56,6 @@ pub enum Auth {
 impl Auth {
     fn method(&self) -> AuthMethod {
         match self {
-            Auth::Anonymous => AuthMethod::None,
             Auth::Token(_) => AuthMethod::Token,
             Auth::Mtls(_) => AuthMethod::Mtls,
         }
@@ -63,27 +63,27 @@ impl Auth {
 
     fn credentials(self) -> AuthCredentials {
         match self {
-            Auth::Anonymous => AuthCredentials::None,
             Auth::Token(t) => AuthCredentials::Token(t),
             Auth::Mtls(c) => AuthCredentials::Mtls(c),
         }
     }
 }
 
-/// Connection configuration. [`ClientConfig::default`] is sensible for a
-/// local/dev server: anonymous auth, wire version 1, streaming advertised.
+/// Connection configuration. Build one with [`ClientConfig::new`], which takes
+/// the mandatory credential and fills the rest with sensible defaults (wire
+/// version 1, streaming advertised). There is no `Default`: a connection with
+/// no credential cannot exist.
 #[derive(Clone, Debug)]
 pub struct ClientConfig {
     /// Free-form client identifier sent in HELLO.
     pub client_id: String,
-    /// The agent this connection acts as. Defaults to a fresh UUIDv7.
-    pub agent_id: [u8; 16],
     /// Wire versions the client supports, in preference order. `u8` on the
     /// wire.
     pub supported_versions: Vec<u8>,
     /// Capabilities advertised in HELLO.
     pub capabilities: HelloCapabilities,
-    /// How to authenticate after WELCOME.
+    /// How to authenticate after WELCOME. Mandatory — the credential is the
+    /// connection's identity; the server assigns the agent and namespace.
     pub auth: Auth,
     /// Deadline for the TCP connect. `None` waits indefinitely.
     pub connect_timeout: Option<Duration>,
@@ -91,18 +91,19 @@ pub struct ClientConfig {
     pub request_timeout: Option<Duration>,
 }
 
-impl Default for ClientConfig {
-    fn default() -> Self {
+impl ClientConfig {
+    /// A config for the given credential with default transport settings.
+    #[must_use]
+    pub fn new(auth: Auth) -> Self {
         Self {
             client_id: DEFAULT_CLIENT_ID.to_string(),
-            agent_id: new_id(),
             supported_versions: vec![1],
             capabilities: HelloCapabilities {
                 streaming: true,
                 compression_zstd: false,
                 server_push: false,
             },
-            auth: Auth::Anonymous,
+            auth,
             connect_timeout: Some(Duration::from_secs(10)),
             request_timeout: Some(Duration::from_secs(30)),
         }
@@ -118,7 +119,35 @@ pub struct SessionInfo {
     pub session_id: [u8; 16],
     pub bound_shard_id: u16,
     pub permissions: AgentPermissions,
+    /// Owning tenant the server bound this connection to (server-derived from
+    /// auth). Empty when the connection resolves to the reserved `brain`
+    /// system namespace. Read-only — the client never sends a namespace.
+    pub namespace: String,
     pub server_features: ServerFeatures,
+}
+
+/// The drained result of a RECALL. Brain recall is not always top-k: it
+/// answers "remember this" the way a real memory does. `answer_kind` reports
+/// what shape the answer took (a single memory, many memories, or none);
+/// `memories` carries the recalled memory hits.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecallAnswer {
+    pub answer_kind: AnswerKindWire,
+    pub memories: Vec<MemoryResult>,
+}
+
+impl RecallAnswer {
+    /// True when recall produced no memories.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.memories.is_empty()
+    }
+
+    /// The recalled memory hits.
+    #[must_use]
+    pub fn memories(&self) -> &[MemoryResult] {
+        &self.memories
+    }
 }
 
 /// A connected, handshaken Brain client over a multiplexed connection. Verbs
@@ -129,9 +158,11 @@ pub struct BrainClient {
 }
 
 impl BrainClient {
-    /// Connect to `addr` with the default configuration and run the handshake.
-    pub async fn connect(addr: SocketAddr) -> Result<Self> {
-        Self::connect_with(addr, ClientConfig::default()).await
+    /// Connect to `addr` with the given credential and default transport
+    /// settings, then run the handshake. The credential is mandatory — the
+    /// server resolves the connection's identity from it.
+    pub async fn connect(addr: SocketAddr, auth: Auth) -> Result<Self> {
+        Self::connect_with(addr, ClientConfig::new(auth)).await
     }
 
     /// Connect to `addr` with an explicit configuration and run the handshake.
@@ -161,7 +192,6 @@ impl BrainClient {
         };
         let auth = AuthPayload {
             method: config.auth.method(),
-            agent_id: config.agent_id,
             credentials: config.auth.credentials(),
         };
 
@@ -175,6 +205,7 @@ impl BrainClient {
             session_id: welcome.session_id,
             bound_shard_id: auth_ok.bound_shard_id,
             permissions: auth_ok.permissions,
+            namespace: auth_ok.namespace,
             server_features: welcome.server_features,
         };
         Ok(Self { conn, session })
@@ -192,6 +223,14 @@ impl BrainClient {
         self.session.agent_id
     }
 
+    /// The owning tenant the server bound this connection to (server-derived
+    /// from auth). Empty when the connection resolves to the reserved `brain`
+    /// system namespace. Read-only — the client never sends a namespace.
+    #[must_use]
+    pub fn namespace(&self) -> &str {
+        &self.session.namespace
+    }
+
     /// Store a memory from text (ENCODE).
     pub async fn encode(&self, request: &EncodeRequest) -> Result<EncodeResponse> {
         self.unary(
@@ -203,17 +242,26 @@ impl BrainClient {
         .await
     }
 
-    /// Retrieve memories by cue. RECALL streams one or more `RECALL_RESP`
-    /// frames terminated by EOS; this collects them and flattens every frame's
-    /// `results` into one ordered list. For the raw streamed frames (cumulative
-    /// counts, `estimated_remaining`), use [`Self::recall_frames`].
-    pub async fn recall(&self, request: &RecallRequest) -> Result<Vec<MemoryResult>> {
+    /// Retrieve a memory by cue. RECALL streams one or more `RECALL_RESP`
+    /// frames terminated by EOS; this drains them into one [`RecallAnswer`].
+    /// `answer_kind` is the final frame's verdict; `memories` is concatenated
+    /// across every frame in order. Recall is not always top-k: the answer may
+    /// be a single memory, many memories, or none. For the raw streamed frames
+    /// (cumulative counts, `estimated_remaining`), use [`Self::recall_frames`].
+    pub async fn recall(&self, request: &RecallRequest) -> Result<RecallAnswer> {
         let frames = self.recall_frames(request).await?;
-        let mut results = Vec::new();
+        let mut memories = Vec::new();
+        // The answer_kind on the final (EOS) frame is the authoritative
+        // verdict; default to None if the server sent nothing.
+        let mut answer_kind = AnswerKindWire::None;
         for frame in frames {
-            results.extend(frame.results);
+            answer_kind = frame.answer_kind;
+            memories.extend(frame.memories);
         }
-        Ok(results)
+        Ok(RecallAnswer {
+            answer_kind,
+            memories,
+        })
     }
 
     /// Retrieve memories by cue, returning each decoded `RECALL_RESP` frame as

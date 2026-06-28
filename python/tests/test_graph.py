@@ -9,7 +9,7 @@ from __future__ import annotations
 import socket
 import threading
 
-from brain_db_sdk import BrainClient
+from brain_db_sdk import Auth, BrainClient
 from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
@@ -47,6 +47,9 @@ ENTITY_ID = b"\x11" * 16
 STATEMENT_ID = b"\x22" * 16
 RELATION_ID = b"\x33" * 16
 
+# The server assigns the agent id from the credential; the client never sends one.
+SERVER_AGENT_ID = b"\x22" * 16
+
 
 def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) -> None:
     write_frame(sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload))
@@ -72,9 +75,9 @@ def _serve_graph(sock: socket.socket) -> None:
     _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
 
     auth_frame = read_frame(sock, buf)
-    auth = decode_payload(AuthPayload, auth_frame.payload)
+    decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=auth.agent_id,
+        agent_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -84,6 +87,7 @@ def _serve_graph(sock: socket.socket) -> None:
             can_forget=True,
             can_admin=True,
         ),
+        namespace="",
         server_time_unix_nanos=1,
     )
     _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
@@ -182,7 +186,7 @@ def _rid() -> bytes:
 def test_typed_graph_verbs_round_trip() -> None:
     host, port, thread, listener = _spawn(_serve_graph)
     try:
-        client = BrainClient.connect(host, port)
+        client = BrainClient.connect(host, port, Auth.token(b"opaque-token"))
 
         entity = client.create_entity(
             EntityCreateRequest(
@@ -248,6 +252,7 @@ def test_typed_graph_verbs_round_trip() -> None:
                 kind_filter=[],
                 predicate_filter=[],
                 time_filter=None,
+                as_of_record_time_unix_nanos=None,
                 confidence_min=None,
                 include_tombstoned=False,
                 include_superseded=False,

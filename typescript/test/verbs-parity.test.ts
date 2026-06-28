@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import * as net from "node:net";
 
 import { BrainClient } from "../src/client.js";
+import { SERVER_AGENT_ID, TEST_AUTH } from "./_auth.js";
 import { FrameChannel } from "../src/transport.js";
 import { FLAG_EOS } from "../src/wire/frame.js";
 import { Opcode } from "../src/wire/opcode.js";
@@ -72,9 +73,9 @@ async function handshake(chan: FrameChannel): Promise<Uint8Array> {
   await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
 
   const authFrame = await chan.read();
-  const auth = decodeAuth(authFrame.payload);
+  decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -84,10 +85,11 @@ async function handshake(chan: FrameChannel): Promise<Uint8Array> {
       canForget: true,
       canAdmin: true,
     },
+    namespace: "",
     serverTimeUnixNanos: 1n,
   };
   await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
-  return auth.agentId;
+  return SERVER_AGENT_ID;
 }
 
 /** All client op streams the mock saw (must be non-zero + odd). */
@@ -331,7 +333,7 @@ describe("parity verbs over a mock server", () => {
     seenStreamIds.length = 0;
     const { server, port } = await startServer(serveUnaryAndStreamed);
     try {
-      const client = await BrainClient.connect("127.0.0.1", port);
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
       const caps = await client.capabilities();
       expect(caps.capabilities.vectorDim).toBe(384);
@@ -405,7 +407,7 @@ describe("parity verbs over a mock server", () => {
   it("subscription drains pushed events, then EOS-closes with no leaked route", async () => {
     const { server, port } = await startServer(serveSubscription);
     try {
-      const client = await BrainClient.connect("127.0.0.1", port);
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
       const sub = await client.subscribe({
         filter: { contexts: null, kinds: null, similarTo: null, agents: null },
@@ -437,7 +439,7 @@ describe("parity verbs over a mock server", () => {
   it("for-await drains a subscription via the async iterator", async () => {
     const { server, port } = await startServer(serveSubscription);
     try {
-      const client = await BrainClient.connect("127.0.0.1", port);
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
       const sub = await client.subscribe({
         filter: { contexts: null, kinds: null, similarTo: null, agents: null },
         includeHistory: false,

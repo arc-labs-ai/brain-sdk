@@ -16,7 +16,7 @@
  * checking. `close()` sends BYE + closes every member.
  */
 
-import { BrainClient, type ClientConfig, newId } from "./client.js";
+import { BrainClient, type ClientConfig } from "./client.js";
 import { ProtocolError } from "./errors.js";
 
 /** A fixed-size set of `BrainClient` connections handed out round-robin. */
@@ -27,16 +27,16 @@ export class Pool {
 
   /**
    * Open `size` connections to `host:port`, each running its own handshake, and
-   * resolve the pool. A fresh `agentId` is minted per member (so they are
-   * distinguishable server-side) unless `config` pins one. Rejects if
-   * `size < 1`; on a mid-open failure, closes the members already opened and
-   * re-throws.
+   * resolve the pool. Every member shares the config's credential, so the
+   * server binds them to the same agent; they remain individually identifiable
+   * by session id. Rejects if `size < 1`; on a mid-open failure, closes the
+   * members already opened and re-throws.
    */
   static async connect(
     host: string,
     port: number,
     size: number,
-    config: ClientConfig = {},
+    config: ClientConfig,
   ): Promise<Pool> {
     if (size < 1) {
       throw new ProtocolError("connection pool size must be >= 1");
@@ -44,9 +44,7 @@ export class Pool {
     const clients: BrainClient[] = [];
     try {
       for (let i = 0; i < size; i += 1) {
-        // Distinct agent per socket unless the caller pinned one.
-        const cfg: ClientConfig = { ...config, agentId: config.agentId ?? newId() };
-        clients.push(await BrainClient.connect(host, port, cfg));
+        clients.push(await BrainClient.connect(host, port, config));
       }
     } catch (err) {
       // Best-effort close of the members opened so far before re-throwing.

@@ -89,7 +89,6 @@ pub struct HelloCapabilities {
 pub enum AuthMethod {
     Token = 0,
     Mtls = 1,
-    None = 2,
 }
 
 /// Credentials carried in an AUTH frame. Externally-tagged enum (CBOR
@@ -98,7 +97,6 @@ pub enum AuthMethod {
 pub enum AuthCredentials {
     Token(Vec<u8>),
     Mtls(MtlsClaim),
-    None,
 }
 
 /// mTLS claim accompanying an mTLS auth.
@@ -151,22 +149,26 @@ pub struct WelcomePayload {
     pub server_features: ServerFeatures,
 }
 
-/// AUTH (`0x0002`) — client credentials.
+/// AUTH (`0x0002`) — client credentials. The client never claims an identity:
+/// the server resolves `(namespace, agent, permissions)` from the credential
+/// alone and echoes the assignment in AUTH_OK.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuthPayload {
     pub method: AuthMethod,
-    #[serde(with = "serde_bytes")]
-    pub agent_id: WireUuid,
     pub credentials: AuthCredentials,
 }
 
 /// AUTH_OK (`0x0082`) — server acknowledgment.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuthOkPayload {
     #[serde(with = "serde_bytes")]
     pub agent_id: WireUuid,
     pub bound_shard_id: u16,
     pub permissions: AgentPermissions,
+    /// Owning tenant the connection resolved to (server-derived from auth).
+    /// Empty when the connection resolves to the reserved `brain` system
+    /// namespace. The client only surfaces this — it never sends a namespace.
+    pub namespace: String,
     pub server_time_unix_nanos: u64,
 }
 
@@ -187,14 +189,11 @@ pub struct EdgeRequest {
 pub struct EncodeRequest {
     pub text: String,
     pub context_id: WireContextId,
-    pub kind: MemoryKindWire,
-    pub salience_hint: f32,
-    pub edges: Vec<EdgeRequest>,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
-    pub deduplicate: bool,
+    pub occurred_at_unix_nanos: Option<u64>,
 }
 
 /// ENCODE_VECTOR_DIRECT (`0x002A`). The embedding rides the trailing raw
@@ -243,14 +242,25 @@ pub struct EncodeResponse {
 // RECALL.
 // ===========================================================================
 
+/// What kind of answer a RECALL produced. Serializes as the variant name
+/// string, matching the server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnswerKindWire {
+    Single,
+    Many,
+    None,
+}
+
 /// RECALL (`0x0021`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecallRequest {
     pub cue_text: String,
-    pub top_k: u32,
+    pub subject_name: String,
+    pub max_results: u32,
     pub confidence_threshold: f32,
     pub context_filter: Option<Vec<WireContextId>>,
     pub age_bound_unix_nanos: Option<u64>,
+    pub as_of_record_time_unix_nanos: Option<u64>,
     pub kind_filter: Option<Vec<MemoryKindWire>>,
     pub salience_floor: f32,
     pub include_edges: bool,
@@ -268,7 +278,8 @@ pub struct RecallRequest {
 /// One streaming RECALL_RESP frame (`0x00A1`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecallResponseFrame {
-    pub results: Vec<MemoryResult>,
+    pub answer_kind: AnswerKindWire,
+    pub memories: Vec<MemoryResult>,
     pub is_final: bool,
     pub cumulative_count: u32,
     pub estimated_remaining: Option<u32>,
@@ -297,6 +308,7 @@ pub struct MemoryResult {
     pub lsn: u64,
     pub flags: u32,
     pub consolidated_at_unix_nanos: Option<u64>,
+    pub occurred_at_unix_nanos: Option<u64>,
     pub edges_out_count: u32,
     pub edges_in_count: u32,
     pub graph: Option<GraphEnrichment>,
@@ -729,13 +741,52 @@ pub struct ErrorResponse {
 // Typed-graph payloads exercised by the corpus.
 // ===========================================================================
 
-/// Statement kind. Encodes as a CBOR **string** unit variant (plain
-/// serde, not an integer discriminant) — the server does the same.
+/// Statement kind. The fieldless variants encode as a CBOR **string** unit
+/// variant (plain serde, not an integer discriminant); `Custom(u8)` encodes
+/// as a single-entry CBOR map `{"Custom": <byte>}` — the server does the
+/// same. The storage-byte mapping is `0 = Fact`, `1 = Preference`,
+/// `2 = Event`, `3 = Attribute`, `4 = Relation`, `5 = Directive`, and any
+/// byte `>= 6` is a `Custom(byte)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StatementKindWire {
     Fact,
     Preference,
     Event,
+    Attribute,
+    Relation,
+    Directive,
+    Custom(u8),
+}
+
+impl StatementKindWire {
+    /// The storage discriminant byte for this kind.
+    #[must_use]
+    pub fn to_storage_byte(self) -> u8 {
+        match self {
+            StatementKindWire::Fact => 0,
+            StatementKindWire::Preference => 1,
+            StatementKindWire::Event => 2,
+            StatementKindWire::Attribute => 3,
+            StatementKindWire::Relation => 4,
+            StatementKindWire::Directive => 5,
+            StatementKindWire::Custom(b) => b,
+        }
+    }
+
+    /// The kind for a storage discriminant byte. Bytes `>= 6` map to
+    /// `Custom(byte)`.
+    #[must_use]
+    pub fn from_storage_byte(byte: u8) -> Self {
+        match byte {
+            0 => StatementKindWire::Fact,
+            1 => StatementKindWire::Preference,
+            2 => StatementKindWire::Event,
+            3 => StatementKindWire::Attribute,
+            4 => StatementKindWire::Relation,
+            5 => StatementKindWire::Directive,
+            b => StatementKindWire::Custom(b),
+        }
+    }
 }
 
 /// Scalar object value. Externally-tagged.
@@ -914,6 +965,7 @@ pub struct QueryRequest {
     pub kind_filter: Vec<u8>,
     pub predicate_filter: Vec<String>,
     pub time_filter: Option<TimeRangeWire>,
+    pub as_of_record_time_unix_nanos: Option<u64>,
     pub confidence_min: Option<f32>,
     pub include_tombstoned: bool,
     pub include_superseded: bool,

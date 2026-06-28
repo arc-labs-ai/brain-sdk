@@ -9,33 +9,26 @@
 
 use crate::client::new_id;
 use crate::wire::types::{
-    EdgeRequest, EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest,
-    WireMemoryId,
+    EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest, WireMemoryId,
 };
 
-/// Builder for an ENCODE request. Stores one text memory; the cue knobs
-/// (kind, salience, edges, context) default to a plain semantic memory.
+/// Builder for an ENCODE request. Stores one text memory; `context` defaults
+/// to 0 and `occurred_at` is unset (the server stamps ingest time).
 #[derive(Clone, Debug)]
 pub struct EncodeBuilder {
     text: String,
     context_id: u64,
-    kind: MemoryKindWire,
-    salience_hint: f32,
-    edges: Vec<EdgeRequest>,
-    deduplicate: bool,
+    occurred_at_unix_nanos: Option<u64>,
 }
 
 impl EncodeBuilder {
-    /// Start an ENCODE for `text` (semantic, context 0, no edges, dedup on).
+    /// Start an ENCODE for `text` (context 0, no explicit occurred-at).
     #[must_use]
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             context_id: 0,
-            kind: MemoryKindWire::Semantic,
-            salience_hint: 0.5,
-            edges: Vec::new(),
-            deduplicate: true,
+            occurred_at_unix_nanos: None,
         }
     }
 
@@ -46,32 +39,11 @@ impl EncodeBuilder {
         self
     }
 
-    /// Set the memory kind (episodic / semantic / consolidated).
+    /// Set the event time the memory describes (unix nanos). Unset means the
+    /// server stamps the ingest time.
     #[must_use]
-    pub fn kind(mut self, kind: MemoryKindWire) -> Self {
-        self.kind = kind;
-        self
-    }
-
-    /// Hint the initial salience (0.0..=1.0).
-    #[must_use]
-    pub fn salience(mut self, salience_hint: f32) -> Self {
-        self.salience_hint = salience_hint;
-        self
-    }
-
-    /// Attach an explicit edge to another memory.
-    #[must_use]
-    pub fn edge(mut self, edge: EdgeRequest) -> Self {
-        self.edges.push(edge);
-        self
-    }
-
-    /// Set whether the server should deduplicate against a near-identical
-    /// existing memory.
-    #[must_use]
-    pub fn deduplicate(mut self, deduplicate: bool) -> Self {
-        self.deduplicate = deduplicate;
+    pub fn occurred_at(mut self, occurred_at_unix_nanos: u64) -> Self {
+        self.occurred_at_unix_nanos = Some(occurred_at_unix_nanos);
         self
     }
 
@@ -81,25 +53,25 @@ impl EncodeBuilder {
         EncodeRequest {
             text: self.text,
             context_id: self.context_id,
-            kind: self.kind,
-            salience_hint: self.salience_hint,
-            edges: self.edges,
             request_id: new_id(),
             txn_id: None,
-            deduplicate: self.deduplicate,
+            occurred_at_unix_nanos: self.occurred_at_unix_nanos,
         }
     }
 }
 
-/// Builder for a RECALL request. Defaults retrieve the top results across all
-/// of the agent's own memories with text and edges included.
+/// Builder for a RECALL request. Defaults answer the cue across all of the
+/// agent's own memories with text and edges included; the server decides
+/// whether the answer is a single memory, many memories, or none.
 #[derive(Clone, Debug)]
 pub struct RecallBuilder {
     cue_text: String,
-    top_k: u32,
+    subject_name: String,
+    max_results: u32,
     confidence_threshold: f32,
     context_filter: Option<Vec<u64>>,
     age_bound_unix_nanos: Option<u64>,
+    as_of_record_time_unix_nanos: Option<u64>,
     kind_filter: Option<Vec<MemoryKindWire>>,
     salience_floor: f32,
     include_edges: bool,
@@ -110,15 +82,18 @@ pub struct RecallBuilder {
 }
 
 impl RecallBuilder {
-    /// Start a RECALL for `cue_text` (top 10, text + edges, own agent only).
+    /// Start a RECALL for `cue_text` (up to 10 results, text + edges, own
+    /// agent only, no subject pin).
     #[must_use]
     pub fn new(cue_text: impl Into<String>) -> Self {
         Self {
             cue_text: cue_text.into(),
-            top_k: 10,
+            subject_name: String::new(),
+            max_results: 10,
             confidence_threshold: 0.0,
             context_filter: None,
             age_bound_unix_nanos: None,
+            as_of_record_time_unix_nanos: None,
             kind_filter: None,
             salience_floor: 0.0,
             include_edges: true,
@@ -129,10 +104,24 @@ impl RecallBuilder {
         }
     }
 
+    /// Pin the recall to a named subject (anchors fact-shaped lookups).
+    #[must_use]
+    pub fn subject(mut self, name: impl Into<String>) -> Self {
+        self.subject_name = name.into();
+        self
+    }
+
     /// Cap the number of results returned.
     #[must_use]
-    pub fn top_k(mut self, top_k: u32) -> Self {
-        self.top_k = top_k;
+    pub fn max_results(mut self, max_results: u32) -> Self {
+        self.max_results = max_results;
+        self
+    }
+
+    /// Recall as the graph stood at this record time (unix nanos).
+    #[must_use]
+    pub fn as_of(mut self, as_of_record_time_unix_nanos: u64) -> Self {
+        self.as_of_record_time_unix_nanos = Some(as_of_record_time_unix_nanos);
         self
     }
 
@@ -204,10 +193,12 @@ impl RecallBuilder {
     pub fn build(self) -> RecallRequest {
         RecallRequest {
             cue_text: self.cue_text,
-            top_k: self.top_k,
+            subject_name: self.subject_name,
+            max_results: self.max_results,
             confidence_threshold: self.confidence_threshold,
             context_filter: self.context_filter,
             age_bound_unix_nanos: self.age_bound_unix_nanos,
+            as_of_record_time_unix_nanos: self.as_of_record_time_unix_nanos,
             kind_filter: self.kind_filter,
             salience_floor: self.salience_floor,
             include_edges: self.include_edges,

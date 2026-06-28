@@ -11,7 +11,7 @@ import threading
 
 import pytest
 
-from brain_db_sdk import BrainClient, ForgetBuilder, RetryPolicy, ServerError, with_retry
+from brain_db_sdk import Auth, BrainClient, ForgetBuilder, RetryPolicy, ServerError, with_retry
 from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
@@ -35,6 +35,10 @@ def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) 
     write_frame(sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload))
 
 
+# The server assigns the agent id from the credential; the client never sends one.
+SERVER_AGENT_ID = b"\x22" * 16
+
+
 def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     hello_frame = read_frame(sock, buf)
     hello = decode_payload(HelloPayload, hello_frame.payload)
@@ -54,7 +58,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     auth_frame = read_frame(sock, buf)
     auth = decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=auth.agent_id,
+        agent_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -64,6 +68,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
             can_forget=True,
             can_admin=False,
         ),
+        namespace="",
         server_time_unix_nanos=1,
     )
     _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
@@ -161,7 +166,7 @@ def test_none_policy_is_single_attempt() -> None:
 def test_with_retry_recovers_a_resource_exhausted_forget() -> None:
     host, port, thread, listener = _spawn(_serve_forget_then_recover)
     try:
-        client = BrainClient.connect(host, port)
+        client = BrainClient.connect(host, port, Auth.token(b"opaque-token"))
         req = ForgetBuilder(0xBEEF).build()
         policy = RetryPolicy(max_attempts=3, base_delay=0.0, max_delay=0.0)
         resp = with_retry(lambda: client.forget(req), policy)
@@ -176,7 +181,7 @@ def test_with_retry_recovers_a_resource_exhausted_forget() -> None:
 def test_with_retry_gives_up_and_surfaces_server_error() -> None:
     host, port, thread, listener = _spawn(_serve_forget_always_busy)
     try:
-        client = BrainClient.connect(host, port)
+        client = BrainClient.connect(host, port, Auth.token(b"opaque-token"))
         req = ForgetBuilder(1).build()
         policy = RetryPolicy(max_attempts=2, base_delay=0.0, max_delay=0.0)
         with pytest.raises(ServerError) as excinfo:

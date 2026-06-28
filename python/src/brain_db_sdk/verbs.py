@@ -16,45 +16,30 @@ from typing import Optional
 
 from .client import new_id
 from .wire.types import (
-    EdgeRequest,
     EncodeRequest,
     ForgetMode,
     ForgetRequest,
-    MemoryKind,
     RecallRequest,
 )
 
 
 @dataclass
 class EncodeBuilder:
-    """Builder for an ENCODE request. Stores one text memory; the knobs
-    default to a plain semantic memory in context 0 with dedup on."""
+    """Builder for an ENCODE request. Stores one text memory in context 0;
+    the server owns the embedding, kind classification, salience, and edges.
+    ``occurred_at`` optionally records when the event the text describes
+    happened (distinct from the ingest time)."""
 
     text: str
     context_id: int = 0
-    kind: int = MemoryKind.SEMANTIC
-    salience_hint: float = 0.5
-    edges: list[EdgeRequest] = field(default_factory=list)
-    deduplicate: bool = True
+    occurred_at_unix_nanos: Optional[int] = None
 
     def context(self, context_id: int) -> "EncodeBuilder":
         self.context_id = context_id
         return self
 
-    def with_kind(self, kind: int) -> "EncodeBuilder":
-        self.kind = kind
-        return self
-
-    def salience(self, salience_hint: float) -> "EncodeBuilder":
-        self.salience_hint = salience_hint
-        return self
-
-    def edge(self, edge: EdgeRequest) -> "EncodeBuilder":
-        self.edges.append(edge)
-        return self
-
-    def dedup(self, deduplicate: bool) -> "EncodeBuilder":
-        self.deduplicate = deduplicate
+    def occurred_at(self, occurred_at_unix_nanos: Optional[int]) -> "EncodeBuilder":
+        self.occurred_at_unix_nanos = occurred_at_unix_nanos
         return self
 
     def build(self) -> EncodeRequest:
@@ -62,25 +47,26 @@ class EncodeBuilder:
         return EncodeRequest(
             text=self.text,
             context_id=self.context_id,
-            kind=self.kind,
-            salience_hint=self.salience_hint,
-            edges=list(self.edges),
             request_id=new_id(),
             txn_id=None,
-            deduplicate=self.deduplicate,
+            occurred_at_unix_nanos=self.occurred_at_unix_nanos,
         )
 
 
 @dataclass
 class RecallBuilder:
-    """Builder for a RECALL request. Defaults retrieve the top 10 of the
-    agent's own memories with text and edges included."""
+    """Builder for a RECALL request. Returns up to 10 of the agent's own
+    memories with text and edges included; the server runs one unified recall
+    path. ``subject`` names the entity a fact lookup is about; ``as_of``
+    queries the graph as it stood at a record time (bi-temporal travel)."""
 
     cue_text: str
-    top_k: int = 10
+    subject_name: str = ""
+    max_results: int = 10
     confidence_threshold: float = 0.0
     context_filter: Optional[list[int]] = None
     age_bound_unix_nanos: Optional[int] = None
+    as_of_record_time_unix_nanos: Optional[int] = None
     kind_filter: Optional[list[int]] = None
     salience_floor: float = 0.0
     include_edges: bool = True
@@ -89,8 +75,16 @@ class RecallBuilder:
     agent_filter: list[bytes] = field(default_factory=list)
     include_other_agents: bool = False
 
-    def limit(self, top_k: int) -> "RecallBuilder":
-        self.top_k = top_k
+    def subject(self, subject_name: str) -> "RecallBuilder":
+        self.subject_name = subject_name
+        return self
+
+    def limit(self, max_results: int) -> "RecallBuilder":
+        self.max_results = max_results
+        return self
+
+    def as_of(self, as_of_record_time_unix_nanos: Optional[int]) -> "RecallBuilder":
+        self.as_of_record_time_unix_nanos = as_of_record_time_unix_nanos
         return self
 
     def confidence(self, threshold: float) -> "RecallBuilder":
@@ -133,10 +127,12 @@ class RecallBuilder:
         """Finish into a wire :class:`RecallRequest`, minting a fresh id."""
         return RecallRequest(
             cue_text=self.cue_text,
-            top_k=self.top_k,
+            subject_name=self.subject_name,
+            max_results=self.max_results,
             confidence_threshold=self.confidence_threshold,
             context_filter=self.context_filter,
             age_bound_unix_nanos=self.age_bound_unix_nanos,
+            as_of_record_time_unix_nanos=self.as_of_record_time_unix_nanos,
             kind_filter=self.kind_filter,
             salience_floor=self.salience_floor,
             include_edges=self.include_edges,

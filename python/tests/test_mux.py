@@ -37,6 +37,11 @@ def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) 
     write_frame(sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload))
 
 
+# The server assigns the agent id from the credential; the client never sends
+# one. The mock server hands back this fixed id so tests can route responses.
+SERVER_AGENT_ID = b"\x22" * 16
+
+
 def _response(req: EncodeRequest, agent_id: bytes) -> EncodeResponse:
     return EncodeResponse(
         memory_id=req.context_id,
@@ -46,7 +51,7 @@ def _response(req: EncodeRequest, agent_id: bytes) -> EncodeResponse:
         lsn=1,
         agent_id=agent_id,
         context_id=req.context_id,
-        kind=req.kind,
+        kind=MemoryKind.SEMANTIC,
         created_at_unix_nanos=1,
         edges_out_count=0,
         embedding_model_fp=b"\x00" * 16,
@@ -59,12 +64,9 @@ def _request(context_id: int) -> EncodeRequest:
     return EncodeRequest(
         text=f"memory {context_id}",
         context_id=context_id,
-        kind=MemoryKind.SEMANTIC,
-        salience_hint=0.5,
-        edges=[],
         request_id=new_id(),
         txn_id=None,
-        deduplicate=True,
+        occurred_at_unix_nanos=None,
     )
 
 
@@ -88,9 +90,9 @@ def _serve_two_concurrent(sock: socket.socket) -> None:
     _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
 
     auth_frame = read_frame(sock, buf)
-    auth = decode_payload(AuthPayload, auth_frame.payload)
+    decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=auth.agent_id,
+        agent_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -100,6 +102,7 @@ def _serve_two_concurrent(sock: socket.socket) -> None:
             can_forget=True,
             can_admin=False,
         ),
+        namespace="",
         server_time_unix_nanos=1,
     )
     _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
@@ -116,8 +119,8 @@ def _serve_two_concurrent(sock: socket.socket) -> None:
     for label, sid in (("req 1", f1.stream_id), ("req 2", f2.stream_id)):
         assert sid != 0 and sid % 2 == 1, f"{label} used non-odd client stream id {sid}"
 
-    _write(sock, Opcode.ENCODE_RESP, f2.stream_id, encode_payload(_response(r2, auth.agent_id)))
-    _write(sock, Opcode.ENCODE_RESP, f1.stream_id, encode_payload(_response(r1, auth.agent_id)))
+    _write(sock, Opcode.ENCODE_RESP, f2.stream_id, encode_payload(_response(r2, SERVER_AGENT_ID)))
+    _write(sock, Opcode.ENCODE_RESP, f1.stream_id, encode_payload(_response(r1, SERVER_AGENT_ID)))
 
     bye = read_frame(sock, buf)
     assert bye.opcode == Opcode.BYE
@@ -149,7 +152,7 @@ def test_two_requests_in_flight_route_back_correctly() -> None:
             capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=False),
             client_session_token=None,
         )
-        auth = AuthPayload(method=AuthMethod.NONE, agent_id=new_id(), credentials=AuthCredentials.none())
+        auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
         conn, outcome = MuxConnection.connect(host, port, hello, auth)
         assert outcome.welcome.chosen_version == 1
 
@@ -240,9 +243,9 @@ def _serve_subscription(sock: socket.socket) -> None:
     _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
 
     auth_frame = read_frame(sock, buf)
-    auth = decode_payload(AuthPayload, auth_frame.payload)
+    decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=auth.agent_id,
+        agent_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -252,6 +255,7 @@ def _serve_subscription(sock: socket.socket) -> None:
             can_forget=True,
             can_admin=False,
         ),
+        namespace="",
         server_time_unix_nanos=1,
     )
     _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
@@ -310,7 +314,7 @@ def test_subscription_drains_events_unsubscribes_and_leaks_no_route() -> None:
             capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=True),
             client_session_token=None,
         )
-        auth = AuthPayload(method=AuthMethod.NONE, agent_id=new_id(), credentials=AuthCredentials.none())
+        auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
         conn, outcome = MuxConnection.connect(host, port, hello, auth)
         assert outcome.welcome.chosen_version == 1
 
@@ -382,9 +386,9 @@ def _serve_keepalive(sock: socket.socket) -> None:
     _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
 
     auth_frame = read_frame(sock, buf)
-    auth = decode_payload(AuthPayload, auth_frame.payload)
+    decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=auth.agent_id,
+        agent_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -394,6 +398,7 @@ def _serve_keepalive(sock: socket.socket) -> None:
             can_forget=True,
             can_admin=False,
         ),
+        namespace="",
         server_time_unix_nanos=1,
     )
     _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
@@ -424,7 +429,7 @@ def test_server_ping_is_answered_with_client_pong() -> None:
             capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=False),
             client_session_token=None,
         )
-        auth = AuthPayload(method=AuthMethod.NONE, agent_id=new_id(), credentials=AuthCredentials.none())
+        auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
         # Hold `conn` (and its reader thread) alive while the server sends
         # SERVER_PING and reads back the auto-replied CLIENT_PONG.
         conn, _outcome = MuxConnection.connect(host, port, hello, auth)

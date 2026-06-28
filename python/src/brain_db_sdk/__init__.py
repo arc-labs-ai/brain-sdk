@@ -24,6 +24,7 @@ from .mux import MuxConnection, Subscription
 from .pool import Pool
 from .retry import RetryPolicy, with_retry
 from .verbs import EncodeBuilder, ForgetBuilder, RecallBuilder
+from .wire.types import AnswerKind, RecallAnswer
 from .errors import (
     BrainError,
     BrainTimeout,
@@ -49,6 +50,8 @@ __all__ = [
     "EncodeBuilder",
     "RecallBuilder",
     "ForgetBuilder",
+    "RecallAnswer",
+    "AnswerKind",
     "RetryPolicy",
     "with_retry",
     "BrainError",

@@ -19,6 +19,9 @@ use brain_db_sdk::wire::types::{
     WelcomePayload,
 };
 
+/// The agent id the mock server assigns from the credential.
+const SERVER_AGENT: [u8; 16] = [0x22; 16];
+
 async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u32, p: &T) {
     let frame = Frame::new(op.as_u16(), FLAG_EOS, sid, to_cbor_bytes(p));
     write_frame(sock, &frame).await.expect("write frame");
@@ -47,9 +50,9 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -59,6 +62,7 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
             can_forget: true,
             can_admin: false,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -84,9 +88,9 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
         "concurrent requests need distinct streams"
     );
 
-    let resp2 = encode_response(&r2, auth.agent_id);
+    let resp2 = encode_response(&r2, SERVER_AGENT);
     write_one(&mut sock, Opcode::EncodeResp, f2.stream_id, &resp2).await;
-    let resp1 = encode_response(&r1, auth.agent_id);
+    let resp1 = encode_response(&r1, SERVER_AGENT);
     write_one(&mut sock, Opcode::EncodeResp, f1.stream_id, &resp1).await;
 
     // BYE.
@@ -103,7 +107,7 @@ fn encode_response(req: &EncodeRequest, agent_id: [u8; 16]) -> EncodeResponse {
         lsn: 1,
         agent_id,
         context_id: req.context_id,
-        kind: req.kind,
+        kind: MemoryKindWire::Semantic,
         created_at_unix_nanos: 1,
         edges_out_count: 0,
         embedding_model_fp: [0; 16],
@@ -116,12 +120,9 @@ fn encode_request(context_id: u64) -> EncodeRequest {
     EncodeRequest {
         text: format!("memory {context_id}"),
         context_id,
-        kind: MemoryKindWire::Semantic,
-        salience_hint: 0.5,
-        edges: vec![],
         request_id: new_id(),
         txn_id: None,
-        deduplicate: true,
+        occurred_at_unix_nanos: None,
     }
 }
 
@@ -146,9 +147,8 @@ async fn two_requests_in_flight_route_back_correctly() {
         client_session_token: None,
     };
     let auth = AuthPayload {
-        method: brain_db_sdk::wire::types::AuthMethod::None,
-        agent_id: new_id(),
-        credentials: brain_db_sdk::wire::types::AuthCredentials::None,
+        method: brain_db_sdk::wire::types::AuthMethod::Token,
+        credentials: brain_db_sdk::wire::types::AuthCredentials::Token(b"test-token".to_vec()),
     };
     let (conn, outcome) = MuxConnection::handshake(stream, hello, auth, None)
         .await
@@ -244,9 +244,9 @@ async fn serve_subscription(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -256,6 +256,7 @@ async fn serve_subscription(mut sock: TcpStream) {
             can_forget: true,
             can_admin: false,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -363,9 +364,8 @@ async fn subscription_drains_events_unsubscribes_and_leaks_no_route() {
         client_session_token: None,
     };
     let auth = AuthPayload {
-        method: brain_db_sdk::wire::types::AuthMethod::None,
-        agent_id: new_id(),
-        credentials: brain_db_sdk::wire::types::AuthCredentials::None,
+        method: brain_db_sdk::wire::types::AuthMethod::Token,
+        credentials: brain_db_sdk::wire::types::AuthCredentials::Token(b"test-token".to_vec()),
     };
     let (conn, _outcome) = MuxConnection::handshake(stream, hello, auth, None)
         .await
@@ -441,9 +441,9 @@ async fn serve_keepalive(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -453,6 +453,7 @@ async fn serve_keepalive(mut sock: TcpStream) {
             can_forget: true,
             can_admin: false,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -505,9 +506,8 @@ async fn server_ping_is_answered_with_client_pong() {
         client_session_token: None,
     };
     let auth = AuthPayload {
-        method: brain_db_sdk::wire::types::AuthMethod::None,
-        agent_id: new_id(),
-        credentials: brain_db_sdk::wire::types::AuthCredentials::None,
+        method: brain_db_sdk::wire::types::AuthMethod::Token,
+        credentials: brain_db_sdk::wire::types::AuthCredentials::Token(b"test-token".to_vec()),
     };
     // Hold `conn` across `server.await` so its reader task stays alive long
     // enough to observe SERVER_PING and auto-reply. The server task returns

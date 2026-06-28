@@ -16,7 +16,10 @@ use brain_db_sdk::wire::types::{
     AgentPermissions, AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload,
     MemoryKindWire, ServerFeatures, WelcomePayload,
 };
-use brain_db_sdk::{new_id, Pool};
+use brain_db_sdk::{new_id, Auth, Pool};
+
+/// The agent id the mock server assigns from the credential.
+const SERVER_AGENT: [u8; 16] = [0x22; 16];
 
 async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u32, p: &T) {
     let frame = Frame::new(op.as_u16(), FLAG_EOS, sid, to_cbor_bytes(p));
@@ -46,9 +49,9 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -58,6 +61,7 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
             can_forget: true,
             can_admin: false,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -81,9 +85,9 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
             salience: 0.5,
             auto_edges_added: 0,
             lsn: 1,
-            agent_id: auth.agent_id,
+            agent_id: SERVER_AGENT,
             context_id: req.context_id,
-            kind: req.kind,
+            kind: MemoryKindWire::Semantic,
             created_at_unix_nanos: 1,
             edges_out_count: 0,
             embedding_model_fp: [0; 16],
@@ -98,12 +102,9 @@ fn request() -> EncodeRequest {
     EncodeRequest {
         text: "pooled".to_string(),
         context_id: 1,
-        kind: MemoryKindWire::Semantic,
-        salience_hint: 0.5,
-        edges: vec![],
         request_id: new_id(),
         txn_id: None,
-        deduplicate: true,
+        occurred_at_unix_nanos: None,
     }
 }
 
@@ -121,7 +122,7 @@ async fn pool_spreads_requests_across_all_members() {
         }
     });
 
-    let pool = Pool::connect(addr, SIZE).await.expect("pool connect");
+    let pool = Pool::connect(addr, SIZE, Auth::Token(b"test-token".to_vec())).await.expect("pool connect");
     assert_eq!(pool.size(), SIZE);
 
     // Three round-robin encodes should touch three distinct sockets, so the
@@ -147,7 +148,7 @@ async fn pool_rejects_zero_size() {
     // `Pool` isn't `Debug` (it holds a live connection), so match rather than
     // `expect_err`.
     let addr = "127.0.0.1:1".parse().expect("addr");
-    match Pool::connect(addr, 0).await {
+    match Pool::connect(addr, 0, Auth::Token(b"test-token".to_vec())).await {
         Err(brain_db_sdk::BrainError::Protocol(_)) => {}
         Err(other) => panic!("expected Protocol error, got {other:?}"),
         Ok(_) => panic!("zero size should be rejected"),

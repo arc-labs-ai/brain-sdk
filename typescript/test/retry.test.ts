@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import * as net from "node:net";
 
 import { BrainClient } from "../src/client.js";
+import { SERVER_AGENT_ID, TEST_AUTH } from "./_auth.js";
 import { ServerError } from "../src/errors.js";
 import { ForgetBuilder } from "../src/verbs.js";
 import { backoffMs, NO_RETRY, withRetry, type RetryPolicy } from "../src/retry.js";
@@ -48,9 +49,9 @@ async function handshake(chan: FrameChannel): Promise<void> {
   await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
 
   const authFrame = await chan.read();
-  const auth = decodeAuth(authFrame.payload);
+  decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -60,6 +61,7 @@ async function handshake(chan: FrameChannel): Promise<void> {
       canForget: true,
       canAdmin: false,
     },
+    namespace: "",
     serverTimeUnixNanos: 1n,
   };
   await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
@@ -141,7 +143,7 @@ describe("withRetry integration", () => {
     });
 
     try {
-      const client = await BrainClient.connect("127.0.0.1", port);
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
       const req = new ForgetBuilder(0xbeefn).build();
       const policy: RetryPolicy = { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0 };
       const resp = await withRetry(() => client.forget(req), policy);
@@ -177,7 +179,7 @@ describe("withRetry integration", () => {
     });
 
     try {
-      const client = await BrainClient.connect("127.0.0.1", port);
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
       const req = new ForgetBuilder(1n).build();
       const policy: RetryPolicy = { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0 };
       let caught: unknown;

@@ -5,18 +5,27 @@ Source: brain  (https://github.com/brain-db-io/brain-db)
 Path:   crates/brain-protocol/tests/conformance/corpus/
 Files:  54 (*.bin, *.json) pairs + index.json
 
-Vendored: 2026-06-11
+Vendored: 2026-06-15
 
 PROVENANCE — reproducible pin.
-This corpus is a verbatim copy of brain's committed conformance corpus at:
+This corpus is a verbatim copy of brain's conformance corpus on branch
+`retrieval-rank-depth-and-graph-hygiene`, working tree atop:
 
-    3fd6868   (test(conformance): pin read-side response types in the corpus)
+    dae9c9b   (feat(entity): cross-type ENTITY_RESOLVE when no type hint given)
 
-Verified reproducible: running brain's generator at that revision with
+The read/write wire reshape it captures (RECALL answer-shape: answer_kind +
+values + RecallValue; RECALL request subject_name/mode/max_results/as_of;
+ENCODE request occurred_at, kind/salience/edges/dedup dropped to the admin
+EncodeVectorDirect path; QUERY as_of; six-kind StatementKindWire) lands with
+that branch and is pending a final brain commit — update the hash above to
+the committing revision once it merges.
+
+Verified reproducible: running brain's generator with
 `BRAIN_CONFORMANCE_BLESS=1 cargo test -p brain-protocol --test conformance`
-regenerates these exact bytes (zero diff). The bytes are the CBOR wire
-format (post rkyv->CBOR migration), with 16-byte ids encoded as CBOR byte
-strings even through Option/Vec (the P1-6 fix).
+regenerates these exact bytes (zero diff), and the un-`bless`ed run passes
+as the acceptance gate. The bytes are the CBOR wire format (post rkyv->CBOR
+migration), with 16-byte ids encoded as CBOR byte strings even through
+Option/Vec (the P1-6 fix).
 
 COVERAGE.
 The corpus pins a representative payload for the handshake, the cognitive

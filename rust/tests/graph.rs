@@ -17,11 +17,13 @@ use brain_db_sdk::wire::types::{
     SchemaUploadResponse, ServerFeatures, StatementCreateRequest, StatementCreateResponse,
     StatementKindWire, StatementObjectWire, StatementValueWire, WelcomePayload,
 };
-use brain_db_sdk::BrainClient;
+use brain_db_sdk::{Auth, BrainClient};
 
 const ENTITY_ID: [u8; 16] = [0x11; 16];
 const STATEMENT_ID: [u8; 16] = [0x22; 16];
 const RELATION_ID: [u8; 16] = [0x33; 16];
+/// The agent id the mock server assigns from the credential.
+const SERVER_AGENT: [u8; 16] = [0x22; 16];
 
 async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u32, p: &T) {
     let frame = Frame::new(op.as_u16(), FLAG_EOS, sid, to_cbor_bytes(p));
@@ -49,9 +51,9 @@ async fn serve_graph(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -61,6 +63,7 @@ async fn serve_graph(mut sock: TcpStream) {
             can_forget: true,
             can_admin: true,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -191,7 +194,7 @@ async fn typed_graph_verbs_round_trip() {
         serve_graph(sock).await;
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
 
     let entity = client
         .create_entity(&EntityCreateRequest {
@@ -261,6 +264,7 @@ async fn typed_graph_verbs_round_trip() {
             kind_filter: vec![],
             predicate_filter: vec![],
             time_filter: None,
+            as_of_record_time_unix_nanos: None,
             confidence_min: None,
             include_tombstoned: false,
             include_superseded: false,
@@ -583,9 +587,9 @@ async fn serve_read(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -595,6 +599,7 @@ async fn serve_read(mut sock: TcpStream) {
             can_forget: true,
             can_admin: true,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -820,7 +825,7 @@ async fn read_side_verbs_over_connection() {
         serve_read(sock).await;
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
 
     let caps = client
         .capabilities(&GetCapabilitiesRequest {})
@@ -1114,9 +1119,9 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -1126,6 +1131,7 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
             can_forget: true,
             can_admin: true,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -1257,7 +1263,7 @@ async fn edge_cognitive_verbs_over_connection() {
         serve_edge_cognitive(sock).await;
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
 
     let linked = client
         .link(&LinkRequest {
@@ -1386,9 +1392,9 @@ async fn serve_txn(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -1398,6 +1404,7 @@ async fn serve_txn(mut sock: TcpStream) {
             can_forget: true,
             can_admin: true,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -1463,7 +1470,7 @@ async fn txn_verbs_over_connection() {
         serve_txn(sock).await;
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
 
     let begun = client
         .txn_begin(&TxnBeginRequest {

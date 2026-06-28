@@ -10,11 +10,13 @@ import * as net from "node:net";
 
 import { MuxConnection } from "../src/mux.js";
 import { newId } from "../src/client.js";
+import { SERVER_AGENT_ID } from "./_auth.js";
 import { FrameChannel } from "../src/transport.js";
 import { FLAG_EOS, type Frame } from "../src/wire/frame.js";
 import { Opcode } from "../src/wire/opcode.js";
 import {
   type AuthOkPayload,
+  AuthMethod,
   type AuthPayload,
   type EncodeRequest,
   type EncodeResponse,
@@ -54,7 +56,7 @@ function encodeResponse(req: EncodeRequest, agentId: Uint8Array): EncodeResponse
     lsn: 1n,
     agentId,
     contextId: req.contextId,
-    kind: req.kind,
+    kind: MemoryKindWire.Semantic,
     createdAtUnixNanos: 1n,
     edgesOutCount: 0,
     embeddingModelFp: new Uint8Array(16),
@@ -67,12 +69,9 @@ function encodeRequest(contextId: bigint): EncodeRequest {
   return {
     text: `memory ${contextId}`,
     contextId,
-    kind: MemoryKindWire.Semantic,
-    salienceHint: 0.5,
-    edges: [],
     requestId: newId(),
     txnId: null,
-    deduplicate: true,
+    occurredAtUnixNanos: null,
   };
 }
 
@@ -100,9 +99,10 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
   await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
 
   const authFrame = await chan.read();
-  const auth = decodeAuth(authFrame.payload);
+  // Client sends a credential but no agent id; the server assigns one.
+  decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -112,6 +112,7 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
       canForget: true,
       canAdmin: false,
     },
+    namespace: "",
     serverTimeUnixNanos: 1n,
   };
   await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
@@ -128,13 +129,13 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
     opcode: Opcode.EncodeResp,
     flags: FLAG_EOS,
     streamId: f2.streamId,
-    payload: encodeEncodeResponse(encodeResponse(r2, auth.agentId)),
+    payload: encodeEncodeResponse(encodeResponse(r2, SERVER_AGENT_ID)),
   });
   await chan.write({
     opcode: Opcode.EncodeResp,
     flags: FLAG_EOS,
     streamId: f1.streamId,
-    payload: encodeEncodeResponse(encodeResponse(r1, auth.agentId)),
+    payload: encodeEncodeResponse(encodeResponse(r1, SERVER_AGENT_ID)),
   });
 
   const bye = await chan.read();
@@ -152,11 +153,9 @@ describe("mux connection", () => {
         capabilities: { streaming: true, compressionZstd: false, serverPush: false },
         clientSessionToken: null,
       };
-      const agentId = newId();
       const auth: AuthPayload = {
-        method: 2, // AuthMethod.None
-        agentId,
-        credentials: { kind: "None" },
+        method: AuthMethod.Token,
+        credentials: { kind: "Token", token: new TextEncoder().encode("opaque-token") },
       };
       const { conn, outcome } = await MuxConnection.connect("127.0.0.1", port, hello, auth);
       expect(outcome.welcome.chosenVersion).toBe(1);
@@ -223,9 +222,9 @@ async function serveKeepalive(
   await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
 
   const authFrame = await chan.read();
-  const auth = decodeAuth(authFrame.payload);
+  decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -235,6 +234,7 @@ async function serveKeepalive(
       canForget: true,
       canAdmin: false,
     },
+    namespace: "",
     serverTimeUnixNanos: 1n,
   };
   await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
@@ -268,7 +268,10 @@ describe("mux keepalive", () => {
         capabilities: { streaming: true, compressionZstd: false, serverPush: false },
         clientSessionToken: null,
       };
-      const auth: AuthPayload = { method: 2, agentId: newId(), credentials: { kind: "None" } };
+      const auth: AuthPayload = {
+        method: AuthMethod.Token,
+        credentials: { kind: "Token", token: new TextEncoder().encode("opaque-token") },
+      };
       // Hold `conn` alive while the pump answers SERVER_PING.
       const { conn } = await MuxConnection.connect("127.0.0.1", port, hello, auth);
       const pong = await pongSeen;

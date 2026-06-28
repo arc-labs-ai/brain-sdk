@@ -13,7 +13,10 @@ use brain_db_sdk::wire::types::{
     AgentPermissions, AuthOkPayload, AuthPayload, ErrorCategoryWire, ErrorCodeWire, ErrorResponse,
     ForgetRequest, ForgetResponse, HelloPayload, ServerFeatures, WelcomePayload,
 };
-use brain_db_sdk::{with_retry, BrainClient, ForgetBuilder, RetryPolicy};
+use brain_db_sdk::{with_retry, Auth, BrainClient, ForgetBuilder, RetryPolicy};
+
+/// The agent id the mock server assigns from the credential.
+const SERVER_AGENT: [u8; 16] = [0x22; 16];
 
 /// Handshake, then a FORGET that errors once (ResourceExhausted) and succeeds
 /// on the retry. Asserts both FORGET frames carried the same `request_id`.
@@ -37,9 +40,9 @@ async fn serve_forget_then_recover(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -49,6 +52,7 @@ async fn serve_forget_then_recover(mut sock: TcpStream) {
             can_forget: true,
             can_admin: false,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -110,7 +114,7 @@ async fn with_retry_recovers_a_resource_exhausted_forget() {
         serve_forget_then_recover(sock).await;
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
 
     // One stable request so the retry resends the same request_id. Now that the
     // verbs take `&self`, the free `with_retry` combinator wraps them directly.
@@ -150,9 +154,9 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
         };
         write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
         let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-        let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+        let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
         let auth_ok = AuthOkPayload {
-            agent_id: auth.agent_id,
+            agent_id: SERVER_AGENT,
             bound_shard_id: 0,
             permissions: AgentPermissions {
                 can_encode: true,
@@ -162,6 +166,7 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
                 can_forget: true,
                 can_admin: false,
             },
+            namespace: String::new(),
             server_time_unix_nanos: 1,
         };
         write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -185,7 +190,7 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
         }
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
     let req = ForgetBuilder::new(1).build();
     let policy = RetryPolicy::new(2, std::time::Duration::ZERO, std::time::Duration::ZERO);
     let result = with_retry(&policy, || client.forget(&req)).await;

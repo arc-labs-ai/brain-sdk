@@ -42,7 +42,6 @@ import {
   type LinkResponse,
   type MaterializeProceduralRequest,
   type MaterializeProceduralResponse,
-  type MemoryResult,
   type PlanRequest,
   type PlanResponseFrame,
   type PlanStep,
@@ -50,6 +49,7 @@ import {
   type QueryResponse,
   type ReasonRequest,
   type ReasonResponseFrame,
+  type RecallAnswer,
   type RecallRequest,
   type RecallResponseFrame,
   type RelationCreateRequest,
@@ -149,16 +149,18 @@ export function newId(): Uint8Array {
   return new Uint8Array(randomBytes(16));
 }
 
-/** How the client authenticates after WELCOME. */
+/**
+ * How the client authenticates after WELCOME. Auth is mandatory: there is no
+ * anonymous mode. The credential is the connection's whole identity — the
+ * server resolves `(namespace, agent, permissions)` from it and refuses any
+ * connection it cannot resolve.
+ */
 export type Auth =
-  | { kind: "anonymous" }
   | { kind: "token"; token: Uint8Array }
   | { kind: "mtls"; certFingerprint: Uint8Array; assertedSubject: string };
 
 function authToWire(auth: Auth): { method: AuthMethod; credentials: AuthCredentials } {
   switch (auth.kind) {
-    case "anonymous":
-      return { method: AuthMethod.None, credentials: { kind: "None" } };
     case "token":
       return { method: AuthMethod.Token, credentials: { kind: "Token", token: auth.token } };
     case "mtls":
@@ -173,14 +175,18 @@ function authToWire(auth: Auth): { method: AuthMethod; credentials: AuthCredenti
   }
 }
 
-/** Connection configuration; every field has a local/dev-friendly default. */
+/**
+ * Connection configuration. `auth` is mandatory — the credential is the
+ * connection's identity; the server assigns the agent and namespace. Every
+ * other field has a local/dev-friendly default.
+ */
 export interface ClientConfig {
+  /** How to authenticate after WELCOME. Mandatory: a connection with no
+   * credential cannot exist. */
+  auth: Auth;
   clientId?: string;
-  /** The agent this connection acts as. Defaults to a fresh random id. */
-  agentId?: Uint8Array;
   supportedVersions?: number[];
   capabilities?: HelloCapabilities;
-  auth?: Auth;
   /** Deadline for the TCP connect. Omit to wait indefinitely. */
   connectTimeoutMs?: number;
   /** Per-response read deadline. Omit to wait indefinitely. */
@@ -189,7 +195,6 @@ export interface ClientConfig {
 
 interface ResolvedConfig {
   clientId: string;
-  agentId: Uint8Array;
   supportedVersions: number[];
   capabilities: HelloCapabilities;
   auth: Auth;
@@ -200,11 +205,10 @@ interface ResolvedConfig {
 function withDefaults(config: ClientConfig): ResolvedConfig {
   return {
     clientId: config.clientId ?? DEFAULT_CLIENT_ID,
-    agentId: config.agentId ?? newId(),
     supportedVersions: config.supportedVersions ?? [1],
     capabilities:
       config.capabilities ?? { streaming: true, compressionZstd: false, serverPush: false },
-    auth: config.auth ?? { kind: "anonymous" },
+    auth: config.auth,
     connectTimeoutMs: config.connectTimeoutMs ?? 10_000,
     requestTimeoutMs: config.requestTimeoutMs ?? 30_000,
   };
@@ -218,6 +222,10 @@ export interface SessionInfo {
   sessionId: Uint8Array;
   boundShardId: number;
   permissions: AgentPermissions;
+  /** Owning tenant the server bound this connection to (server-derived from
+   * auth). Empty when the connection resolves to the reserved `brain` system
+   * namespace. Read-only — the client never sends a namespace. */
+  namespace: string;
   serverFeatures: ServerFeatures;
 }
 
@@ -232,11 +240,15 @@ export class BrainClient {
     public readonly session: SessionInfo,
   ) {}
 
-  /** Connect to `host:port`, run the handshake, and resolve the bound client. */
+  /**
+   * Connect to `host:port`, run the handshake, and resolve the bound client.
+   * The `auth` credential in `config` is mandatory — the server resolves the
+   * connection's identity (agent, namespace, permissions) from it.
+   */
   static async connect(
     host: string,
     port: number,
-    config: ClientConfig = {},
+    config: ClientConfig,
   ): Promise<BrainClient> {
     const cfg = withDefaults(config);
     const hello: HelloPayload = {
@@ -246,7 +258,7 @@ export class BrainClient {
       clientSessionToken: null,
     };
     const { method, credentials } = authToWire(cfg.auth);
-    const auth: AuthPayload = { method, agentId: cfg.agentId, credentials };
+    const auth: AuthPayload = { method, credentials };
 
     const { conn, outcome } = await MuxConnection.connect(host, port, hello, auth, {
       connectTimeoutMs: cfg.connectTimeoutMs,
@@ -260,14 +272,24 @@ export class BrainClient {
       sessionId: welcome.sessionId,
       boundShardId: authOk.boundShardId,
       permissions: authOk.permissions,
+      namespace: authOk.namespace,
       serverFeatures: welcome.serverFeatures,
     };
     return new BrainClient(conn, session);
   }
 
-  /** The agent id this connection acts as. */
+  /** The agent id this connection acts as, as the server assigned it. */
   get agentId(): Uint8Array {
     return this.session.agentId;
+  }
+
+  /**
+   * The owning tenant the server bound this connection to (server-derived from
+   * auth). Empty string means the reserved `brain` system namespace. Read-only
+   * — the client never sends a namespace.
+   */
+  get namespace(): string {
+    return this.session.namespace;
   }
 
   /**
@@ -286,14 +308,20 @@ export class BrainClient {
   }
 
   /**
-   * Retrieve memories by cue. RECALL streams one or more `RECALL_RESP` frames
-   * terminated by EOS; this collects them and flattens every frame's `results`
-   * into one ordered list. For the raw streamed frames (cumulative counts,
+   * Retrieve the answer for a cue. RECALL resolves to memories: `Single` for one
+   * memory, `Many` for several ranked, or `None` for a "don't know" outcome.
+   * RECALL streams one or more `RECALL_RESP` frames terminated by EOS; this
+   * drains them, takes `answerKind` from the final frame, and concatenates every
+   * frame's `memories`. For the raw streamed frames (cumulative counts,
    * `estimatedRemaining`), use {@link recallFrames}.
    */
-  async recall(request: RecallRequest): Promise<MemoryResult[]> {
+  async recall(request: RecallRequest): Promise<RecallAnswer> {
     const frames = await this.recallFrames(request);
-    return frames.flatMap((f) => f.results);
+    const last = frames[frames.length - 1];
+    return {
+      answerKind: last ? last.answerKind : "None",
+      memories: frames.flatMap((f) => f.memories),
+    };
   }
 
   /**

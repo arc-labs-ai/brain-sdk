@@ -12,7 +12,7 @@ import threading
 
 import pytest
 
-from brain_db_sdk import Pool, ProtocolError, new_id
+from brain_db_sdk import Auth, Pool, ProtocolError, new_id
 from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
@@ -33,6 +33,10 @@ from brain_db_sdk.wire.types import (
 
 def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) -> None:
     write_frame(sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload))
+
+
+# The server assigns the agent id from the credential; the client never sends one.
+SERVER_AGENT_ID = b"\x22" * 16
 
 
 def _serve_member(sock: socket.socket, tag: int) -> None:
@@ -57,9 +61,9 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
     _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
 
     auth_frame = read_frame(sock, buf)
-    auth = decode_payload(AuthPayload, auth_frame.payload)
+    decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=auth.agent_id,
+        agent_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -69,6 +73,7 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
             can_forget=True,
             can_admin=False,
         ),
+        namespace="",
         server_time_unix_nanos=1,
     )
     _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
@@ -89,9 +94,9 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
             salience=0.5,
             auto_edges_added=0,
             lsn=1,
-            agent_id=auth.agent_id,
+            agent_id=SERVER_AGENT_ID,
             context_id=req.context_id,
-            kind=req.kind,
+            kind=MemoryKind.SEMANTIC,
             created_at_unix_nanos=1,
             edges_out_count=0,
             embedding_model_fp=b"\x00" * 16,
@@ -105,12 +110,9 @@ def _request() -> EncodeRequest:
     return EncodeRequest(
         text="pooled",
         context_id=1,
-        kind=MemoryKind.SEMANTIC,
-        salience_hint=0.5,
-        edges=[],
         request_id=new_id(),
         txn_id=None,
-        deduplicate=True,
+        occurred_at_unix_nanos=None,
     )
 
 
@@ -131,7 +133,7 @@ def test_pool_spreads_requests_across_all_members() -> None:
     server.start()
 
     try:
-        pool = Pool.connect(host, port, size)
+        pool = Pool.connect(host, port, size, Auth.token(b"opaque-token"))
         assert pool.size() == size
 
         seen = set()
@@ -149,4 +151,4 @@ def test_pool_spreads_requests_across_all_members() -> None:
 
 def test_pool_rejects_zero_size() -> None:
     with pytest.raises(ProtocolError):
-        Pool.connect("127.0.0.1", 1, 0)
+        Pool.connect("127.0.0.1", 1, 0, Auth.token(b"opaque-token"))

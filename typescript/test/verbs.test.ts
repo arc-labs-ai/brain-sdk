@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import * as net from "node:net";
 
 import { BrainClient } from "../src/client.js";
+import { SERVER_AGENT_ID, TEST_AUTH } from "./_auth.js";
 import { ForgetBuilder, RecallBuilder } from "../src/verbs.js";
 import { FrameChannel } from "../src/transport.js";
 import { FLAG_EOS } from "../src/wire/frame.js";
@@ -54,6 +55,7 @@ function sampleResult(tag: number, text: string): MemoryResult {
     lsn: 1n,
     flags: 0,
     consolidatedAtUnixNanos: null,
+    occurredAtUnixNanos: null,
     edgesOutCount: 0,
     edgesInCount: 0,
     graph: null,
@@ -81,9 +83,9 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
   await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
 
   const authFrame = await chan.read();
-  const auth = decodeAuth(authFrame.payload);
+  decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -93,6 +95,7 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
       canForget: true,
       canAdmin: false,
     },
+    namespace: "",
     serverTimeUnixNanos: 1n,
   };
   await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
@@ -105,7 +108,8 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
   const sid = recallFrame.streamId;
 
   const first: RecallResponseFrame = {
-    results: [sampleResult(0xaa, "first hit")],
+    answerKind: "Many",
+    memories: [sampleResult(0xaa, "first hit")],
     isFinal: false,
     cumulativeCount: 1,
     estimatedRemaining: 1,
@@ -113,7 +117,8 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
   await chan.write({ opcode: Opcode.RecallResp, flags: 0, streamId: sid, payload: encodeRecallResponse(first) });
 
   const second: RecallResponseFrame = {
-    results: [sampleResult(0xbb, "second hit")],
+    answerKind: "Many",
+    memories: [sampleResult(0xbb, "second hit")],
     isFinal: true,
     cumulativeCount: 2,
     estimatedRemaining: 0,
@@ -158,12 +163,13 @@ describe("verbs", () => {
   it("recall streams and flattens, then forget", async () => {
     const { server, port } = await startServer(serveRecallForget);
     try {
-      const client = await BrainClient.connect("127.0.0.1", port);
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
-      const results = await client.recall(new RecallBuilder("dark mode").topK(5).build());
-      expect(results.length).toBe(2);
-      expect(results[0]!.text).toBe("first hit");
-      expect(results[1]!.text).toBe("second hit");
+      const answer = await client.recall(new RecallBuilder("dark mode").maxResults(5).build());
+      expect(answer.answerKind).toBe("Many");
+      expect(answer.memories.length).toBe(2);
+      expect(answer.memories[0]!.text).toBe("first hit");
+      expect(answer.memories[1]!.text).toBe("second hit");
 
       const resp = await client.forget(new ForgetBuilder(0xaan).build());
       expect(resp.memoryId).toBe(0xaan);
@@ -177,7 +183,7 @@ describe("verbs", () => {
 
   it("builder defaults are sane", () => {
     const recall = new RecallBuilder("hi").build();
-    expect(recall.topK).toBe(10);
+    expect(recall.maxResults).toBe(10);
     expect(recall.includeText).toBe(true);
     expect(recall.includeEdges).toBe(true);
     expect(recall.includeOtherAgents).toBe(false);

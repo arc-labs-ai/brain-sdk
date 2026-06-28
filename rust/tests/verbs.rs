@@ -12,11 +12,14 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, ForgetRequest, ForgetResponse, HelloPayload,
-    MemoryKindWire, MemoryResult, RecallRequest, RecallResponseFrame, ServerFeatures,
+    AgentPermissions, AnswerKindWire, AuthOkPayload, AuthPayload, ForgetRequest, ForgetResponse,
+    HelloPayload, MemoryKindWire, MemoryResult, RecallRequest, RecallResponseFrame, ServerFeatures,
     WelcomePayload,
 };
-use brain_db_sdk::{BrainClient, ForgetBuilder, RecallBuilder};
+use brain_db_sdk::{Auth, BrainClient, ForgetBuilder, RecallBuilder};
+
+/// The agent id the mock server assigns from the credential.
+const SERVER_AGENT: [u8; 16] = [0x22; 16];
 
 /// Drive the handshake, then one RECALL (two streamed frames) and one FORGET.
 async fn serve_recall_forget(mut sock: TcpStream) {
@@ -40,9 +43,9 @@ async fn serve_recall_forget(mut sock: TcpStream) {
     write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -52,6 +55,7 @@ async fn serve_recall_forget(mut sock: TcpStream) {
             can_forget: true,
             can_admin: false,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -64,7 +68,8 @@ async fn serve_recall_forget(mut sock: TcpStream) {
     let sid = recall_frame.stream_id;
 
     let first = RecallResponseFrame {
-        results: vec![sample_result(0xAA, "first hit")],
+        answer_kind: AnswerKindWire::Many,
+        memories: vec![sample_result(0xAA, "first hit")],
         is_final: false,
         cumulative_count: 1,
         estimated_remaining: Some(1),
@@ -72,7 +77,8 @@ async fn serve_recall_forget(mut sock: TcpStream) {
     write_streamed(&mut sock, Opcode::RecallResp, sid, &first, false).await;
 
     let second = RecallResponseFrame {
-        results: vec![sample_result(0xBB, "second hit")],
+        answer_kind: AnswerKindWire::Many,
+        memories: vec![sample_result(0xBB, "second hit")],
         is_final: true,
         cumulative_count: 2,
         estimated_remaining: Some(0),
@@ -116,6 +122,7 @@ fn sample_result(tag: u8, text: &str) -> MemoryResult {
         lsn: 1,
         flags: 0,
         consolidated_at_unix_nanos: None,
+        occurred_at_unix_nanos: None,
         edges_out_count: 0,
         edges_in_count: 0,
         graph: None,
@@ -147,16 +154,17 @@ async fn recall_streams_and_flattens_then_forget() {
         serve_recall_forget(sock).await;
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
 
     // RECALL: builder defaults + the two streamed frames flatten in order.
-    let results = client
-        .recall(&RecallBuilder::new("dark mode").top_k(5).build())
+    let answer = client
+        .recall(&RecallBuilder::new("dark mode").max_results(5).build())
         .await
         .expect("recall");
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0].text, "first hit");
-    assert_eq!(results[1].text, "second hit");
+    assert_eq!(answer.answer_kind, AnswerKindWire::Many);
+    assert_eq!(answer.memories.len(), 2);
+    assert_eq!(answer.memories[0].text, "first hit");
+    assert_eq!(answer.memories[1].text, "second hit");
 
     // FORGET via the builder.
     let resp = client
@@ -173,7 +181,7 @@ async fn recall_streams_and_flattens_then_forget() {
 #[test]
 fn builder_defaults_are_sane() {
     let recall = RecallBuilder::new("hi").build();
-    assert_eq!(recall.top_k, 10);
+    assert_eq!(recall.max_results, 10);
     assert!(recall.include_text);
     assert!(recall.include_edges);
     assert!(!recall.include_other_agents);

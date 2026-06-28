@@ -22,7 +22,7 @@ from __future__ import annotations
 import itertools
 import threading
 
-from .client import BrainClient, ClientConfig, new_id
+from .client import Auth, BrainClient, ClientConfig
 from .errors import ProtocolError
 
 
@@ -41,22 +41,34 @@ class Pool:
         host: str,
         port: int,
         size: int,
-        config: ClientConfig | None = None,
+        auth: Auth,
     ) -> "Pool":
-        """Open ``size`` connections to ``host:port``, each running its own
-        handshake, and return the pool. A fresh ``agent_id`` is minted per
-        member (so they are distinguishable server-side) unless ``config``
-        pins one. Raises :class:`~brain_db_sdk.errors.ProtocolError` if
-        ``size < 1``; on a mid-open failure, closes the members already opened
-        and re-raises."""
+        """Open ``size`` connections to ``host:port`` with the given credential
+        and default transport settings, each running its own handshake, and
+        return the pool. For full control over the configuration, use
+        :meth:`connect_with`."""
+        return cls.connect_with(host, port, size, ClientConfig(auth=auth))
+
+    @classmethod
+    def connect_with(
+        cls,
+        host: str,
+        port: int,
+        size: int,
+        config: ClientConfig,
+    ) -> "Pool":
+        """Open ``size`` connections to ``host:port`` from an explicit
+        configuration template, each running its own handshake, and return the
+        pool. All members share the template's credential, so the server binds
+        them to the same agent; they remain individually identifiable by session
+        id. Raises :class:`~brain_db_sdk.errors.ProtocolError` if ``size < 1``;
+        on a mid-open failure, closes the members already opened and re-raises."""
         if size < 1:
             raise ProtocolError("connection pool size must be >= 1")
-        template = config or ClientConfig()
         clients: list[BrainClient] = []
         try:
             for _ in range(size):
-                cfg = replace_agent_id(template)
-                clients.append(BrainClient.connect(host, port, cfg))
+                clients.append(BrainClient.connect_with(host, port, config))
         except Exception:
             for client in clients:
                 try:
@@ -90,14 +102,6 @@ class Pool:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
-
-
-def replace_agent_id(template: ClientConfig) -> ClientConfig:
-    """Copy ``template`` with a freshly-minted ``agent_id`` so each pooled
-    socket is individually identifiable server-side."""
-    import dataclasses
-
-    return dataclasses.replace(template, agent_id=new_id())
 
 
 __all__ = ["Pool"]

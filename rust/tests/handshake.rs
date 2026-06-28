@@ -22,9 +22,12 @@ use brain_db_sdk::wire::types::{
     AgentPermissions, AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload,
     MemoryKindWire, ServerFeatures, StageKind, WelcomePayload,
 };
-use brain_db_sdk::{new_id, BrainClient, BrainError, ClientConfig};
+use brain_db_sdk::{new_id, Auth, BrainClient, BrainError, ClientConfig};
 
 const SESSION_ID: [u8; 16] = [0xAB; 16];
+/// The agent id the mock server assigns from the credential. The client never
+/// claims an identity any more.
+const SERVER_AGENT: [u8; 16] = [0x22; 16];
 const MEMORY_ID: u128 = 0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10;
 
 /// The server side of the protocol for one connection, as a test double.
@@ -54,10 +57,10 @@ async fn serve_one(mut sock: TcpStream) {
     // AUTH -> AUTH_OK (echo the agent id the client presented).
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("read auth");
     assert_eq!(auth_frame.opcode, Opcode::Auth as u16);
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
 
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         bound_shard_id: 3,
         permissions: AgentPermissions {
             can_encode: true,
@@ -67,6 +70,7 @@ async fn serve_one(mut sock: TcpStream) {
             can_forget: true,
             can_admin: false,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1_700_000_000_000_000_000,
     };
     write_payload(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -82,9 +86,9 @@ async fn serve_one(mut sock: TcpStream) {
         salience: 0.75,
         auto_edges_added: 0,
         lsn: 42,
-        agent_id: auth.agent_id,
+        agent_id: SERVER_AGENT,
         context_id: enc.context_id,
-        kind: enc.kind,
+        kind: MemoryKindWire::Semantic,
         created_at_unix_nanos: 1_700_000_000_000_000_001,
         edges_out_count: 0,
         embedding_model_fp: [0x22; 16],
@@ -121,12 +125,9 @@ fn sample_encode_request() -> EncodeRequest {
     EncodeRequest {
         text: "the user prefers dark mode".to_string(),
         context_id: 9,
-        kind: MemoryKindWire::Semantic,
-        salience_hint: 0.5,
-        edges: vec![],
         request_id: new_id(),
         txn_id: None,
-        deduplicate: true,
+        occurred_at_unix_nanos: None,
     }
 }
 
@@ -140,7 +141,7 @@ async fn connect_handshake_encode_round_trip_against_mock_server() {
         serve_one(sock).await;
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
 
     let session = client.session();
     assert_eq!(session.chosen_version, 1);
@@ -199,7 +200,7 @@ async fn rejects_a_server_that_chooses_an_unoffered_version() {
     });
 
     // BrainClient has no Debug, so match the error rather than `expect_err`.
-    match BrainClient::connect(addr).await {
+    match BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await {
         Err(BrainError::VersionMismatch { chosen, .. }) => assert_eq!(chosen, 99),
         Err(other) => panic!("expected VersionMismatch, got {other:?}"),
         Ok(_) => panic!("expected the handshake to be rejected"),
@@ -214,7 +215,7 @@ async fn live_server_handshake() {
     };
     let addr: SocketAddr = addr.parse().expect("BRAIN_TEST_ADDR must be host:port");
 
-    let client = BrainClient::connect_with(addr, ClientConfig::default())
+    let client = BrainClient::connect_with(addr, ClientConfig::new(Auth::Token(b"test-token".to_vec())))
         .await
         .expect("connect to live server");
     assert_eq!(client.session().chosen_version, 1);

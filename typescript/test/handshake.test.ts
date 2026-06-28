@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import * as net from "node:net";
 
 import { BrainClient, newId } from "../src/client.js";
+import { SERVER_AGENT_ID, TEST_AUTH } from "./_auth.js";
 import { VersionMismatch } from "../src/errors.js";
 import { FrameChannel } from "../src/transport.js";
 import { FLAG_EOS } from "../src/wire/frame.js";
@@ -80,10 +81,11 @@ async function serveOne(sock: net.Socket): Promise<void> {
 
   const authFrame = await chan.read();
   expect(authFrame.opcode).toBe(Opcode.Auth);
-  const auth = decodeAuth(authFrame.payload);
+  // The client sends a credential but never an agent id; the server assigns one.
+  decodeAuth(authFrame.payload);
 
   const authOk: AuthOkPayload = {
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     boundShardId: 3,
     permissions: {
       canEncode: true,
@@ -93,6 +95,7 @@ async function serveOne(sock: net.Socket): Promise<void> {
       canForget: true,
       canAdmin: false,
     },
+    namespace: "acme",
     serverTimeUnixNanos: 1_700_000_000_000_000_000n,
   };
   await chan.write({
@@ -112,9 +115,9 @@ async function serveOne(sock: net.Socket): Promise<void> {
     salience: 0.75,
     autoEdgesAdded: 0,
     lsn: 42n,
-    agentId: auth.agentId,
+    agentId: SERVER_AGENT_ID,
     contextId: enc.contextId,
-    kind: enc.kind,
+    kind: MemoryKindWire.Semantic,
     createdAtUnixNanos: 1_700_000_000_000_000_001n,
     edgesOutCount: 0,
     embeddingModelFp: new Uint8Array(16).fill(0x22),
@@ -137,12 +140,9 @@ function sampleEncodeRequest(): EncodeRequest {
   return {
     text: "the user prefers dark mode",
     contextId: 9n,
-    kind: MemoryKindWire.Semantic,
-    salienceHint: 0.5,
-    edges: [],
     requestId: newId(),
     txnId: null,
-    deduplicate: true,
+    occurredAtUnixNanos: null,
   };
 }
 
@@ -150,7 +150,7 @@ describe("connection / handshake", () => {
   it("connect + handshake + encode round-trip against a mock server", async () => {
     const { server, port } = await startServer(serveOne);
     try {
-      const client = await BrainClient.connect("127.0.0.1", port);
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
       const s = client.session;
       expect(s.chosenVersion).toBe(1);
@@ -160,6 +160,12 @@ describe("connection / handshake", () => {
       expect(s.permissions.canEncode).toBe(true);
       expect(s.permissions.canAdmin).toBe(false);
       expect(s.serverFeatures.maxConcurrentStreams).toBe(256);
+
+      // The client adopts the server-assigned agent id (it sent none of its own).
+      expect([...client.agentId]).toEqual([...SERVER_AGENT_ID]);
+      // The namespace AUTH_OK carried is surfaced read-only on the client.
+      expect(client.namespace).toBe("acme");
+      expect(s.namespace).toBe("acme");
 
       const req = sampleEncodeRequest();
       const resp = await client.encode(req);
@@ -203,7 +209,7 @@ describe("connection / handshake", () => {
     try {
       let caught: unknown;
       try {
-        await BrainClient.connect("127.0.0.1", port);
+        await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
       } catch (err) {
         caught = err;
       }
@@ -219,7 +225,7 @@ describe("connection / handshake", () => {
     const idx = liveAddr!.lastIndexOf(":");
     const host = liveAddr!.slice(0, idx);
     const port = Number(liveAddr!.slice(idx + 1));
-    const client = await BrainClient.connect(host, port);
+    const client = await BrainClient.connect(host, port, { auth: TEST_AUTH });
     expect(client.session.chosenVersion).toBe(1);
     expect(client.session.permissions.canEncode).toBe(true);
     await client.close();

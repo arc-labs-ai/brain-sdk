@@ -11,7 +11,6 @@
 
 import { newId } from "./client.js";
 import {
-  type EdgeRequest,
   type EncodeRequest,
   ForgetMode,
   type ForgetRequest,
@@ -20,13 +19,10 @@ import {
   type WireUuid,
 } from "./wire/types.js";
 
-/** Builder for an ENCODE request (defaults: semantic, context 0, dedup on). */
+/** Builder for an ENCODE request (defaults: context 0). */
 export class EncodeBuilder {
   private contextId = 0n;
-  private kind: MemoryKindWire = MemoryKindWire.Semantic;
-  private salienceHint = 0.5;
-  private edges: EdgeRequest[] = [];
-  private deduplicate = true;
+  private occurredAtUnixNanos: bigint | null = null;
 
   constructor(private readonly text: string) {}
 
@@ -35,23 +31,9 @@ export class EncodeBuilder {
     return this;
   }
 
-  withKind(kind: MemoryKindWire): this {
-    this.kind = kind;
-    return this;
-  }
-
-  salience(salienceHint: number): this {
-    this.salienceHint = salienceHint;
-    return this;
-  }
-
-  edge(edge: EdgeRequest): this {
-    this.edges.push(edge);
-    return this;
-  }
-
-  dedup(deduplicate: boolean): this {
-    this.deduplicate = deduplicate;
+  /** Stamp the wall-clock time the remembered event occurred. */
+  occurredAt(unixNanos: bigint): this {
+    this.occurredAtUnixNanos = unixNanos;
     return this;
   }
 
@@ -60,22 +42,21 @@ export class EncodeBuilder {
     return {
       text: this.text,
       contextId: this.contextId,
-      kind: this.kind,
-      salienceHint: this.salienceHint,
-      edges: this.edges,
       requestId: newId(),
       txnId: null,
-      deduplicate: this.deduplicate,
+      occurredAtUnixNanos: this.occurredAtUnixNanos,
     };
   }
 }
 
-/** Builder for a RECALL request (defaults: top 10, own agent, text + edges). */
+/** Builder for a RECALL request (defaults: 10 results, own agent). */
 export class RecallBuilder {
-  private topKValue = 10;
+  private subjectName = "";
+  private maxResultsValue = 10;
   private confidenceThreshold = 0;
   private contextFilter: bigint[] | null = null;
   private ageBoundUnixNanos: bigint | null = null;
+  private asOfRecordTimeUnixNanos: bigint | null = null;
   private kindFilter: MemoryKindWire[] | null = null;
   private salienceFloor = 0;
   private includeEdges = true;
@@ -86,8 +67,20 @@ export class RecallBuilder {
 
   constructor(private readonly cueText: string) {}
 
-  topK(topK: number): this {
-    this.topKValue = topK;
+  /** Name the subject to resolve facts about. */
+  subject(name: string): this {
+    this.subjectName = name;
+    return this;
+  }
+
+  maxResults(maxResults: number): this {
+    this.maxResultsValue = maxResults;
+    return this;
+  }
+
+  /** Resolve against record-time state as of this instant (bi-temporal). */
+  asOf(recordTimeUnixNanos: bigint): this {
+    this.asOfRecordTimeUnixNanos = recordTimeUnixNanos;
     return this;
   }
 
@@ -140,10 +133,12 @@ export class RecallBuilder {
   build(): RecallRequest {
     return {
       cueText: this.cueText,
-      topK: this.topKValue,
+      subjectName: this.subjectName,
+      maxResults: this.maxResultsValue,
       confidenceThreshold: this.confidenceThreshold,
       contextFilter: this.contextFilter,
       ageBoundUnixNanos: this.ageBoundUnixNanos,
+      asOfRecordTimeUnixNanos: this.asOfRecordTimeUnixNanos,
       kindFilter: this.kindFilter,
       salienceFloor: this.salienceFloor,
       includeEdges: this.includeEdges,
