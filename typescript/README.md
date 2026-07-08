@@ -12,7 +12,7 @@ request/response, a `BrainClient` holding the negotiated session), the three v1
 verbs with ergonomic builders (`encode()`, `recall()` streaming to EOS /
 `recallFrames()`, `forget()`), a `withRetry` helper + `RetryPolicy` (exponential
 backoff, server `retryAfterMs`), and the typed-graph verbs: `createEntity()`,
-`createStatement()`, `createRelation()`, `uploadSchema()`, `query()`, and
+`createStatement()`, `createRelation()`, `uploadSchema()`, and
 `materializeProcedural()`. `BrainClient` is built on a `MuxConnection`: a single
 `data` pump demultiplexes responses by `streamId`, so **every verb is
 concurrency-safe** and many requests run in flight at once over one shared

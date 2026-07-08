@@ -1,11 +1,9 @@
 //! Multiplexed connection: many requests in flight at once over one socket.
 //!
-//! The one-at-a-time [`crate::connection::Connection`] sends a request and
-//! blocks the socket until its response arrives. A [`MuxConnection`] instead
-//! splits the stream, runs a background **reader task** that demultiplexes
-//! every inbound frame to the waiting request by its `stream_id`, and lets
-//! callers issue requests concurrently — verbs take `&self`, so one connection
-//! is shared (e.g. behind an `Arc`) across tasks.
+//! A [`MuxConnection`] splits the stream, runs a background **reader task** that
+//! demultiplexes every inbound frame to the waiting request by its `stream_id`,
+//! and lets callers issue requests concurrently — verbs take `&self`, so one
+//! connection is shared (e.g. behind an `Arc`) across tasks.
 //!
 //! Each request registers an unbounded channel under a fresh `stream_id`,
 //! writes its frame (writes are serialized by a mutex so frames never
@@ -37,7 +35,6 @@ use tokio::io::{split, AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::connection::HandshakeOutcome;
 use crate::error::{BrainError, Result};
 use crate::transport::{read_frame, write_frame};
 use crate::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
@@ -49,6 +46,16 @@ use crate::wire::types::{
 };
 
 const HANDSHAKE_STREAM_ID: u32 = 0;
+
+/// What the server told us during the handshake: the negotiated [`WelcomePayload`]
+/// (chosen wire version + server features) and the [`AuthOkPayload`] (the resolved
+/// session — agent id and tenant namespace). Returned by
+/// [`MuxConnection::connect`] and surfaced to the caller as the initial session.
+#[derive(Clone, Debug)]
+pub struct HandshakeOutcome {
+    pub welcome: WelcomePayload,
+    pub auth_ok: AuthOkPayload,
+}
 
 /// Wall-clock nanoseconds since the Unix epoch, saturating at 0 if the
 /// clock is before the epoch. Used to stamp CLIENT_PONG replies.

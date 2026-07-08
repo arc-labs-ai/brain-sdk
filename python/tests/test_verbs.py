@@ -192,7 +192,6 @@ def test_builder_defaults_are_sane() -> None:
     assert recall.subject_name == ""
     assert recall.include_text
     assert recall.include_edges
-    assert not recall.include_other_agents
     assert recall.request_id is not None
 
     forget = ForgetBuilder(7).build()

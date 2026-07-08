@@ -99,12 +99,14 @@ function asOpt<T>(value: unknown, f: (v: unknown) => T): T | null {
 // Shared enums (integer discriminants on the wire).
 // ---------------------------------------------------------------------------
 
+/** How a stored memory was formed: an episodic event, a semantic fact, or a consolidated summary. Integer discriminant on the wire. */
 export enum MemoryKindWire {
   Episodic = 0,
   Semantic = 1,
   Consolidated = 2,
 }
 
+/** The typed relationship an edge asserts between two memories (causal, temporal, similarity, support, ...). Integer discriminant on the wire. */
 export enum EdgeKindWire {
   Caused = 0,
   FollowedBy = 1,
@@ -116,22 +118,26 @@ export enum EdgeKindWire {
   PartOf = 7,
 }
 
+/** FORGET disposition: a recoverable soft tombstone or an immediate hard zeroing of the slot. */
 export enum ForgetMode {
   Soft = 0,
   Hard = 1,
 }
 
+/** A background write-pipeline stage a freshly-encoded memory is still pending (auto-edge, temporal-edge, or extractor). */
 export enum StageKind {
   AutoEdge = 0,
   TemporalEdge = 1,
   Extractor = 2,
 }
 
+/** Authentication method offered in WELCOME and selected in AUTH: a bearer token or an mTLS subject claim. */
 export enum AuthMethod {
   Token = 0,
   Mtls = 1,
 }
 
+/** Which of the three always-wired retrievers contributed a hit (semantic, lexical, or graph). */
 export enum RetrieverNameWire {
   Semantic = 0,
   Lexical = 1,
@@ -146,12 +152,14 @@ export enum ResolutionOutcomeWire {
   NotFound = 4,
 }
 
+/** Retriever identity tag carried on a QUERY per-retriever contribution or outcome (semantic, lexical, graph). */
 export enum RetrieverWire {
   Semantic = 0,
   Lexical = 1,
   Graph = 2,
 }
 
+/** Coarse class of a server ERROR frame; drives whether the client may retry. */
 export enum ErrorCategoryWire {
   Protocol = 0,
   Authentication = 1,
@@ -168,6 +176,7 @@ export enum ErrorCategoryWire {
 // Handshake.
 // ---------------------------------------------------------------------------
 
+/** Optional transport features the client advertises in HELLO (streaming, zstd compression, server push). */
 export interface HelloCapabilities {
   streaming: boolean;
   compressionZstd: boolean;
@@ -191,6 +200,7 @@ function decodeCapabilities(value: unknown): HelloCapabilities {
   };
 }
 
+/** HELLO (`0x0001`): the client's opening frame — id, supported wire versions, capabilities, and an optional resume token. */
 export interface HelloPayload {
   clientId: string;
   supportedVersions: number[];
@@ -199,6 +209,7 @@ export interface HelloPayload {
   clientSessionToken: Uint8Array | null;
 }
 
+/** Encode a HELLO (`0x0001`) handshake request. */
 export function encodeHello(p: HelloPayload): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -210,6 +221,7 @@ export function encodeHello(p: HelloPayload): Uint8Array {
   );
 }
 
+/** Decode a HELLO (`0x0001`) handshake request payload. */
 export function decodeHello(bytes: Uint8Array): HelloPayload {
   const m = asMap(fromCbor(bytes));
   return {
@@ -220,6 +232,7 @@ export function decodeHello(bytes: Uint8Array): HelloPayload {
   };
 }
 
+/** Hard limits and timeouts the server declares in WELCOME (max payload, max concurrent streams, idle timeout, offered auth methods). */
 export interface ServerFeatures {
   maxPayloadSize: number;
   maxConcurrentStreams: number;
@@ -227,6 +240,7 @@ export interface ServerFeatures {
   authMethods: AuthMethod[];
 }
 
+/** WELCOME (`0x0081`): the server's handshake reply — chosen version, session id, echoed capabilities, and server features. */
 export interface WelcomePayload {
   serverId: string;
   chosenVersion: number;
@@ -235,6 +249,7 @@ export interface WelcomePayload {
   serverFeatures: ServerFeatures;
 }
 
+/** Encode a WELCOME (`0x0081`) handshake response. */
 export function encodeWelcome(p: WelcomePayload): Uint8Array {
   const sf = p.serverFeatures;
   return toCbor(
@@ -256,6 +271,7 @@ export function encodeWelcome(p: WelcomePayload): Uint8Array {
   );
 }
 
+/** Decode a WELCOME (`0x0081`) handshake response payload. */
 export function decodeWelcome(bytes: Uint8Array): WelcomePayload {
   const m = asMap(fromCbor(bytes));
   const sf = asMap(field(m, "server_features"));
@@ -326,6 +342,7 @@ export interface AuthPayload {
   credentials: AuthCredentials;
 }
 
+/** Encode an AUTH (`0x0002`) request carrying the connection's credential. */
 export function encodeAuth(p: AuthPayload): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -335,6 +352,7 @@ export function encodeAuth(p: AuthPayload): Uint8Array {
   );
 }
 
+/** Decode an AUTH (`0x0002`) request payload. */
 export function decodeAuth(bytes: Uint8Array): AuthPayload {
   const m = asMap(fromCbor(bytes));
   return {
@@ -343,6 +361,7 @@ export function decodeAuth(bytes: Uint8Array): AuthPayload {
   };
 }
 
+/** The capability grants the server resolved from the credential (encode/recall/plan/reason/forget/admin). */
 export interface AgentPermissions {
   canEncode: boolean;
   canRecall: boolean;
@@ -352,6 +371,7 @@ export interface AgentPermissions {
   canAdmin: boolean;
 }
 
+/** AUTH_OK (`0x0082`): the server's post-auth grant — assigned agent id, bound shard, permissions, resolved namespace, and server clock. */
 export interface AuthOkPayload {
   agentId: WireUuid;
   boundShardId: number;
@@ -363,6 +383,7 @@ export interface AuthOkPayload {
   serverTimeUnixNanos: bigint;
 }
 
+/** Encode an AUTH_OK (`0x0082`) response. */
 export function encodeAuthOk(p: AuthOkPayload): Uint8Array {
   const perm = p.permissions;
   return toCbor(
@@ -386,6 +407,7 @@ export function encodeAuthOk(p: AuthOkPayload): Uint8Array {
   );
 }
 
+/** Decode an AUTH_OK (`0x0082`) response payload. */
 export function decodeAuthOk(bytes: Uint8Array): AuthOkPayload {
   const m = asMap(fromCbor(bytes));
   const perm = asMap(field(m, "permissions"));
@@ -413,21 +435,25 @@ export function decodeAuthOk(bytes: Uint8Array): AuthOkPayload {
 // brain-protocol definitions byte-for-byte. Timestamps are u64 → bigint.
 // ===========================================================================
 
+/** PING (`0x0010`): a client liveness probe the server answers with PONG. */
 export interface PingRequest {
   clientTimestampUnixNanos: bigint;
 }
 
+/** Encode a PING (`0x0010`) request. */
 export function encodePing(p: PingRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([["client_timestamp_unix_nanos", p.clientTimestampUnixNanos]]),
   );
 }
 
+/** PONG (`0x0090`): the server's reply to a client PING, echoing the nonce. */
 export interface PongResponse {
   clientTimestampUnixNanos: bigint;
   serverTimestampUnixNanos: bigint;
 }
 
+/** Encode a PONG (`0x0090`) response. */
 export function encodePong(p: PongResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -437,6 +463,7 @@ export function encodePong(p: PongResponse): Uint8Array {
   );
 }
 
+/** Decode a PONG (`0x0090`) response payload. */
 export function decodePong(bytes: Uint8Array): PongResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -445,16 +472,19 @@ export function decodePong(bytes: Uint8Array): PongResponse {
   };
 }
 
+/** SERVER_PING (`0x0091`): the server's idle-timer heartbeat the client must answer with CLIENT_PONG. */
 export interface ServerPingResponse {
   serverTimestampUnixNanos: bigint;
 }
 
+/** Encode a SERVER_PING (`0x0091`) heartbeat frame. */
 export function encodeServerPing(p: ServerPingResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([["server_timestamp_unix_nanos", p.serverTimestampUnixNanos]]),
   );
 }
 
+/** Decode a SERVER_PING (`0x0091`) heartbeat payload. */
 export function decodeServerPing(bytes: Uint8Array): ServerPingResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -462,11 +492,13 @@ export function decodeServerPing(bytes: Uint8Array): ServerPingResponse {
   };
 }
 
+/** CLIENT_PONG (`0x0011`): the client's reply to SERVER_PING that keeps the connection alive. */
 export interface ClientPongRequest {
   serverTimestampUnixNanos: bigint;
   clientTimestampUnixNanos: bigint;
 }
 
+/** Encode a CLIENT_PONG (`0x0011`) frame. */
 export function encodeClientPong(p: ClientPongRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -476,6 +508,7 @@ export function encodeClientPong(p: ClientPongRequest): Uint8Array {
   );
 }
 
+/** Decode a CLIENT_PONG (`0x0011`) payload. */
 export function decodeClientPong(bytes: Uint8Array): ClientPongRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -488,6 +521,7 @@ export function decodeClientPong(bytes: Uint8Array): ClientPongRequest {
 // ENCODE / ENCODE_VECTOR_DIRECT.
 // ---------------------------------------------------------------------------
 
+/** One outgoing edge a write asks the server to create from the new memory to an existing one. */
 export interface EdgeRequest {
   target: bigint;
   kind: EdgeKindWire;
@@ -511,6 +545,7 @@ function decodeEdge(value: unknown): EdgeRequest {
   };
 }
 
+/** ENCODE (`0x0020`): store a memory from text, with context, edges, and an optional occurred-at stamp. */
 export interface EncodeRequest {
   text: string;
   contextId: bigint;
@@ -519,6 +554,7 @@ export interface EncodeRequest {
   occurredAtUnixNanos: bigint | null;
 }
 
+/** Encode an ENCODE (`0x0020`) request. */
 export function encodeEncode(p: EncodeRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -531,6 +567,7 @@ export function encodeEncode(p: EncodeRequest): Uint8Array {
   );
 }
 
+/** Decode an ENCODE (`0x0020`) request payload. */
 export function decodeEncode(bytes: Uint8Array): EncodeRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -542,6 +579,7 @@ export function decodeEncode(bytes: Uint8Array): EncodeRequest {
   };
 }
 
+/** ENCODE_VECTOR_DIRECT (`0x002A`): store a pre-computed embedding; the vector rides the trailing raw f32 section, not the CBOR map. */
 export interface EncodeVectorDirectRequest {
   text: string;
   /** Carried in the trailing raw f32 section, not the CBOR map. */
@@ -556,6 +594,7 @@ export interface EncodeVectorDirectRequest {
   deduplicate: boolean;
 }
 
+/** Encode an ENCODE_VECTOR_DIRECT (`0x002A`) request, appending the raw f32 vector after the CBOR map. */
 export function encodeEncodeVectorDirect(p: EncodeVectorDirectRequest): Uint8Array {
   const cbor = toCbor(
     new Map<string, unknown>([
@@ -577,6 +616,7 @@ export function encodeEncodeVectorDirect(p: EncodeVectorDirectRequest): Uint8Arr
   return out;
 }
 
+/** Decode an ENCODE_VECTOR_DIRECT (`0x002A`) request, splitting the CBOR map from the trailing raw f32 vector. */
 export function decodeEncodeVectorDirect(bytes: Uint8Array): EncodeVectorDirectRequest {
   const { value, consumed } = fromCborPrefix(bytes);
   const m = asMap(value);
@@ -595,6 +635,7 @@ export function decodeEncodeVectorDirect(bytes: Uint8Array): EncodeVectorDirectR
   };
 }
 
+/** ENCODE_RESP (`0x00A0`): the assigned memory id plus write outcome — salience, dedup verdict, auto-edges, LSN, and pending stages. */
 export interface EncodeResponse {
   memoryId: bigint;
   wasDeduplicated: boolean;
@@ -611,6 +652,7 @@ export interface EncodeResponse {
   hasActiveSchema: boolean;
 }
 
+/** Encode an ENCODE_RESP (`0x00A0`) payload (also the ENCODE_VECTOR_DIRECT reply). */
 export function encodeEncodeResponse(p: EncodeResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -631,6 +673,7 @@ export function encodeEncodeResponse(p: EncodeResponse): Uint8Array {
   );
 }
 
+/** Decode an ENCODE_RESP (`0x00A0`) payload. */
 export function decodeEncodeResponse(bytes: Uint8Array): EncodeResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -661,6 +704,7 @@ export function decodeEncodeResponse(bytes: Uint8Array): EncodeResponse {
  */
 export type AnswerKind = "Single" | "Many" | "None";
 
+/** RECALL (`0x0021`): retrieve memories by cue, with subject, filters (kind/context/confidence/salience/time), and graph/text toggles. */
 export interface RecallRequest {
   cueText: string;
   subjectName: string;
@@ -676,10 +720,9 @@ export interface RecallRequest {
   includeText: boolean;
   requestId: WireUuid | null;
   txnId: WireUuid | null;
-  agentFilter: WireUuid[];
-  includeOtherAgents: boolean;
 }
 
+/** Encode a RECALL (`0x0021`) request. */
 export function encodeRecall(p: RecallRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -697,12 +740,11 @@ export function encodeRecall(p: RecallRequest): Uint8Array {
       ["include_text", p.includeText],
       ["request_id", p.requestId],
       ["txn_id", p.txnId],
-      ["agent_filter", p.agentFilter],
-      ["include_other_agents", p.includeOtherAgents],
     ]),
   );
 }
 
+/** Decode a RECALL (`0x0021`) request payload. */
 export function decodeRecall(bytes: Uint8Array): RecallRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -722,23 +764,24 @@ export function decodeRecall(bytes: Uint8Array): RecallRequest {
     includeText: asBool(field(m, "include_text")),
     requestId: asOptBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
-    agentFilter: asArray(field(m, "agent_filter")).map(asBytes),
-    includeOtherAgents: asBool(field(m, "include_other_agents")),
   };
 }
 
+/** A memory's outgoing edge as returned in a recall hit: target, kind, and weight. */
 export interface EdgeView {
   target: bigint;
   kind: EdgeKindWire;
   weight: number;
 }
 
+/** A graph-enrichment entity node attached to a recall hit: id, display name, and type qname. */
 export interface EnrichedEntity {
   id: Uint8Array;
   name: string;
   typeQname: string;
 }
 
+/** A graph-enrichment statement attached to a recall hit: subject/predicate/object labels and confidence. */
 export interface EnrichedStatement {
   id: Uint8Array;
   subjectName: string;
@@ -747,12 +790,14 @@ export interface EnrichedStatement {
   confidence: number;
 }
 
+/** A graph-enrichment relation attached to a recall hit: from-name, predicate, to-name. */
 export interface EnrichedRelation {
   fromName: string;
   predicate: string;
   toName: string;
 }
 
+/** The typed-graph neighborhood optionally attached to a recall hit (entities, statements, relations). */
 export interface GraphEnrichment {
   entities: EnrichedEntity[];
   statements: EnrichedStatement[];
@@ -807,6 +852,7 @@ function encodeGraph(g: GraphEnrichment): Map<string, unknown> {
   ]);
 }
 
+/** One recalled memory: text, the fused/rerank/similarity scores, provenance, edges, and the retrievers that surfaced it. */
 export interface MemoryResult {
   memoryId: bigint;
   text: string;
@@ -943,6 +989,7 @@ export interface RecallAnswer {
   memories: MemoryResult[];
 }
 
+/** RECALL_RESP (`0x00A1`), one streamed frame: a batch of memory hits plus the running answer verdict and remaining-count estimate. */
 export interface RecallResponseFrame {
   answerKind: AnswerKind;
   memories: MemoryResult[];
@@ -951,6 +998,7 @@ export interface RecallResponseFrame {
   estimatedRemaining: number | null;
 }
 
+/** Encode one RECALL_RESP (`0x00A1`) streamed frame. */
 export function encodeRecallResponse(p: RecallResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -963,6 +1011,7 @@ export function encodeRecallResponse(p: RecallResponseFrame): Uint8Array {
   );
 }
 
+/** Decode one RECALL_RESP (`0x00A1`) streamed frame. */
 export function decodeRecallResponse(bytes: Uint8Array): RecallResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
@@ -978,6 +1027,7 @@ export function decodeRecallResponse(bytes: Uint8Array): RecallResponseFrame {
 // FORGET.
 // ---------------------------------------------------------------------------
 
+/** FORGET (`0x0024`): tombstone or hard-zero a memory by id. */
 export interface ForgetRequest {
   memoryId: bigint;
   mode: ForgetMode;
@@ -985,6 +1035,7 @@ export interface ForgetRequest {
   txnId: WireUuid | null;
 }
 
+/** Encode a FORGET (`0x0024`) request. */
 export function encodeForget(p: ForgetRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -996,6 +1047,7 @@ export function encodeForget(p: ForgetRequest): Uint8Array {
   );
 }
 
+/** Decode a FORGET (`0x0024`) request payload. */
 export function decodeForget(bytes: Uint8Array): ForgetRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1006,12 +1058,14 @@ export function decodeForget(bytes: Uint8Array): ForgetRequest {
   };
 }
 
+/** FORGET_RESP (`0x00A4`): the disposition applied and when it took effect. */
 export interface ForgetResponse {
   memoryId: bigint;
   wasAlreadyForgotten: boolean;
   edgesRemoved: number;
 }
 
+/** Encode a FORGET_RESP (`0x00A4`) payload. */
 export function encodeForgetResponse(p: ForgetResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1022,6 +1076,7 @@ export function encodeForgetResponse(p: ForgetResponse): Uint8Array {
   );
 }
 
+/** Decode a FORGET_RESP (`0x00A4`) payload. */
 export function decodeForgetResponse(bytes: Uint8Array): ForgetResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1035,12 +1090,14 @@ export function decodeForgetResponse(bytes: Uint8Array): ForgetResponse {
 // ERROR.
 // ---------------------------------------------------------------------------
 
+/** Structured detail sidecar on an ERROR frame (field-level cause, retry hint). */
 export interface ErrorDetails {
   field: string | null;
   expected: string | null;
   actual: string | null;
 }
 
+/** ERROR (`0x00FF`): the server's structured failure frame — category, code, message, and optional retry-after. */
 export interface ErrorResponse {
   code: number;
   category: ErrorCategoryWire;
@@ -1049,6 +1106,7 @@ export interface ErrorResponse {
   retryAfterMs: number | null;
 }
 
+/** Encode an ERROR (`0x00FF`) frame. */
 export function encodeError(p: ErrorResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1070,6 +1128,7 @@ export function encodeError(p: ErrorResponse): Uint8Array {
   );
 }
 
+/** Decode an ERROR (`0x00FF`) frame payload. */
 export function decodeError(bytes: Uint8Array): ErrorResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1221,6 +1280,7 @@ function decodeEvidence(value: unknown): EvidenceRefWire {
   throw new CborError("unknown EvidenceRef variant");
 }
 
+/** ENTITY_CREATE (`0x0130`): declare a typed entity with a canonical name, aliases, and an attributes blob. */
 export interface EntityCreateRequest {
   entityTypeId: number;
   canonicalName: string;
@@ -1229,6 +1289,7 @@ export interface EntityCreateRequest {
   requestId: WireUuid;
 }
 
+/** Encode an ENTITY_CREATE (`0x0130`) request. */
 export function encodeEntityCreate(p: EntityCreateRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1241,6 +1302,7 @@ export function encodeEntityCreate(p: EntityCreateRequest): Uint8Array {
   );
 }
 
+/** Decode an ENTITY_CREATE (`0x0130`) request payload. */
 export function decodeEntityCreate(bytes: Uint8Array): EntityCreateRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1252,19 +1314,23 @@ export function decodeEntityCreate(bytes: Uint8Array): EntityCreateRequest {
   };
 }
 
+/** ENTITY_CREATE_RESP (`0x01B0`): the id minted for the new entity. */
 export interface EntityCreateResponse {
   entityId: WireUuid;
 }
 
+/** Encode an ENTITY_CREATE_RESP (`0x01B0`) payload. */
 export function encodeEntityCreateResponse(p: EntityCreateResponse): Uint8Array {
   return toCbor(new Map<string, unknown>([["entity_id", p.entityId]]));
 }
 
+/** Decode an ENTITY_CREATE_RESP (`0x01B0`) payload. */
 export function decodeEntityCreateResponse(bytes: Uint8Array): EntityCreateResponse {
   const m = asMap(fromCbor(bytes));
   return { entityId: asBytes(field(m, "entity_id")) };
 }
 
+/** STATEMENT_CREATE (`0x0140`): assert a typed claim (subject/predicate/object) with evidence, confidence, and a bi-temporal validity window. */
 export interface StatementCreateRequest {
   kind: StatementKindWire;
   subject: WireUuid;
@@ -1280,25 +1346,32 @@ export interface StatementCreateRequest {
   requestId: WireUuid;
 }
 
-export function encodeStatementCreate(p: StatementCreateRequest): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
-      ["kind", encodeStatementKind(p.kind)],
-      ["subject", p.subject],
-      ["predicate", p.predicate],
-      ["object", encodeStatementObject(p.object)],
-      ["confidence", f32(p.confidence)],
-      ["evidence", encodeEvidence(p.evidence)],
-      ["extractor_id", p.extractorId],
-      ["valid_from_unix_nanos", p.validFromUnixNanos],
-      ["valid_to_unix_nanos", p.validToUnixNanos],
-      ["event_at_unix_nanos", p.eventAtUnixNanos],
-      ["schema_version", p.schemaVersion],
-      ["request_id", p.requestId],
-    ]),
-  );
+/** The CBOR map for a STATEMENT_CREATE payload — shared so STATEMENT_SUPERSEDE
+ * can nest one without a lossy re-encode round-trip (which would demote the
+ * f32 confidence to f64). */
+function statementCreateMap(p: StatementCreateRequest): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["kind", encodeStatementKind(p.kind)],
+    ["subject", p.subject],
+    ["predicate", p.predicate],
+    ["object", encodeStatementObject(p.object)],
+    ["confidence", f32(p.confidence)],
+    ["evidence", encodeEvidence(p.evidence)],
+    ["extractor_id", p.extractorId],
+    ["valid_from_unix_nanos", p.validFromUnixNanos],
+    ["valid_to_unix_nanos", p.validToUnixNanos],
+    ["event_at_unix_nanos", p.eventAtUnixNanos],
+    ["schema_version", p.schemaVersion],
+    ["request_id", p.requestId],
+  ]);
 }
 
+/** Encode a STATEMENT_CREATE (`0x0140`) request. */
+export function encodeStatementCreate(p: StatementCreateRequest): Uint8Array {
+  return toCbor(statementCreateMap(p));
+}
+
+/** Decode a STATEMENT_CREATE (`0x0140`) request payload. */
 export function decodeStatementCreate(bytes: Uint8Array): StatementCreateRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1317,12 +1390,14 @@ export function decodeStatementCreate(bytes: Uint8Array): StatementCreateRequest
   };
 }
 
+/** STATEMENT_CREATE_RESP (`0x01C0`): the new statement id, any auto-superseded prior claim, and the chain root. */
 export interface StatementCreateResponse {
   statementId: WireUuid;
   autoSuperseded: WireUuid;
   chainRoot: WireUuid;
 }
 
+/** Encode a STATEMENT_CREATE_RESP (`0x01C0`) payload. */
 export function encodeStatementCreateResponse(p: StatementCreateResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1333,6 +1408,7 @@ export function encodeStatementCreateResponse(p: StatementCreateResponse): Uint8
   );
 }
 
+/** Decode a STATEMENT_CREATE_RESP (`0x01C0`) payload. */
 export function decodeStatementCreateResponse(bytes: Uint8Array): StatementCreateResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1342,6 +1418,7 @@ export function decodeStatementCreateResponse(bytes: Uint8Array): StatementCreat
   };
 }
 
+/** RELATION_CREATE (`0x0150`): a new typed edge between two entities with provenance and a bi-temporal validity window. */
 export interface RelationCreateRequest {
   relationType: string;
   fromEntity: WireUuid;
@@ -1355,25 +1432,27 @@ export interface RelationCreateRequest {
   requestId: WireUuid;
 }
 
-export function encodeRelationCreate(p: RelationCreateRequest): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
-      ["relation_type", p.relationType],
-      ["from_entity", p.fromEntity],
-      ["to_entity", p.toEntity],
-      ["properties_blob", Array.from(p.propertiesBlob)],
-      ["evidence", encodeEvidence(p.evidence)],
-      ["extractor_id", p.extractorId],
-      ["confidence", f32(p.confidence)],
-      ["valid_from_unix_nanos", p.validFromUnixNanos],
-      ["valid_to_unix_nanos", p.validToUnixNanos],
-      ["request_id", p.requestId],
-    ]),
-  );
+/** The CBOR map for a RELATION_CREATE payload — shared so RELATION_SUPERSEDE
+ * can nest one without a lossy re-encode round-trip (which would demote the
+ * f32 confidence to f64). */
+function relationCreateMap(p: RelationCreateRequest): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["relation_type", p.relationType],
+    ["from_entity", p.fromEntity],
+    ["to_entity", p.toEntity],
+    ["properties_blob", Array.from(p.propertiesBlob)],
+    ["evidence", encodeEvidence(p.evidence)],
+    ["extractor_id", p.extractorId],
+    ["confidence", f32(p.confidence)],
+    ["valid_from_unix_nanos", p.validFromUnixNanos],
+    ["valid_to_unix_nanos", p.validToUnixNanos],
+    ["request_id", p.requestId],
+  ]);
 }
 
-export function decodeRelationCreate(bytes: Uint8Array): RelationCreateRequest {
-  const m = asMap(fromCbor(bytes));
+/** Read a RELATION_CREATE map back into the typed request — shared by the
+ * top-level decoder and the RELATION_SUPERSEDE nested-field decoder. */
+function relationCreateFromMap(m: Map<string, unknown>): RelationCreateRequest {
   return {
     relationType: asStr(field(m, "relation_type")),
     fromEntity: asBytes(field(m, "from_entity")),
@@ -1388,19 +1467,34 @@ export function decodeRelationCreate(bytes: Uint8Array): RelationCreateRequest {
   };
 }
 
+/** Encode a RELATION_CREATE (`0x0150`) request: a new typed edge between two
+ * entities with provenance and a bi-temporal validity window. */
+export function encodeRelationCreate(p: RelationCreateRequest): Uint8Array {
+  return toCbor(relationCreateMap(p));
+}
+
+/** Decode a RELATION_CREATE (`0x0150`) request payload. */
+export function decodeRelationCreate(bytes: Uint8Array): RelationCreateRequest {
+  return relationCreateFromMap(asMap(fromCbor(bytes)));
+}
+
+/** RELATION_CREATE_RESP (`0x01D0`): the id minted for the new relation. */
 export interface RelationCreateResponse {
   relationId: WireUuid;
 }
 
+/** Encode a RELATION_CREATE_RESP (`0x01D0`) payload. */
 export function encodeRelationCreateResponse(p: RelationCreateResponse): Uint8Array {
   return toCbor(new Map<string, unknown>([["relation_id", p.relationId]]));
 }
 
+/** Decode a RELATION_CREATE_RESP (`0x01D0`) payload. */
 export function decodeRelationCreateResponse(bytes: Uint8Array): RelationCreateResponse {
   const m = asMap(fromCbor(bytes));
   return { relationId: asBytes(field(m, "relation_id")) };
 }
 
+/** SCHEMA_UPLOAD (`0x0120`): submit a schema document; `dryRun` validates without applying. */
 export interface SchemaUploadRequest {
   schemaDocument: string;
   dryRun: boolean;
@@ -1408,6 +1502,7 @@ export interface SchemaUploadRequest {
   requestId: WireUuid;
 }
 
+/** Encode a SCHEMA_UPLOAD (`0x0120`) request. */
 export function encodeSchemaUpload(p: SchemaUploadRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1419,6 +1514,7 @@ export function encodeSchemaUpload(p: SchemaUploadRequest): Uint8Array {
   );
 }
 
+/** Decode a SCHEMA_UPLOAD (`0x0120`) request payload. */
 export function decodeSchemaUpload(bytes: Uint8Array): SchemaUploadRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1429,6 +1525,7 @@ export function decodeSchemaUpload(bytes: Uint8Array): SchemaUploadRequest {
   };
 }
 
+/** One schema validation diagnostic (location + message) returned by an upload or validate call. */
 export interface SchemaValidationErrorWire {
   code: string;
   message: string;
@@ -1438,6 +1535,7 @@ export interface SchemaValidationErrorWire {
   severity: number;
 }
 
+/** SCHEMA_UPLOAD_RESP (`0x01A0`): the resulting namespace/version, any validation errors, and a backward-compat verdict. */
 export interface SchemaUploadResponse {
   namespace: string;
   schemaVersion: number;
@@ -1446,6 +1544,7 @@ export interface SchemaUploadResponse {
   migrationSummaryBlob: Uint8Array;
 }
 
+/** Encode a SCHEMA_UPLOAD_RESP (`0x01A0`) payload. */
 export function encodeSchemaUploadResponse(p: SchemaUploadResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1471,6 +1570,7 @@ export function encodeSchemaUploadResponse(p: SchemaUploadResponse): Uint8Array 
   );
 }
 
+/** Decode a SCHEMA_UPLOAD_RESP (`0x01A0`) payload. */
 export function decodeSchemaUploadResponse(bytes: Uint8Array): SchemaUploadResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1492,6 +1592,7 @@ export function decodeSchemaUploadResponse(bytes: Uint8Array): SchemaUploadRespo
   };
 }
 
+/** A half-open millisecond time window used to filter a query by valid/event time. */
 export interface TimeRangeWire {
   fromUnixMs: bigint | null;
   toUnixMs: bigint | null;
@@ -1519,6 +1620,7 @@ function decodeRetrieverSelection(value: unknown): RetrieverSelectionWire {
   throw new CborError("unknown RetrieverSelection variant");
 }
 
+/** RRF fusion tuning for a QUERY: the k constant and per-retriever weights. */
 export interface FusionConfigWire {
   k: number;
   semanticWeight: number;
@@ -1526,6 +1628,10 @@ export interface FusionConfigWire {
   graphWeight: number;
 }
 
+/** A typed-graph retrieval shape — anchor, kind/predicate/time filters,
+ * retriever selection, and fusion config. RECALL is the sole read verb; this
+ * struct now only carries the query the QUERY_EXPLAIN / QUERY_TRACE debug
+ * surface plans and traces. */
 export interface QueryRequest {
   text: string;
   entityAnchor: WireUuid | null;
@@ -1542,9 +1648,10 @@ export interface QueryRequest {
   requestId: WireUuid;
 }
 
-export function encodeQuery(p: QueryRequest): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
+/** The CBOR map for a QUERY payload — shared so QUERY_EXPLAIN / QUERY_TRACE can
+ * nest a whole query without a lossy re-encode round-trip. */
+function queryMap(p: QueryRequest): Map<string, unknown> {
+  return new Map<string, unknown>([
       ["text", p.text],
       ["entity_anchor", p.entityAnchor],
       ["kind_filter", p.kindFilter],
@@ -1576,12 +1683,12 @@ export function encodeQuery(p: QueryRequest): Uint8Array {
             ]),
       ],
       ["request_id", p.requestId],
-    ]),
-  );
+    ]);
 }
 
-export function decodeQuery(bytes: Uint8Array): QueryRequest {
-  const m = asMap(fromCbor(bytes));
+/** Read a QUERY map back into the typed request — shared by the QUERY_EXPLAIN /
+ * QUERY_TRACE nested-field decoders. */
+function queryFromMap(m: Map<string, unknown>): QueryRequest {
   return {
     text: asStr(field(m, "text")),
     entityAnchor: asOptBytes(field(m, "entity_anchor")),
@@ -1613,118 +1720,7 @@ export function decodeQuery(bytes: Uint8Array): QueryRequest {
   };
 }
 
-export interface ItemIdWire {
-  kind: number;
-  bytes: Uint8Array;
-}
-
-export interface RetrieverContributionWire {
-  retriever: RetrieverWire;
-  rank: number;
-  rawScore: number;
-}
-
-export interface RetrieverOutcomeWire {
-  retriever: RetrieverWire;
-  status: number;
-  message: string;
-  latencyMs: number;
-  resultCount: number;
-}
-
-export interface QueryResultItem {
-  id: ItemIdWire;
-  fusedScore: number;
-  contributing: RetrieverContributionWire[];
-}
-
-export interface QueryResponse {
-  items: QueryResultItem[];
-  totalLatencyMs: number;
-  retrieverOutcomes: RetrieverOutcomeWire[];
-}
-
-export function encodeQueryResponse(p: QueryResponse): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
-      [
-        "items",
-        p.items.map(
-          (item) =>
-            new Map<string, unknown>([
-              [
-                "id",
-                new Map<string, unknown>([
-                  ["kind", item.id.kind],
-                  ["bytes", item.id.bytes],
-                ]),
-              ],
-              ["fused_score", f64(item.fusedScore)],
-              [
-                "contributing",
-                item.contributing.map(
-                  (c) =>
-                    new Map<string, unknown>([
-                      ["retriever", c.retriever as number],
-                      ["rank", c.rank],
-                      ["raw_score", f32(c.rawScore)],
-                    ]),
-                ),
-              ],
-            ]),
-        ),
-      ],
-      ["total_latency_ms", f64(p.totalLatencyMs)],
-      [
-        "retriever_outcomes",
-        p.retrieverOutcomes.map(
-          (o) =>
-            new Map<string, unknown>([
-              ["retriever", o.retriever as number],
-              ["status", o.status],
-              ["message", o.message],
-              ["latency_ms", f64(o.latencyMs)],
-              ["result_count", o.resultCount],
-            ]),
-        ),
-      ],
-    ]),
-  );
-}
-
-export function decodeQueryResponse(bytes: Uint8Array): QueryResponse {
-  const m = asMap(fromCbor(bytes));
-  return {
-    items: asArray(field(m, "items")).map((v) => {
-      const it = asMap(v);
-      const id = asMap(field(it, "id"));
-      return {
-        id: { kind: asNum(field(id, "kind")), bytes: asBytes(field(id, "bytes")) },
-        fusedScore: asNum(field(it, "fused_score")),
-        contributing: asArray(field(it, "contributing")).map((cv) => {
-          const c = asMap(cv);
-          return {
-            retriever: asNum(field(c, "retriever")) as RetrieverWire,
-            rank: asNum(field(c, "rank")),
-            rawScore: asNum(field(c, "raw_score")),
-          };
-        }),
-      };
-    }),
-    totalLatencyMs: asNum(field(m, "total_latency_ms")),
-    retrieverOutcomes: asArray(field(m, "retriever_outcomes")).map((v) => {
-      const o = asMap(v);
-      return {
-        retriever: asNum(field(o, "retriever")) as RetrieverWire,
-        status: asNum(field(o, "status")),
-        message: asStr(field(o, "message")),
-        latencyMs: asNum(field(o, "latency_ms")),
-        resultCount: asNum(field(o, "result_count")),
-      };
-    }),
-  };
-}
-
+/** MATERIALIZE_PROCEDURAL (`0x0164`): assemble a procedural-memory system block from the agent's top procedural statements. */
 export interface MaterializeProceduralRequest {
   agentId: WireUuid;
   contextFilter: bigint;
@@ -1734,6 +1730,7 @@ export interface MaterializeProceduralRequest {
   requestId: WireUuid;
 }
 
+/** Encode a MATERIALIZE_PROCEDURAL (`0x0164`) request. */
 export function encodeMaterializeProcedural(p: MaterializeProceduralRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1747,6 +1744,7 @@ export function encodeMaterializeProcedural(p: MaterializeProceduralRequest): Ui
   );
 }
 
+/** Decode a MATERIALIZE_PROCEDURAL (`0x0164`) request payload. */
 export function decodeMaterializeProcedural(bytes: Uint8Array): MaterializeProceduralRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1759,6 +1757,7 @@ export function decodeMaterializeProcedural(bytes: Uint8Array): MaterializeProce
   };
 }
 
+/** MATERIALIZE_PROCEDURAL_RESP (`0x01E4`): the rendered system block, the statements it drew on, and whether the budget trimmed it. */
 export interface MaterializeProceduralResponse {
   systemBlock: string;
   statementIds: WireUuid[];
@@ -1766,6 +1765,7 @@ export interface MaterializeProceduralResponse {
   trimmedByBudget: boolean;
 }
 
+/** Encode a MATERIALIZE_PROCEDURAL_RESP (`0x01E4`) payload. */
 export function encodeMaterializeProceduralResponse(
   p: MaterializeProceduralResponse,
 ): Uint8Array {
@@ -1779,6 +1779,7 @@ export function encodeMaterializeProceduralResponse(
   );
 }
 
+/** Decode a MATERIALIZE_PROCEDURAL_RESP (`0x01E4`) payload. */
 export function decodeMaterializeProceduralResponse(
   bytes: Uint8Array,
 ): MaterializeProceduralResponse {
@@ -1797,6 +1798,7 @@ export function decodeMaterializeProceduralResponse(
 // Memory ids ride the wire as u128 → `bigint`, like every other MemoryId field.
 // ---------------------------------------------------------------------------
 
+/** LINK (`0x0025`): create or reweight a typed edge between two memories. */
 export interface LinkRequest {
   source: bigint;
   target: bigint;
@@ -1807,6 +1809,7 @@ export interface LinkRequest {
   txnId: WireUuid | null;
 }
 
+/** Encode a LINK (`0x0025`) request. */
 export function encodeLink(p: LinkRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1820,6 +1823,7 @@ export function encodeLink(p: LinkRequest): Uint8Array {
   );
 }
 
+/** Decode a LINK (`0x0025`) request payload. */
 export function decodeLink(bytes: Uint8Array): LinkRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1832,6 +1836,7 @@ export function decodeLink(bytes: Uint8Array): LinkRequest {
   };
 }
 
+/** LINK_RESP (`0x00A5`): the edge as stored and whether it already existed (weight overwritten). */
 export interface LinkResponse {
   source: bigint;
   target: bigint;
@@ -1842,6 +1847,7 @@ export interface LinkResponse {
   alreadyExisted: boolean;
 }
 
+/** Encode a LINK_RESP (`0x00A5`) payload. */
 export function encodeLinkResponse(p: LinkResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1855,6 +1861,7 @@ export function encodeLinkResponse(p: LinkResponse): Uint8Array {
   );
 }
 
+/** Decode a LINK_RESP (`0x00A5`) payload. */
 export function decodeLinkResponse(bytes: Uint8Array): LinkResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1867,6 +1874,7 @@ export function decodeLinkResponse(bytes: Uint8Array): LinkResponse {
   };
 }
 
+/** UNLINK (`0x0026`): remove the edge identified by (source, kind, target). */
 export interface UnlinkRequest {
   source: bigint;
   target: bigint;
@@ -1875,6 +1883,7 @@ export interface UnlinkRequest {
   txnId: WireUuid | null;
 }
 
+/** Encode an UNLINK (`0x0026`) request. */
 export function encodeUnlink(p: UnlinkRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1887,6 +1896,7 @@ export function encodeUnlink(p: UnlinkRequest): Uint8Array {
   );
 }
 
+/** Decode an UNLINK (`0x0026`) request payload. */
 export function decodeUnlink(bytes: Uint8Array): UnlinkRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1898,6 +1908,7 @@ export function decodeUnlink(bytes: Uint8Array): UnlinkRequest {
   };
 }
 
+/** UNLINK_RESP (`0x00A6`): the edge key and whether a matching edge was removed. */
 export interface UnlinkResponse {
   source: bigint;
   target: bigint;
@@ -1906,6 +1917,7 @@ export interface UnlinkResponse {
   removed: boolean;
 }
 
+/** Encode an UNLINK_RESP (`0x00A6`) payload. */
 export function encodeUnlinkResponse(p: UnlinkResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -1917,6 +1929,7 @@ export function encodeUnlinkResponse(p: UnlinkResponse): Uint8Array {
   );
 }
 
+/** Decode an UNLINK_RESP (`0x00A6`) payload. */
 export function decodeUnlinkResponse(bytes: Uint8Array): UnlinkResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -1931,6 +1944,7 @@ export function decodeUnlinkResponse(bytes: Uint8Array): UnlinkResponse {
 // PLAN.
 // ---------------------------------------------------------------------------
 
+/** Search strategy hint for PLAN (auto, A*, MCTS, or attractor rollout). */
 export enum PlanStrategy {
   Auto = 0,
   AStar = 1,
@@ -1978,6 +1992,7 @@ function decodePlanState(value: unknown): PlanState {
   throw new CborError("unknown PlanState variant");
 }
 
+/** Resource ceiling for a PLAN search: max steps, wall time, and branches explored. */
 export interface PlanBudget {
   maxSteps: number;
   maxWallTimeMs: number;
@@ -2001,6 +2016,7 @@ function decodePlanBudget(value: unknown): PlanBudget {
   };
 }
 
+/** PLAN (`0x0022`): search for a path from a start endpoint to a goal endpoint under a budget. */
 export interface PlanRequest {
   start: PlanState;
   goal: PlanState;
@@ -2011,6 +2027,7 @@ export interface PlanRequest {
   txnId: WireUuid | null;
 }
 
+/** Encode a PLAN (`0x0022`) request. */
 export function encodePlan(p: PlanRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2025,6 +2042,7 @@ export function encodePlan(p: PlanRequest): Uint8Array {
   );
 }
 
+/** Decode a PLAN (`0x0022`) request payload. */
 export function decodePlan(bytes: Uint8Array): PlanRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2038,6 +2056,7 @@ export function decodePlan(bytes: Uint8Array): PlanRequest {
   };
 }
 
+/** Terminal disposition of a PLAN search (found, no path, budget exhausted, ...). */
 export enum PlanStatus {
   GoalReached = 0,
   BudgetExhausted = 1,
@@ -2068,6 +2087,7 @@ function decodeTransitionKind(value: unknown): TransitionKind {
   throw new CborError("unknown TransitionKind variant");
 }
 
+/** One step along a planned path: the memory reached and the edge taken to get there. */
 export interface PlanStep {
   stepIndex: number;
   memoryId: bigint;
@@ -2100,12 +2120,14 @@ function decodePlanStep(value: unknown): PlanStep {
   };
 }
 
+/** PLAN_RESP (`0x00A2`), one streamed frame: a batch of path steps plus the terminal plan status on the final frame. */
 export interface PlanResponseFrame {
   steps: PlanStep[];
   isFinal: boolean;
   planStatus: PlanStatus | null;
 }
 
+/** Encode one PLAN_RESP (`0x00A2`) streamed frame. */
 export function encodePlanResponse(p: PlanResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2116,6 +2138,7 @@ export function encodePlanResponse(p: PlanResponseFrame): Uint8Array {
   );
 }
 
+/** Decode one PLAN_RESP (`0x00A2`) streamed frame. */
 export function decodePlanResponse(bytes: Uint8Array): PlanResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2146,6 +2169,7 @@ function decodeObservationInput(value: unknown): ObservationInput {
   throw new CborError("unknown ObservationInput variant");
 }
 
+/** REASON (`0x0023`): derive inferences about an observation under a depth/branch budget. */
 export interface ReasonRequest {
   observation: ObservationInput;
   depth: number;
@@ -2157,6 +2181,7 @@ export interface ReasonRequest {
   txnId: WireUuid | null;
 }
 
+/** Encode a REASON (`0x0023`) request. */
 export function encodeReason(p: ReasonRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2172,6 +2197,7 @@ export function encodeReason(p: ReasonRequest): Uint8Array {
   );
 }
 
+/** Decode a REASON (`0x0023`) request payload. */
 export function decodeReason(bytes: Uint8Array): ReasonRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2186,6 +2212,7 @@ export function decodeReason(bytes: Uint8Array): ReasonRequest {
   };
 }
 
+/** Terminal disposition of a REASON run (complete, budget exhausted, depth limit, cancelled). */
 export enum ReasonStatus {
   Complete = 0,
   BudgetExhausted = 1,
@@ -2214,6 +2241,7 @@ function decodeInferenceKind(value: unknown): InferenceKind {
   throw new CborError("unknown InferenceKind variant");
 }
 
+/** One inference: the claim, its supporting/contradicting memories, confidence, and the inference kind. */
 export interface InferenceStep {
   stepIndex: number;
   claim: string;
@@ -2246,12 +2274,14 @@ function decodeInferenceStep(value: unknown): InferenceStep {
   };
 }
 
+/** REASON_RESP (`0x00A3`), one streamed frame: a batch of inference steps plus the terminal reason status on the final frame. */
 export interface ReasonResponseFrame {
   inferences: InferenceStep[];
   isFinal: boolean;
   reasonStatus: ReasonStatus | null;
 }
 
+/** Encode one REASON_RESP (`0x00A3`) streamed frame. */
 export function encodeReasonResponse(p: ReasonResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2262,6 +2292,7 @@ export function encodeReasonResponse(p: ReasonResponseFrame): Uint8Array {
   );
 }
 
+/** Decode one REASON_RESP (`0x00A3`) streamed frame. */
 export function decodeReasonResponse(bytes: Uint8Array): ReasonResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2275,11 +2306,13 @@ export function decodeReasonResponse(bytes: Uint8Array): ReasonResponseFrame {
 // TXN_BEGIN / TXN_COMMIT / TXN_ABORT.
 // ---------------------------------------------------------------------------
 
+/** TXN_BEGIN (`0x0040`): open a transaction under a client-minted id that later writes enroll in. */
 export interface TxnBeginRequest {
   txnId: WireUuid;
   timeoutSeconds: number;
 }
 
+/** Encode a TXN_BEGIN (`0x0040`) request. */
 export function encodeTxnBegin(p: TxnBeginRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2289,6 +2322,7 @@ export function encodeTxnBegin(p: TxnBeginRequest): Uint8Array {
   );
 }
 
+/** Decode a TXN_BEGIN (`0x0040`) request payload. */
 export function decodeTxnBegin(bytes: Uint8Array): TxnBeginRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2297,12 +2331,14 @@ export function decodeTxnBegin(bytes: Uint8Array): TxnBeginRequest {
   };
 }
 
+/** TXN_BEGIN_RESP (`0x00C0`): confirmation the transaction is open. */
 export interface TxnBeginResponse {
   txnId: WireUuid;
   timeoutSeconds: number;
   startedAtUnixNanos: bigint;
 }
 
+/** Encode a TXN_BEGIN_RESP (`0x00C0`) payload. */
 export function encodeTxnBeginResponse(p: TxnBeginResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2313,6 +2349,7 @@ export function encodeTxnBeginResponse(p: TxnBeginResponse): Uint8Array {
   );
 }
 
+/** Decode a TXN_BEGIN_RESP (`0x00C0`) payload. */
 export function decodeTxnBeginResponse(bytes: Uint8Array): TxnBeginResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2322,25 +2359,30 @@ export function decodeTxnBeginResponse(bytes: Uint8Array): TxnBeginResponse {
   };
 }
 
+/** TXN_COMMIT (`0x0041`): apply a transaction's buffered writes. */
 export interface TxnCommitRequest {
   txnId: WireUuid;
 }
 
+/** Encode a TXN_COMMIT (`0x0041`) request. */
 export function encodeTxnCommit(p: TxnCommitRequest): Uint8Array {
   return toCbor(new Map<string, unknown>([["txn_id", p.txnId]]));
 }
 
+/** Decode a TXN_COMMIT (`0x0041`) request payload. */
 export function decodeTxnCommit(bytes: Uint8Array): TxnCommitRequest {
   const m = asMap(fromCbor(bytes));
   return { txnId: asBytes(field(m, "txn_id")) };
 }
 
+/** TXN_COMMIT_RESP (`0x00C1`): how many operations the commit applied. */
 export interface TxnCommitResponse {
   txnId: WireUuid;
   committedAtUnixNanos: bigint;
   operationsApplied: number;
 }
 
+/** Encode a TXN_COMMIT_RESP (`0x00C1`) payload. */
 export function encodeTxnCommitResponse(p: TxnCommitResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2351,6 +2393,7 @@ export function encodeTxnCommitResponse(p: TxnCommitResponse): Uint8Array {
   );
 }
 
+/** Decode a TXN_COMMIT_RESP (`0x00C1`) payload. */
 export function decodeTxnCommitResponse(bytes: Uint8Array): TxnCommitResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2360,24 +2403,29 @@ export function decodeTxnCommitResponse(bytes: Uint8Array): TxnCommitResponse {
   };
 }
 
+/** TXN_ABORT (`0x0042`): discard a transaction's buffered writes. */
 export interface TxnAbortRequest {
   txnId: WireUuid;
 }
 
+/** Encode a TXN_ABORT (`0x0042`) request. */
 export function encodeTxnAbort(p: TxnAbortRequest): Uint8Array {
   return toCbor(new Map<string, unknown>([["txn_id", p.txnId]]));
 }
 
+/** Decode a TXN_ABORT (`0x0042`) request payload. */
 export function decodeTxnAbort(bytes: Uint8Array): TxnAbortRequest {
   const m = asMap(fromCbor(bytes));
   return { txnId: asBytes(field(m, "txn_id")) };
 }
 
+/** TXN_ABORT_RESP (`0x00C2`): confirmation the transaction was discarded. */
 export interface TxnAbortResponse {
   txnId: WireUuid;
   operationsDiscarded: number;
 }
 
+/** Encode a TXN_ABORT_RESP (`0x00C2`) payload. */
 export function encodeTxnAbortResponse(p: TxnAbortResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2387,6 +2435,7 @@ export function encodeTxnAbortResponse(p: TxnAbortResponse): Uint8Array {
   );
 }
 
+/** Decode a TXN_ABORT_RESP (`0x00C2`) payload. */
 export function decodeTxnAbortResponse(bytes: Uint8Array): TxnAbortResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2402,14 +2451,17 @@ export function decodeTxnAbortResponse(bytes: Uint8Array): TxnAbortResponse {
 /** Empty request body — capabilities are server-side state. */
 export interface GetCapabilitiesRequest {}
 
+/** Encode a GET_CAPABILITIES (`0x0032`) request (empty payload). */
 export function encodeGetCapabilities(_p: GetCapabilitiesRequest): Uint8Array {
   return toCbor(new Map<string, unknown>());
 }
 
+/** Decode a GET_CAPABILITIES (`0x0032`) request payload. */
 export function decodeGetCapabilities(_bytes: Uint8Array): GetCapabilitiesRequest {
   return {};
 }
 
+/** The connected shard's live capability flags: reranker loaded, extractor tiers enabled, and embedding dimensionality. */
 export interface Capabilities {
   rerank: boolean;
   llmExtractor: boolean;
@@ -2419,10 +2471,12 @@ export interface Capabilities {
   vectorDim: number;
 }
 
+/** GET_CAPABILITIES_RESP (`0x00B2`): the shard's live capabilities plus the active user schema namespaces. */
 export interface GetCapabilitiesResponse {
   capabilities: Capabilities;
 }
 
+/** Encode a GET_CAPABILITIES_RESP (`0x00B2`) payload. */
 export function encodeGetCapabilitiesResponse(p: GetCapabilitiesResponse): Uint8Array {
   const c = p.capabilities;
   return toCbor(
@@ -2442,6 +2496,7 @@ export function encodeGetCapabilitiesResponse(p: GetCapabilitiesResponse): Uint8
   );
 }
 
+/** Decode a GET_CAPABILITIES_RESP (`0x00B2`) payload. */
 export function decodeGetCapabilitiesResponse(bytes: Uint8Array): GetCapabilitiesResponse {
   const m = asMap(fromCbor(bytes));
   const c = asMap(field(m, "capabilities"));
@@ -2458,9 +2513,93 @@ export function decodeGetCapabilitiesResponse(bytes: Uint8Array): GetCapabilitie
 }
 
 // ---------------------------------------------------------------------------
+// EXTRACTOR_LIST.
+// ---------------------------------------------------------------------------
+
+/** Empty request body — the registry is server-side state. Extraction is
+ * always-on, so `EXTRACTOR_LIST` is the only extractor wire op and it takes no
+ * arguments: every registered extractor is returned. */
+export interface ExtractorListRequest {}
+
+/** Encode an EXTRACTOR_LIST (`0x0124`) request (empty payload). */
+export function encodeExtractorList(_p: ExtractorListRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>());
+}
+
+/** Decode an EXTRACTOR_LIST (`0x0124`) request payload. */
+export function decodeExtractorList(_bytes: Uint8Array): ExtractorListRequest {
+  return {};
+}
+
+/** One row in an {@link ExtractorListResponseFrame}: the extractor's id,
+ * owning namespace, name, tier kind (`0`=pattern, `1`=classifier, `2`=llm),
+ * schema version, and creation timestamp. */
+export interface ExtractorListItem {
+  extractorId: number;
+  namespace: string;
+  name: string;
+  kind: number;
+  schemaVersion: number;
+  createdAtUnixNanos: bigint;
+}
+
+/** EXTRACTOR_LIST_RESP (`0x01A4`): a single-frame snapshot of the always-on
+ * extractors, with the total count and a final-frame marker. */
+export interface ExtractorListResponseFrame {
+  items: ExtractorListItem[];
+  total: number;
+  isFinal: boolean;
+}
+
+/** Encode an EXTRACTOR_LIST_RESP (`0x01A4`) payload. */
+export function encodeExtractorListResponse(p: ExtractorListResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      [
+        "items",
+        p.items.map(
+          (it) =>
+            new Map<string, unknown>([
+              ["extractor_id", it.extractorId],
+              ["namespace", it.namespace],
+              ["name", it.name],
+              ["kind", it.kind],
+              ["schema_version", it.schemaVersion],
+              ["created_at_unix_nanos", it.createdAtUnixNanos],
+            ]),
+        ),
+      ],
+      ["total", p.total],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+/** Decode an EXTRACTOR_LIST_RESP (`0x01A4`) payload. */
+export function decodeExtractorListResponse(bytes: Uint8Array): ExtractorListResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    items: asArray(field(m, "items")).map((v) => {
+      const im = asMap(v);
+      return {
+        extractorId: asNum(field(im, "extractor_id")),
+        namespace: asStr(field(im, "namespace")),
+        name: asStr(field(im, "name")),
+        kind: asNum(field(im, "kind")),
+        schemaVersion: asNum(field(im, "schema_version")),
+        createdAtUnixNanos: asBig(field(im, "created_at_unix_nanos")),
+      };
+    }),
+    total: asNum(field(m, "total")),
+    isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // ENTITY_GET / ENTITY_LIST.
 // ---------------------------------------------------------------------------
 
+/** A full entity row as returned by reads: id, type, canonical/normalized names, aliases, attributes, mention count, and lifecycle stamps. */
 export interface EntityView {
   entityId: WireUuid;
   entityTypeId: number;
@@ -2512,32 +2651,39 @@ function decodeEntityView(value: unknown): EntityView {
   };
 }
 
+/** ENTITY_GET (`0x0131`): fetch one entity by id. */
 export interface EntityGetRequest {
   entityId: WireUuid;
 }
 
+/** Encode an ENTITY_GET (`0x0131`) request. */
 export function encodeEntityGet(p: EntityGetRequest): Uint8Array {
   return toCbor(new Map<string, unknown>([["entity_id", p.entityId]]));
 }
 
+/** Decode an ENTITY_GET (`0x0131`) request payload. */
 export function decodeEntityGet(bytes: Uint8Array): EntityGetRequest {
   const m = asMap(fromCbor(bytes));
   return { entityId: asBytes(field(m, "entity_id")) };
 }
 
+/** ENTITY_GET_RESP (`0x01B1`): the requested entity view. */
 export interface EntityGetResponse {
   entity: EntityView;
 }
 
+/** Encode an ENTITY_GET_RESP (`0x01B1`) payload. */
 export function encodeEntityGetResponse(p: EntityGetResponse): Uint8Array {
   return toCbor(new Map<string, unknown>([["entity", encodeEntityView(p.entity)]]));
 }
 
+/** Decode an ENTITY_GET_RESP (`0x01B1`) payload. */
 export function decodeEntityGetResponse(bytes: Uint8Array): EntityGetResponse {
   const m = asMap(fromCbor(bytes));
   return { entity: decodeEntityView(field(m, "entity")) };
 }
 
+/** ENTITY_LIST (`0x0137`): page through entities with a type filter and a cursor. */
 export interface EntityListRequest {
   /** `0` = no filter. */
   entityTypeId: number;
@@ -2552,6 +2698,7 @@ export interface EntityListRequest {
   cursor: Uint8Array;
 }
 
+/** Encode an ENTITY_LIST (`0x0137`) request. */
 export function encodeEntityList(p: EntityListRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2566,6 +2713,7 @@ export function encodeEntityList(p: EntityListRequest): Uint8Array {
   );
 }
 
+/** Decode an ENTITY_LIST (`0x0137`) request payload. */
 export function decodeEntityList(bytes: Uint8Array): EntityListRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2579,10 +2727,12 @@ export function decodeEntityList(bytes: Uint8Array): EntityListRequest {
   };
 }
 
+/** One entry in an ENTITY_LIST page: the entity id and its canonical name. */
 export interface EntityListItem {
   entity: EntityView;
 }
 
+/** ENTITY_LIST_RESP (`0x01B7`), one streamed frame: a page of entities plus the next cursor and running count. */
 export interface EntityListResponseFrame {
   items: EntityListItem[];
   nextCursor: Uint8Array;
@@ -2590,6 +2740,7 @@ export interface EntityListResponseFrame {
   isFinal: boolean;
 }
 
+/** Encode one ENTITY_LIST_RESP (`0x01B7`) streamed frame. */
 export function encodeEntityListResponse(p: EntityListResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2604,6 +2755,7 @@ export function encodeEntityListResponse(p: EntityListResponseFrame): Uint8Array
   );
 }
 
+/** Decode one ENTITY_LIST_RESP (`0x01B7`) streamed frame. */
 export function decodeEntityListResponse(bytes: Uint8Array): EntityListResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2620,6 +2772,7 @@ export function decodeEntityListResponse(bytes: Uint8Array): EntityListResponseF
 // ENTITY_RESOLVE.
 // ---------------------------------------------------------------------------
 
+/** ENTITY_RESOLVE (`0x0136`): map a candidate name to an entity, optionally minting one on a miss. */
 export interface EntityResolveRequest {
   candidateName: string;
   context: string;
@@ -2629,6 +2782,7 @@ export interface EntityResolveRequest {
   requestId: WireUuid;
 }
 
+/** Encode an ENTITY_RESOLVE (`0x0136`) request. */
 export function encodeEntityResolve(p: EntityResolveRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2641,6 +2795,7 @@ export function encodeEntityResolve(p: EntityResolveRequest): Uint8Array {
   );
 }
 
+/** Decode an ENTITY_RESOLVE (`0x0136`) request payload. */
 export function decodeEntityResolve(bytes: Uint8Array): EntityResolveRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2652,6 +2807,7 @@ export function decodeEntityResolve(bytes: Uint8Array): EntityResolveRequest {
   };
 }
 
+/** ENTITY_RESOLVE_RESP (`0x01B6`): the resolved (or created) entity id and the resolution outcome. */
 export interface EntityResolveResponse {
   outcome: ResolutionOutcomeWire;
   /** Which tier resolved (1..=5; 0 if unresolved). */
@@ -2665,6 +2821,7 @@ export interface EntityResolveResponse {
   auditId: WireUuid;
 }
 
+/** Encode an ENTITY_RESOLVE_RESP (`0x01B6`) payload. */
 export function encodeEntityResolveResponse(p: EntityResolveResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2678,6 +2835,7 @@ export function encodeEntityResolveResponse(p: EntityResolveResponse): Uint8Arra
   );
 }
 
+/** Decode an ENTITY_RESOLVE_RESP (`0x01B6`) payload. */
 export function decodeEntityResolveResponse(bytes: Uint8Array): EntityResolveResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2694,6 +2852,7 @@ export function decodeEntityResolveResponse(bytes: Uint8Array): EntityResolveRes
 // STATEMENT_GET / STATEMENT_LIST.
 // ---------------------------------------------------------------------------
 
+/** A full statement row as returned by reads: kind, subject/predicate/object, evidence, confidence, bi-temporal window, and chain/tombstone state. */
 export interface StatementView {
   statementId: WireUuid;
   kind: StatementKindWire;
@@ -2777,11 +2936,13 @@ function decodeStatementView(value: unknown): StatementView {
   };
 }
 
+/** STATEMENT_GET (`0x0141`): fetch one statement by id, optionally following supersession to the chain head. */
 export interface StatementGetRequest {
   statementId: WireUuid;
   followSupersession: boolean;
 }
 
+/** Encode a STATEMENT_GET (`0x0141`) request. */
 export function encodeStatementGet(p: StatementGetRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2791,6 +2952,7 @@ export function encodeStatementGet(p: StatementGetRequest): Uint8Array {
   );
 }
 
+/** Decode a STATEMENT_GET (`0x0141`) request payload. */
 export function decodeStatementGet(bytes: Uint8Array): StatementGetRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2799,11 +2961,13 @@ export function decodeStatementGet(bytes: Uint8Array): StatementGetRequest {
   };
 }
 
+/** STATEMENT_GET_RESP (`0x01C1`): the statement view and whether it was reached via supersession. */
 export interface StatementGetResponse {
   statement: StatementView;
   returnedViaSupersession: boolean;
 }
 
+/** Encode a STATEMENT_GET_RESP (`0x01C1`) payload. */
 export function encodeStatementGetResponse(p: StatementGetResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2813,6 +2977,7 @@ export function encodeStatementGetResponse(p: StatementGetResponse): Uint8Array 
   );
 }
 
+/** Decode a STATEMENT_GET_RESP (`0x01C1`) payload. */
 export function decodeStatementGetResponse(bytes: Uint8Array): StatementGetResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2821,6 +2986,7 @@ export function decodeStatementGetResponse(bytes: Uint8Array): StatementGetRespo
   };
 }
 
+/** STATEMENT_LIST (`0x0146`): page through statements by subject/predicate filters with a cursor. */
 export interface StatementListRequest {
   subject: WireUuid;
   predicate: string;
@@ -2835,6 +3001,7 @@ export interface StatementListRequest {
   cursor: Uint8Array;
 }
 
+/** Encode a STATEMENT_LIST (`0x0146`) request. */
 export function encodeStatementList(p: StatementListRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2852,6 +3019,7 @@ export function encodeStatementList(p: StatementListRequest): Uint8Array {
   );
 }
 
+/** Decode a STATEMENT_LIST (`0x0146`) request payload. */
 export function decodeStatementList(bytes: Uint8Array): StatementListRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2868,6 +3036,7 @@ export function decodeStatementList(bytes: Uint8Array): StatementListRequest {
   };
 }
 
+/** STATEMENT_LIST_RESP (`0x01C6`), one streamed frame: a page of statements plus the next cursor and running count. */
 export interface StatementListResponseFrame {
   items: StatementView[];
   nextCursor: Uint8Array;
@@ -2875,6 +3044,7 @@ export interface StatementListResponseFrame {
   isFinal: boolean;
 }
 
+/** Encode one STATEMENT_LIST_RESP (`0x01C6`) streamed frame. */
 export function encodeStatementListResponse(p: StatementListResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2886,6 +3056,7 @@ export function encodeStatementListResponse(p: StatementListResponseFrame): Uint
   );
 }
 
+/** Decode one STATEMENT_LIST_RESP (`0x01C6`) streamed frame. */
 export function decodeStatementListResponse(bytes: Uint8Array): StatementListResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
@@ -2900,6 +3071,7 @@ export function decodeStatementListResponse(bytes: Uint8Array): StatementListRes
 // RELATION_LIST_FROM / RELATION_LIST_TO.
 // ---------------------------------------------------------------------------
 
+/** A full relation row as returned by reads: type, endpoints, properties, evidence, confidence, bi-temporal window, and chain/tombstone state. */
 export interface RelationView {
   relationId: WireUuid;
   chainRoot: WireUuid;
@@ -2968,6 +3140,7 @@ function decodeRelationView(value: unknown): RelationView {
   };
 }
 
+/** RELATION_LIST_FROM (`0x0154`): page through relations originating at an entity, with type/time filters and a cursor. */
 export interface RelationListFromRequest {
   fromEntity: WireUuid;
   relationTypeFilter: string;
@@ -2979,6 +3152,7 @@ export interface RelationListFromRequest {
   cursor: Uint8Array;
 }
 
+/** Encode a RELATION_LIST_FROM (`0x0154`) request. */
 export function encodeRelationListFrom(p: RelationListFromRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -2994,6 +3168,7 @@ export function encodeRelationListFrom(p: RelationListFromRequest): Uint8Array {
   );
 }
 
+/** Decode a RELATION_LIST_FROM (`0x0154`) request payload. */
 export function decodeRelationListFrom(bytes: Uint8Array): RelationListFromRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3008,6 +3183,7 @@ export function decodeRelationListFrom(bytes: Uint8Array): RelationListFromReque
   };
 }
 
+/** RELATION_LIST_FROM_RESP (`0x01D4`), one streamed frame: a page of outgoing relations plus the next cursor and running count. */
 export interface RelationListFromResponseFrame {
   items: RelationView[];
   nextCursor: Uint8Array;
@@ -3015,6 +3191,7 @@ export interface RelationListFromResponseFrame {
   isFinal: boolean;
 }
 
+/** Encode one RELATION_LIST_FROM_RESP (`0x01D4`) streamed frame. */
 export function encodeRelationListFromResponse(p: RelationListFromResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3026,6 +3203,7 @@ export function encodeRelationListFromResponse(p: RelationListFromResponseFrame)
   );
 }
 
+/** Decode one RELATION_LIST_FROM_RESP (`0x01D4`) streamed frame. */
 export function decodeRelationListFromResponse(bytes: Uint8Array): RelationListFromResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3036,6 +3214,7 @@ export function decodeRelationListFromResponse(bytes: Uint8Array): RelationListF
   };
 }
 
+/** RELATION_LIST_TO (`0x0155`): page through relations pointing at an entity, with type/time filters and a cursor. */
 export interface RelationListToRequest {
   toEntity: WireUuid;
   relationTypeFilter: string;
@@ -3047,6 +3226,7 @@ export interface RelationListToRequest {
   cursor: Uint8Array;
 }
 
+/** Encode a RELATION_LIST_TO (`0x0155`) request. */
 export function encodeRelationListTo(p: RelationListToRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3062,6 +3242,7 @@ export function encodeRelationListTo(p: RelationListToRequest): Uint8Array {
   );
 }
 
+/** Decode a RELATION_LIST_TO (`0x0155`) request payload. */
 export function decodeRelationListTo(bytes: Uint8Array): RelationListToRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3076,6 +3257,7 @@ export function decodeRelationListTo(bytes: Uint8Array): RelationListToRequest {
   };
 }
 
+/** RELATION_LIST_TO_RESP (`0x01D5`), one streamed frame: a page of incoming relations plus the next cursor and running count. */
 export interface RelationListToResponseFrame {
   items: RelationView[];
   nextCursor: Uint8Array;
@@ -3083,6 +3265,7 @@ export interface RelationListToResponseFrame {
   isFinal: boolean;
 }
 
+/** Encode one RELATION_LIST_TO_RESP (`0x01D5`) streamed frame. */
 export function encodeRelationListToResponse(p: RelationListToResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3094,6 +3277,7 @@ export function encodeRelationListToResponse(p: RelationListToResponseFrame): Ui
   );
 }
 
+/** Decode one RELATION_LIST_TO_RESP (`0x01D5`) streamed frame. */
 export function decodeRelationListToResponse(bytes: Uint8Array): RelationListToResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3105,15 +3289,393 @@ export function decodeRelationListToResponse(bytes: Uint8Array): RelationListToR
 }
 
 // ---------------------------------------------------------------------------
+// Relation lifecycle + traversal — fetch one (get), revise (supersede), retire
+// (tombstone), or walk the graph from an entity (traverse).
+// ---------------------------------------------------------------------------
+
+/** RELATION_GET (`0x0151`) request. `followSupersession` returns the current
+ * head of a superseded relation's chain rather than the retired id asked for. */
+export interface RelationGetRequest {
+  relationId: WireUuid;
+  followSupersession: boolean;
+}
+
+/** Encode a RELATION_GET (`0x0151`) request. */
+export function encodeRelationGet(p: RelationGetRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["relation_id", p.relationId],
+      ["follow_supersession", p.followSupersession],
+    ]),
+  );
+}
+
+/** Decode a RELATION_GET (`0x0151`) request payload. */
+export function decodeRelationGet(bytes: Uint8Array): RelationGetRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    relationId: asBytes(field(m, "relation_id")),
+    followSupersession: asBool(field(m, "follow_supersession")),
+  };
+}
+
+/** RELATION_GET_RESP (`0x01D1`). `returnedViaSupersession` flags that the view
+ * is the chain head, not the exact id requested. */
+export interface RelationGetResponse {
+  relation: RelationView;
+  returnedViaSupersession: boolean;
+}
+
+/** Encode a RELATION_GET_RESP (`0x01D1`) payload. */
+export function encodeRelationGetResponse(p: RelationGetResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["relation", encodeRelationView(p.relation)],
+      ["returned_via_supersession", p.returnedViaSupersession],
+    ]),
+  );
+}
+
+/** Decode a RELATION_GET_RESP (`0x01D1`) payload. */
+export function decodeRelationGetResponse(bytes: Uint8Array): RelationGetResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    relation: decodeRelationView(field(m, "relation")),
+    returnedViaSupersession: asBool(field(m, "returned_via_supersession")),
+  };
+}
+
+/** RELATION_SUPERSEDE (`0x0152`) request. Revise a relation, keeping the old
+ * and the `newRelation` on one chain so history is preserved. */
+export interface RelationSupersedeRequest {
+  oldRelationId: WireUuid;
+  newRelation: RelationCreateRequest;
+  requestId: WireUuid;
+}
+
+/** Encode a RELATION_SUPERSEDE (`0x0152`) request. */
+export function encodeRelationSupersede(p: RelationSupersedeRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["old_relation_id", p.oldRelationId],
+      // Nest the relation map directly — no re-encode round-trip.
+      ["new_relation", relationCreateMap(p.newRelation)],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** Decode a RELATION_SUPERSEDE (`0x0152`) request payload. */
+export function decodeRelationSupersede(bytes: Uint8Array): RelationSupersedeRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    oldRelationId: asBytes(field(m, "old_relation_id")),
+    newRelation: relationCreateFromMap(asMap(field(m, "new_relation"))),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
+/** RELATION_SUPERSEDE_RESP (`0x01D2`). The new relation's id and monotonic
+ * chain version. */
+export interface RelationSupersedeResponse {
+  newRelationId: WireUuid;
+  version: number;
+}
+
+/** Encode a RELATION_SUPERSEDE_RESP (`0x01D2`) payload. */
+export function encodeRelationSupersedeResponse(p: RelationSupersedeResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["new_relation_id", p.newRelationId],
+      ["version", p.version],
+    ]),
+  );
+}
+
+/** Decode a RELATION_SUPERSEDE_RESP (`0x01D2`) payload. */
+export function decodeRelationSupersedeResponse(bytes: Uint8Array): RelationSupersedeResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    newRelationId: asBytes(field(m, "new_relation_id")),
+    version: asNum(field(m, "version")),
+  };
+}
+
+/** RELATION_TOMBSTONE (`0x0153`) request. Soft-retire a relation with an audit
+ * `reason`; the row survives but drops out of traversal. */
+export interface RelationTombstoneRequest {
+  relationId: WireUuid;
+  reason: string;
+  requestId: WireUuid;
+}
+
+/** Encode a RELATION_TOMBSTONE (`0x0153`) request. */
+export function encodeRelationTombstone(p: RelationTombstoneRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["relation_id", p.relationId],
+      ["reason", p.reason],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** Decode a RELATION_TOMBSTONE (`0x0153`) request payload. */
+export function decodeRelationTombstone(bytes: Uint8Array): RelationTombstoneRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    relationId: asBytes(field(m, "relation_id")),
+    reason: asStr(field(m, "reason")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
+/** RELATION_TOMBSTONE_RESP (`0x01D3`). The record time the retirement landed. */
+export interface RelationTombstoneResponse {
+  tombstonedAtUnixNanos: bigint;
+}
+
+/** Encode a RELATION_TOMBSTONE_RESP (`0x01D3`) payload. */
+export function encodeRelationTombstoneResponse(p: RelationTombstoneResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]),
+  );
+}
+
+/** Decode a RELATION_TOMBSTONE_RESP (`0x01D3`) payload. */
+export function decodeRelationTombstoneResponse(bytes: Uint8Array): RelationTombstoneResponse {
+  const m = asMap(fromCbor(bytes));
+  return { tombstonedAtUnixNanos: asBig(field(m, "tombstoned_at_unix_nanos")) };
+}
+
+/** One hop in a traversal path: the relation edge crossed, its endpoints, the
+ * relation type, and the hop depth from the start entity. */
+export interface TraversalStepWire {
+  relationId: WireUuid;
+  from: WireUuid;
+  to: WireUuid;
+  relationType: string;
+  depth: number;
+}
+
+/** Encode one {@link TraversalStepWire} into its CBOR map. */
+function encodeTraversalStep(s: TraversalStepWire): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["relation_id", s.relationId],
+    ["from", s.from],
+    ["to", s.to],
+    ["relation_type", s.relationType],
+    ["depth", s.depth],
+  ]);
+}
+
+/** Decode one {@link TraversalStepWire} from a CBOR map. */
+function decodeTraversalStep(value: unknown): TraversalStepWire {
+  const m = asMap(value);
+  return {
+    relationId: asBytes(field(m, "relation_id")),
+    from: asBytes(field(m, "from")),
+    to: asBytes(field(m, "to")),
+    relationType: asStr(field(m, "relation_type")),
+    depth: asNum(field(m, "depth")),
+  };
+}
+
+/** One path the traversal found, as an ordered list of steps. */
+export interface TraversalPathWire {
+  steps: TraversalStepWire[];
+}
+
+/** Encode one {@link TraversalPathWire} into its CBOR map. */
+function encodeTraversalPath(p: TraversalPathWire): Map<string, unknown> {
+  return new Map<string, unknown>([["steps", p.steps.map(encodeTraversalStep)]]);
+}
+
+/** Decode one {@link TraversalPathWire} from a CBOR map. */
+function decodeTraversalPath(value: unknown): TraversalPathWire {
+  const m = asMap(value);
+  return { steps: asArray(field(m, "steps")).map(decodeTraversalStep) };
+}
+
+/** RELATION_TRAVERSE (`0x0156`) request. Multi-hop walk of the relation graph
+ * from `startEntity`; `direction` is outgoing/incoming/both, the bounds cap the
+ * search, and `timeAtUnixNanos` walks the graph as it stood at a record time. */
+export interface RelationTraverseRequest {
+  startEntity: WireUuid;
+  relationTypes: string[];
+  direction: number;
+  maxDepth: number;
+  maxNodes: number;
+  timeAtUnixNanos: bigint;
+  includeSuperseded: boolean;
+  requestId: WireUuid;
+}
+
+/** Encode a RELATION_TRAVERSE (`0x0156`) request. */
+export function encodeRelationTraverse(p: RelationTraverseRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["start_entity", p.startEntity],
+      ["relation_types", p.relationTypes],
+      ["direction", p.direction],
+      ["max_depth", p.maxDepth],
+      ["max_nodes", p.maxNodes],
+      ["time_at_unix_nanos", p.timeAtUnixNanos],
+      ["include_superseded", p.includeSuperseded],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** Decode a RELATION_TRAVERSE (`0x0156`) request payload. */
+export function decodeRelationTraverse(bytes: Uint8Array): RelationTraverseRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    startEntity: asBytes(field(m, "start_entity")),
+    relationTypes: asArray(field(m, "relation_types")).map(asStr),
+    direction: asNum(field(m, "direction")),
+    maxDepth: asNum(field(m, "max_depth")),
+    maxNodes: asNum(field(m, "max_nodes")),
+    timeAtUnixNanos: asBig(field(m, "time_at_unix_nanos")),
+    includeSuperseded: asBool(field(m, "include_superseded")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
+/** RELATION_TRAVERSE_RESP (`0x01D6`), one streamed frame. `isFinal` marks the
+ * last; `truncated` flags a bound was hit before the graph was exhausted. */
+export interface RelationTraverseResponseFrame {
+  paths: TraversalPathWire[];
+  totalPaths: number;
+  truncated: boolean;
+  isFinal: boolean;
+}
+
+/** Encode one RELATION_TRAVERSE_RESP (`0x01D6`) streamed frame. */
+export function encodeRelationTraverseResponse(p: RelationTraverseResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["paths", p.paths.map(encodeTraversalPath)],
+      ["total_paths", p.totalPaths],
+      ["truncated", p.truncated],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+/** Decode one RELATION_TRAVERSE_RESP (`0x01D6`) streamed frame. */
+export function decodeRelationTraverseResponse(bytes: Uint8Array): RelationTraverseResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    paths: asArray(field(m, "paths")).map(decodeTraversalPath),
+    totalPaths: asNum(field(m, "total_paths")),
+    truncated: asBool(field(m, "truncated")),
+    isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Query introspection — the plan (explain) and execution trace debug surface.
+// ---------------------------------------------------------------------------
+
+/** QUERY_EXPLAIN (`0x0161`) request. Ask for the plan of a `query` without
+ * running it. */
+export interface QueryExplainRequest {
+  query: QueryRequest;
+}
+
+/** Encode a QUERY_EXPLAIN (`0x0161`) request. */
+export function encodeQueryExplain(p: QueryExplainRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>([["query", queryMap(p.query)]]));
+}
+
+/** Decode a QUERY_EXPLAIN (`0x0161`) request payload. */
+export function decodeQueryExplain(bytes: Uint8Array): QueryExplainRequest {
+  const m = asMap(fromCbor(bytes));
+  return { query: queryFromMap(asMap(field(m, "query"))) };
+}
+
+/** QUERY_EXPLAIN_RESP (`0x01E1`). The human-readable plan plus an estimated
+ * cost in milliseconds. */
+export interface QueryExplainResponse {
+  planText: string;
+  estimatedCostMs: number;
+}
+
+/** Encode a QUERY_EXPLAIN_RESP (`0x01E1`) payload. */
+export function encodeQueryExplainResponse(p: QueryExplainResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["plan_text", p.planText],
+      ["estimated_cost_ms", f32(p.estimatedCostMs)],
+    ]),
+  );
+}
+
+/** Decode a QUERY_EXPLAIN_RESP (`0x01E1`) payload. */
+export function decodeQueryExplainResponse(bytes: Uint8Array): QueryExplainResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    planText: asStr(field(m, "plan_text")),
+    estimatedCostMs: asNum(field(m, "estimated_cost_ms")),
+  };
+}
+
+/** QUERY_TRACE (`0x0162`) request. Run a `query` and return its per-stage
+ * execution trace. */
+export interface QueryTraceRequest {
+  query: QueryRequest;
+}
+
+/** Encode a QUERY_TRACE (`0x0162`) request. */
+export function encodeQueryTrace(p: QueryTraceRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>([["query", queryMap(p.query)]]));
+}
+
+/** Decode a QUERY_TRACE (`0x0162`) request payload. */
+export function decodeQueryTrace(bytes: Uint8Array): QueryTraceRequest {
+  const m = asMap(fromCbor(bytes));
+  return { query: queryFromMap(asMap(field(m, "query"))) };
+}
+
+/** QUERY_TRACE_RESP (`0x01E2`). The human-readable trace plus total latency in
+ * milliseconds. */
+export interface QueryTraceResponse {
+  traceText: string;
+  totalLatencyMs: number;
+}
+
+/** Encode a QUERY_TRACE_RESP (`0x01E2`) payload. */
+export function encodeQueryTraceResponse(p: QueryTraceResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["trace_text", p.traceText],
+      ["total_latency_ms", f64(p.totalLatencyMs)],
+    ]),
+  );
+}
+
+/** Decode a QUERY_TRACE_RESP (`0x01E2`) payload. */
+export function decodeQueryTraceResponse(bytes: Uint8Array): QueryTraceResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    traceText: asStr(field(m, "trace_text")),
+    totalLatencyMs: asNum(field(m, "total_latency_ms")),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // SCHEMA_GET / SCHEMA_LIST / SCHEMA_VALIDATE.
 // ---------------------------------------------------------------------------
 
+/** SCHEMA_GET (`0x0121`): fetch one schema version in a namespace (`version` 0 = active). */
 export interface SchemaGetRequest {
   namespace: string;
   /** `0` = active version. */
   version: number;
 }
 
+/** Encode a SCHEMA_GET (`0x0121`) request. */
 export function encodeSchemaGet(p: SchemaGetRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3123,6 +3685,7 @@ export function encodeSchemaGet(p: SchemaGetRequest): Uint8Array {
   );
 }
 
+/** Decode a SCHEMA_GET (`0x0121`) request payload. */
 export function decodeSchemaGet(bytes: Uint8Array): SchemaGetRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3131,6 +3694,7 @@ export function decodeSchemaGet(bytes: Uint8Array): SchemaGetRequest {
   };
 }
 
+/** SCHEMA_GET_RESP (`0x01A1`): the schema document and its version metadata. */
 export interface SchemaGetResponse {
   namespace: string;
   schemaVersion: number;
@@ -3140,6 +3704,7 @@ export interface SchemaGetResponse {
   validatorVersion: number;
 }
 
+/** Encode a SCHEMA_GET_RESP (`0x01A1`) payload. */
 export function encodeSchemaGetResponse(p: SchemaGetResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3153,6 +3718,7 @@ export function encodeSchemaGetResponse(p: SchemaGetResponse): Uint8Array {
   );
 }
 
+/** Decode a SCHEMA_GET_RESP (`0x01A1`) payload. */
 export function decodeSchemaGetResponse(bytes: Uint8Array): SchemaGetResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3165,6 +3731,7 @@ export function decodeSchemaGetResponse(bytes: Uint8Array): SchemaGetResponse {
   };
 }
 
+/** SCHEMA_LIST (`0x0122`): enumerate the schema versions declared in a namespace. */
 export interface SchemaListRequest {
   namespace: string;
   /** `0` = unlimited (server-capped). */
@@ -3172,6 +3739,7 @@ export interface SchemaListRequest {
   cursor: Uint8Array;
 }
 
+/** Encode a SCHEMA_LIST (`0x0122`) request. */
 export function encodeSchemaList(p: SchemaListRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3182,6 +3750,7 @@ export function encodeSchemaList(p: SchemaListRequest): Uint8Array {
   );
 }
 
+/** Decode a SCHEMA_LIST (`0x0122`) request payload. */
 export function decodeSchemaList(bytes: Uint8Array): SchemaListRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3191,6 +3760,7 @@ export function decodeSchemaList(bytes: Uint8Array): SchemaListRequest {
   };
 }
 
+/** One entry in a SCHEMA_LIST page: a namespace version with its metadata (version, active flag, timestamps). */
 export interface SchemaListItemWire {
   schemaVersion: number;
   uploadedAtUnixNanos: bigint;
@@ -3217,6 +3787,7 @@ function decodeSchemaListItem(value: unknown): SchemaListItemWire {
   };
 }
 
+/** SCHEMA_LIST_RESP (`0x01A2`), one streamed frame: a page of schema-version entries. */
 export interface SchemaListResponseFrame {
   namespace: string;
   items: SchemaListItemWire[];
@@ -3225,6 +3796,7 @@ export interface SchemaListResponseFrame {
   isFinal: boolean;
 }
 
+/** Encode one SCHEMA_LIST_RESP (`0x01A2`) streamed frame. */
 export function encodeSchemaListResponse(p: SchemaListResponseFrame): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3237,6 +3809,7 @@ export function encodeSchemaListResponse(p: SchemaListResponseFrame): Uint8Array
   );
 }
 
+/** Decode one SCHEMA_LIST_RESP (`0x01A2`) streamed frame. */
 export function decodeSchemaListResponse(bytes: Uint8Array): SchemaListResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3248,19 +3821,23 @@ export function decodeSchemaListResponse(bytes: Uint8Array): SchemaListResponseF
   };
 }
 
+/** SCHEMA_VALIDATE (`0x0123`): check a schema document for errors without persisting it. */
 export interface SchemaValidateRequest {
   schemaDocument: string;
 }
 
+/** Encode a SCHEMA_VALIDATE (`0x0123`) request. */
 export function encodeSchemaValidate(p: SchemaValidateRequest): Uint8Array {
   return toCbor(new Map<string, unknown>([["schema_document", p.schemaDocument]]));
 }
 
+/** Decode a SCHEMA_VALIDATE (`0x0123`) request payload. */
 export function decodeSchemaValidate(bytes: Uint8Array): SchemaValidateRequest {
   const m = asMap(fromCbor(bytes));
   return { schemaDocument: asStr(field(m, "schema_document")) };
 }
 
+/** SCHEMA_VALIDATE_RESP (`0x01A3`): whether the document is valid and any diagnostics. */
 export interface SchemaValidateResponse {
   namespace: string;
   /** `current_active + 1` if validation passed; `0` otherwise. */
@@ -3268,6 +3845,7 @@ export interface SchemaValidateResponse {
   validationErrors: SchemaValidationErrorWire[];
 }
 
+/** Encode a SCHEMA_VALIDATE_RESP (`0x01A3`) payload. */
 export function encodeSchemaValidateResponse(p: SchemaValidateResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3291,6 +3869,7 @@ export function encodeSchemaValidateResponse(p: SchemaValidateResponse): Uint8Ar
   );
 }
 
+/** Decode a SCHEMA_VALIDATE_RESP (`0x01A3`) payload. */
 export function decodeSchemaValidateResponse(bytes: Uint8Array): SchemaValidateResponse {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3314,6 +3893,7 @@ export function decodeSchemaValidateResponse(bytes: Uint8Array): SchemaValidateR
 // SUBSCRIBE / UNSUBSCRIBE + the subscription event union.
 // ---------------------------------------------------------------------------
 
+/** Discriminant for a SUBSCRIBE_EVENT: which change the server is pushing (encode, forget, entity/statement/relation lifecycle, edge, stage, schema). */
 export enum EventType {
   Encoded = 0,
   Forgotten = 1,
@@ -3338,12 +3918,14 @@ export enum EventType {
   EdgeSuperseded = 33,
 }
 
+/** Outcome of a completed write-pipeline stage carried on a StageCompleted event (ok, empty, failed). */
 export enum StageOutcome {
   Ok = 0,
   Empty = 1,
   Failed = 2,
 }
 
+/** How far an extractor stage's audited writes were applied (succeeded, partial, failed, skipped). */
 export enum StageAuditStatus {
   Succeeded = 0,
   PartiallyApplied = 1,
@@ -3351,14 +3933,17 @@ export enum StageAuditStatus {
   Skipped = 3,
 }
 
+/** StageCompleted detail for the auto-edge stage: how many edges it wrote. */
 export interface StageAutoEdgePayload {
   edgesWritten: number;
 }
 
+/** StageCompleted detail for the temporal-edge stage: how many edges it wrote. */
 export interface StageTemporalEdgePayload {
   edgesWritten: number;
 }
 
+/** StageCompleted detail for the extractor stage: entity/statement/relation counts, audit status, and any error. */
 export interface StageExtractorPayload {
   entityCount: number;
   statementCount: number;
@@ -3428,11 +4013,13 @@ function decodeStagePayload(value: unknown): StagePayload {
   throw new CborError("unknown StagePayload variant");
 }
 
+/** A subscribe filter clause matching events for memories similar to a reference above a threshold. */
 export interface SimilarityFilter {
   referenceMemoryId: bigint;
   threshold: number;
 }
 
+/** The predicate a SUBSCRIBE applies to the change feed: context, kind, similarity, and agent scoping. */
 export interface SubscriptionFilter {
   contexts: bigint[] | null;
   kinds: MemoryKindWire[] | null;
@@ -3473,6 +4060,7 @@ function decodeSubscriptionFilter(value: unknown): SubscriptionFilter {
   };
 }
 
+/** SUBSCRIBE (`0x0030`): open a change-feed subscription with a filter, optional history replay, and an in-flight cap. */
 export interface SubscribeRequest {
   filter: SubscriptionFilter;
   includeHistory: boolean;
@@ -3480,6 +4068,7 @@ export interface SubscribeRequest {
   maxInflight: number;
 }
 
+/** Encode a SUBSCRIBE (`0x0030`) request. */
 export function encodeSubscribe(p: SubscribeRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3491,6 +4080,7 @@ export function encodeSubscribe(p: SubscribeRequest): Uint8Array {
   );
 }
 
+/** Decode a SUBSCRIBE (`0x0030`) request payload. */
 export function decodeSubscribe(bytes: Uint8Array): SubscribeRequest {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3501,6 +4091,7 @@ export function decodeSubscribe(bytes: Uint8Array): SubscribeRequest {
   };
 }
 
+/** The edge-change detail carried on an EdgeAdded / EdgeRemoved / EdgeSuperseded subscription event. */
 export interface EdgeEventPayload {
   /** `0` = Memory, `1` = Entity. */
   fromKind: number;
@@ -3553,12 +4144,14 @@ function decodeEdgeEventPayload(value: unknown): EdgeEventPayload {
 
 // Typed-graph subscription event bodies.
 
+/** SUBSCRIBE_EVENT detail: an entity was created. */
 export interface EntityCreatedEvent {
   entityId: WireUuid;
   entityTypeId: number;
   canonicalName: string;
 }
 
+/** SUBSCRIBE_EVENT detail: an entity's name/aliases/attributes were replaced. */
 export interface EntityUpdatedEvent {
   entityId: WireUuid;
   entityTypeId: number;
@@ -3566,6 +4159,7 @@ export interface EntityUpdatedEvent {
   embeddingVersionChanged: boolean;
 }
 
+/** SUBSCRIBE_EVENT detail: an entity was renamed. */
 export interface EntityRenamedEvent {
   entityId: WireUuid;
   oldCanonicalName: string;
@@ -3573,6 +4167,7 @@ export interface EntityRenamedEvent {
   oldMovedToAlias: boolean;
 }
 
+/** SUBSCRIBE_EVENT detail: one entity was merged into another. */
 export interface EntityMergedEvent {
   survivor: WireUuid;
   merged: WireUuid;
@@ -3582,17 +4177,20 @@ export interface EntityMergedEvent {
   relationsRerouted: number;
 }
 
+/** SUBSCRIBE_EVENT detail: a prior merge was undone. */
 export interface EntityUnmergedEvent {
   restoredEntityId: WireUuid;
   fromSurvivor: WireUuid;
   auditId: WireUuid;
 }
 
+/** SUBSCRIBE_EVENT detail: an entity was soft-retired. */
 export interface EntityTombstonedEvent {
   entityId: WireUuid;
   reason: string;
 }
 
+/** SUBSCRIBE_EVENT detail: a statement was created. */
 export interface StatementCreatedEvent {
   statementId: WireUuid;
   /** `1`=Fact, `2`=Preference, `3`=Event. */
@@ -3602,17 +4200,20 @@ export interface StatementCreatedEvent {
   confidence: number;
 }
 
+/** SUBSCRIBE_EVENT detail: a statement was superseded by a revision. */
 export interface StatementSupersededEvent {
   oldStatementId: WireUuid;
   newStatementId: WireUuid;
   chainRoot: WireUuid;
 }
 
+/** SUBSCRIBE_EVENT detail: a statement was soft-retired. */
 export interface StatementTombstonedEvent {
   statementId: WireUuid;
   reason: string;
 }
 
+/** SUBSCRIBE_EVENT detail: a relation was created. */
 export interface RelationCreatedEvent {
   relationId: WireUuid;
   relationType: string;
@@ -3620,16 +4221,19 @@ export interface RelationCreatedEvent {
   to: WireUuid;
 }
 
+/** SUBSCRIBE_EVENT detail: a relation was superseded by a revision. */
 export interface RelationSupersededEvent {
   oldRelationId: WireUuid;
   newRelationId: WireUuid;
 }
 
+/** SUBSCRIBE_EVENT detail: a relation was soft-retired. */
 export interface RelationTombstonedEvent {
   relationId: WireUuid;
   reason: string;
 }
 
+/** SUBSCRIBE_EVENT detail: a namespace's schema was updated. */
 export interface SchemaUpdatedEvent {
   namespace: string;
   fromVersion: number;
@@ -3900,6 +4504,7 @@ function decodeGraphEventPayload(value: unknown): GraphEventPayload {
   throw new CborError("unknown GraphEventPayload variant");
 }
 
+/** SUBSCRIBE_EVENT (`0x00B0`): the decoded change pushed on a subscription, tagged by event type with its variant payload. */
 export interface SubscriptionEvent {
   eventType: EventType;
   memoryId: bigint;
@@ -3916,6 +4521,7 @@ export interface SubscriptionEvent {
   stagePayload: StagePayload | null;
 }
 
+/** Encode a SUBSCRIBE_EVENT (`0x00B0`) frame. */
 export function encodeSubscriptionEvent(p: SubscriptionEvent): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3936,6 +4542,7 @@ export function encodeSubscriptionEvent(p: SubscriptionEvent): Uint8Array {
   );
 }
 
+/** Decode a SUBSCRIBE_EVENT (`0x00B0`) frame payload. */
 export function decodeSubscriptionEvent(bytes: Uint8Array): SubscriptionEvent {
   const m = asMap(fromCbor(bytes));
   return {
@@ -3955,24 +4562,29 @@ export function decodeSubscriptionEvent(bytes: Uint8Array): SubscriptionEvent {
   };
 }
 
+/** UNSUBSCRIBE (`0x0031`): tear down a subscription by its stream id. */
 export interface UnsubscribeRequest {
   targetStreamId: number;
 }
 
+/** Encode an UNSUBSCRIBE (`0x0031`) request. */
 export function encodeUnsubscribe(p: UnsubscribeRequest): Uint8Array {
   return toCbor(new Map<string, unknown>([["target_stream_id", p.targetStreamId]]));
 }
 
+/** Decode an UNSUBSCRIBE (`0x0031`) request payload. */
 export function decodeUnsubscribe(bytes: Uint8Array): UnsubscribeRequest {
   const m = asMap(fromCbor(bytes));
   return { targetStreamId: asNum(field(m, "target_stream_id")) };
 }
 
+/** UNSUBSCRIBE_RESP (`0x00B1`): the torn-down stream id and the final LSN delivered. */
 export interface UnsubscribeResponse {
   targetStreamId: number;
   finalLsn: bigint;
 }
 
+/** Encode an UNSUBSCRIBE_RESP (`0x00B1`) payload. */
 export function encodeUnsubscribeResponse(p: UnsubscribeResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
@@ -3982,10 +4594,284 @@ export function encodeUnsubscribeResponse(p: UnsubscribeResponse): Uint8Array {
   );
 }
 
+/** Decode an UNSUBSCRIBE_RESP (`0x00B1`) payload. */
 export function decodeUnsubscribeResponse(bytes: Uint8Array): UnsubscribeResponse {
   const m = asMap(fromCbor(bytes));
   return {
     targetStreamId: asNum(field(m, "target_stream_id")),
     finalLsn: asBig(field(m, "final_lsn")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Entity mutation — an entity accretes detail (update/rename), consolidates
+// duplicates (merge/unmerge), and retires (tombstone) over its lifetime.
+// ---------------------------------------------------------------------------
+
+/** ENTITY_UPDATE (`0x0132`). Replace name, aliases, and attributes. */
+export interface EntityUpdateRequest {
+  entityId: WireUuid;
+  canonicalName: string;
+  aliases: string[];
+  attributesBlob: Uint8Array;
+  requestId: WireUuid;
+}
+
+/** Encode an ENTITY_UPDATE (`0x0132`) request. */
+export function encodeEntityUpdate(p: EntityUpdateRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["entity_id", p.entityId],
+      ["canonical_name", p.canonicalName],
+      ["aliases", p.aliases],
+      ["attributes_blob", Array.from(p.attributesBlob)],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** ENTITY_UPDATE_RESP (`0x01B2`) / ENTITY_RENAME_RESP (`0x01B3`). */
+export interface EntityViewResponse {
+  entity: EntityView;
+}
+
+/** Decode an ENTITY_UPDATE_RESP / ENTITY_RENAME_RESP entity-view payload. */
+export function decodeEntityViewResponse(bytes: Uint8Array): EntityViewResponse {
+  const m = asMap(fromCbor(bytes));
+  return { entity: decodeEntityView(field(m, "entity")) };
+}
+
+/** ENTITY_RENAME (`0x0133`). `moveToAlias` keeps the old name reachable. */
+export interface EntityRenameRequest {
+  entityId: WireUuid;
+  newCanonicalName: string;
+  moveToAlias: boolean;
+  requestId: WireUuid;
+}
+
+/** Encode an ENTITY_RENAME (`0x0133`) request. */
+export function encodeEntityRename(p: EntityRenameRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["entity_id", p.entityId],
+      ["new_canonical_name", p.newCanonicalName],
+      ["move_to_alias", p.moveToAlias],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** ENTITY_MERGE (`0x0134`). Fold `merged` into `survivor`; reversible. */
+export interface EntityMergeRequest {
+  survivor: WireUuid;
+  merged: WireUuid;
+  confidence: number;
+  reason: string;
+  requestId: WireUuid;
+}
+
+/** Encode an ENTITY_MERGE (`0x0134`) request. */
+export function encodeEntityMerge(p: EntityMergeRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["survivor", p.survivor],
+      ["merged", p.merged],
+      ["confidence", f32(p.confidence)],
+      ["reason", p.reason],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** ENTITY_MERGE_RESP (`0x01B4`). Merge-audit id + reversible window. */
+export interface EntityMergeResponse {
+  auditId: WireUuid;
+  gracePeriodSeconds: bigint;
+}
+
+/** Decode an ENTITY_MERGE_RESP (`0x01B4`) payload. */
+export function decodeEntityMergeResponse(bytes: Uint8Array): EntityMergeResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    auditId: asBytes(field(m, "audit_id")),
+    gracePeriodSeconds: asBig(field(m, "grace_period_seconds")),
+  };
+}
+
+/** ENTITY_UNMERGE (`0x0135`). Undo a merge within its grace window. */
+export interface EntityUnmergeRequest {
+  mergedEntity: WireUuid;
+  requestId: WireUuid;
+}
+
+/** Encode an ENTITY_UNMERGE (`0x0135`) request. */
+export function encodeEntityUnmerge(p: EntityUnmergeRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["merged_entity", p.mergedEntity],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** ENTITY_UNMERGE_RESP (`0x01B5`). The restored entity's id. */
+export interface EntityUnmergeResponse {
+  restoredEntityId: WireUuid;
+}
+
+/** Decode an ENTITY_UNMERGE_RESP (`0x01B5`) payload. */
+export function decodeEntityUnmergeResponse(bytes: Uint8Array): EntityUnmergeResponse {
+  const m = asMap(fromCbor(bytes));
+  return { restoredEntityId: asBytes(field(m, "restored_entity_id")) };
+}
+
+/** ENTITY_TOMBSTONE (`0x0138`). Soft-retire with an audit reason. */
+export interface EntityTombstoneRequest {
+  entityId: WireUuid;
+  reason: string;
+  requestId: WireUuid;
+}
+
+/** Encode an ENTITY_TOMBSTONE (`0x0138`) request. */
+export function encodeEntityTombstone(p: EntityTombstoneRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["entity_id", p.entityId],
+      ["reason", p.reason],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** ENTITY_TOMBSTONE_RESP (`0x01B8`). When the retirement took effect. */
+export interface EntityTombstoneResponse {
+  tombstonedAtUnixNanos: bigint;
+}
+
+/** Decode an ENTITY_TOMBSTONE_RESP (`0x01B8`) payload. */
+export function decodeEntityTombstoneResponse(bytes: Uint8Array): EntityTombstoneResponse {
+  const m = asMap(fromCbor(bytes));
+  return { tombstonedAtUnixNanos: asBig(field(m, "tombstoned_at_unix_nanos")) };
+}
+
+// ---------------------------------------------------------------------------
+// Statement lifecycle — a claim is revised (supersede), walked back (retract),
+// retired (tombstone), or inspected across versions (history).
+// ---------------------------------------------------------------------------
+
+/** STATEMENT_SUPERSEDE (`0x0142`). Revise a claim, keeping the chain. */
+export interface StatementSupersedeRequest {
+  oldStatementId: WireUuid;
+  newStatement: StatementCreateRequest;
+  requestId: WireUuid;
+}
+
+/** Encode a STATEMENT_SUPERSEDE (`0x0142`) request, nesting the replacement statement's map. */
+export function encodeStatementSupersede(p: StatementSupersedeRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["old_statement_id", p.oldStatementId],
+      // Nest the statement map directly — no re-encode round-trip.
+      ["new_statement", statementCreateMap(p.newStatement)],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** STATEMENT_SUPERSEDE_RESP (`0x01C2`). New id + chain root + version. */
+export interface StatementSupersedeResponse {
+  newStatementId: WireUuid;
+  chainRoot: WireUuid;
+  version: number;
+}
+
+/** Decode a STATEMENT_SUPERSEDE_RESP (`0x01C2`) payload. */
+export function decodeStatementSupersedeResponse(bytes: Uint8Array): StatementSupersedeResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    newStatementId: asBytes(field(m, "new_statement_id")),
+    chainRoot: asBytes(field(m, "chain_root")),
+    version: asNum(field(m, "version")),
+  };
+}
+
+/** STATEMENT_TOMBSTONE (`0x0143`) / STATEMENT_RETRACT (`0x0144`). `reason` is 1..=4. */
+export interface StatementReasonRequest {
+  statementId: WireUuid;
+  reason: number;
+  reasonMessage: string;
+  requestId: WireUuid;
+}
+
+/** Encode a STATEMENT_TOMBSTONE (`0x0143`) / STATEMENT_RETRACT (`0x0144`) request (shared reason shape). */
+export function encodeStatementReason(p: StatementReasonRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["statement_id", p.statementId],
+      ["reason", p.reason],
+      ["reason_message", p.reasonMessage],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** STATEMENT_TOMBSTONE_RESP (`0x01C3`). */
+export interface StatementTombstoneResponse {
+  tombstonedAtUnixNanos: bigint;
+}
+
+/** Decode a STATEMENT_TOMBSTONE_RESP (`0x01C3`) payload. */
+export function decodeStatementTombstoneResponse(bytes: Uint8Array): StatementTombstoneResponse {
+  const m = asMap(fromCbor(bytes));
+  return { tombstonedAtUnixNanos: asBig(field(m, "tombstoned_at_unix_nanos")) };
+}
+
+/** STATEMENT_RETRACT_RESP (`0x01C4`). Retracted-at + scheduled zero-at. */
+export interface StatementRetractResponse {
+  retractedAtUnixNanos: bigint;
+  willZeroAtUnixNanos: bigint;
+}
+
+/** Decode a STATEMENT_RETRACT_RESP (`0x01C4`) payload. */
+export function decodeStatementRetractResponse(bytes: Uint8Array): StatementRetractResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    retractedAtUnixNanos: asBig(field(m, "retracted_at_unix_nanos")),
+    willZeroAtUnixNanos: asBig(field(m, "will_zero_at_unix_nanos")),
+  };
+}
+
+/** STATEMENT_HISTORY (`0x0145`). A read — no `requestId`. */
+export interface StatementHistoryRequest {
+  anchorId: WireUuid;
+  includeTombstoned: boolean;
+}
+
+/** Encode a STATEMENT_HISTORY (`0x0145`) request. */
+export function encodeStatementHistory(p: StatementHistoryRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["anchor_id", p.anchorId],
+      ["include_tombstoned", p.includeTombstoned],
+    ]),
+  );
+}
+
+/** STATEMENT_HISTORY_RESP (`0x01C5`), one streamed frame. */
+export interface StatementHistoryResponseFrame {
+  items: StatementView[];
+  chainRoot: WireUuid;
+  totalVersions: number;
+  isFinal: boolean;
+}
+
+/** Decode one STATEMENT_HISTORY_RESP (`0x01C5`) streamed frame. */
+export function decodeStatementHistoryResponseFrame(bytes: Uint8Array): StatementHistoryResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    items: asArray(field(m, "items")).map(decodeStatementView),
+    chainRoot: asBytes(field(m, "chain_root")),
+    totalVersions: asNum(field(m, "total_versions")),
+    isFinal: asBool(field(m, "is_final")),
   };
 }

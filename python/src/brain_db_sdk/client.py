@@ -1,12 +1,13 @@
-"""The high-level client: connect, handshake, and hold the negotiated
-session.
+"""The high-level client: connect, handshake, and serve the v1 +
+typed-graph verbs over a multiplexed connection.
 
 :meth:`BrainClient.connect` opens a TCP connection, runs the handshake,
-and returns a client bound to the session the server granted. This phase
-establishes and describes the session; the ergonomic verb builders
-(``recall`` streaming, retries) arrive in later phases. A minimal typed
-:meth:`BrainClient.encode` proves an end-to-end round-trip. The API is
-synchronous; an ``asyncio`` client is a later phase.
+and returns a client bound to the session the server granted. The client
+sits on a :class:`~brain_db_sdk.mux.MuxConnection`, so every verb shares
+one socket and many requests run in flight at once from multiple threads.
+The API is synchronous. To add retry, wrap a verb call in
+:func:`~brain_db_sdk.retry.with_retry`; the stable ``request_id`` each
+builder mints makes the resend idempotent server-side.
 """
 
 from __future__ import annotations
@@ -25,15 +26,28 @@ from .wire.types import (
     AuthPayload,
     EncodeRequest,
     EncodeResponse,
+    EncodeVectorDirectRequest,
     EntityCreateRequest,
     EntityCreateResponse,
     EntityGetRequest,
+    EntityMergeRequest,
+    EntityMergeResponse,
+    EntityRenameRequest,
+    EntityRenameResponse,
+    EntityTombstoneRequest,
+    EntityTombstoneResponse,
+    EntityUnmergeRequest,
+    EntityUnmergeResponse,
+    EntityUpdateRequest,
+    EntityUpdateResponse,
     EntityGetResponse,
     EntityListItem,
     EntityListRequest,
     EntityListResponseFrame,
     EntityResolveRequest,
     EntityResolveResponse,
+    ExtractorListRequest,
+    ExtractorListResponseFrame,
     ForgetRequest,
     ForgetResponse,
     GetCapabilitiesRequest,
@@ -50,8 +64,10 @@ from .wire.types import (
     PlanRequest,
     PlanResponseFrame,
     PlanStep,
-    QueryRequest,
-    QueryResponse,
+    QueryExplainRequest,
+    QueryExplainResponse,
+    QueryTraceRequest,
+    QueryTraceResponse,
     ReasonRequest,
     ReasonResponseFrame,
     RecallAnswer,
@@ -59,10 +75,18 @@ from .wire.types import (
     RecallResponseFrame,
     RelationCreateRequest,
     RelationCreateResponse,
+    RelationGetRequest,
+    RelationGetResponse,
     RelationListFromRequest,
     RelationListFromResponseFrame,
     RelationListToRequest,
     RelationListToResponseFrame,
+    RelationSupersedeRequest,
+    RelationSupersedeResponse,
+    RelationTombstoneRequest,
+    RelationTombstoneResponse,
+    RelationTraverseRequest,
+    RelationTraverseResponseFrame,
     RelationView,
     SchemaGetRequest,
     SchemaGetResponse,
@@ -78,14 +102,23 @@ from .wire.types import (
     StatementCreateResponse,
     StatementGetRequest,
     StatementGetResponse,
+    StatementHistoryRequest,
+    StatementHistoryResponseFrame,
     StatementListRequest,
     StatementListResponseFrame,
+    StatementRetractRequest,
+    StatementRetractResponse,
+    StatementSupersedeRequest,
+    StatementSupersedeResponse,
+    StatementTombstoneRequest,
+    StatementTombstoneResponse,
     StatementView,
     SubscribeRequest,
     TxnAbortRequest,
     TxnAbortResponse,
     TxnBeginRequest,
     TxnBeginResponse,
+    TraversalPathWire,
     TxnCommitRequest,
     TxnCommitResponse,
     UnlinkRequest,
@@ -248,8 +281,8 @@ class BrainClient:
         return self._session.namespace
 
     def encode(self, request: EncodeRequest) -> EncodeResponse:
-        """Store a memory from text. A minimal typed round-trip over the
-        connection; the ergonomic request builder lands in a later phase."""
+        """Store a memory from text (ENCODE). The server owns the embedding,
+        kind classification, salience, and edge extraction."""
         frame = self._conn.request_one(Opcode.ENCODE_REQ, encode_payload(request))
         if frame.opcode != int(Opcode.ENCODE_RESP):
             raise ProtocolError(
@@ -257,6 +290,18 @@ class BrainClient:
                 f"{frame.opcode:#06x}"
             )
         return decode_payload(EncodeResponse, frame.payload)
+
+    def encode_vector_direct(self, request: EncodeVectorDirectRequest) -> EncodeResponse:
+        """Write a pre-computed embedding directly (ENCODE_VECTOR_DIRECT),
+        bypassing the server's owned embedding. The vector rides the trailing
+        raw little-endian f32 section of the frame, not the CBOR map;
+        ``encode_payload`` appends it at the codec seam."""
+        return self._unary(
+            Opcode.ENCODE_VECTOR_DIRECT_REQ,
+            Opcode.ENCODE_VECTOR_DIRECT_RESP,
+            EncodeResponse,
+            request,
+        )
 
     def recall(self, request: RecallRequest) -> RecallAnswer:
         """Retrieve the memory for a cue. RECALL streams one or more
@@ -318,12 +363,154 @@ class BrainClient:
             request,
         )
 
+    def update_entity(self, request: EntityUpdateRequest) -> EntityUpdateResponse:
+        """Replace an entity's name, aliases, and attributes (ENTITY_UPDATE)."""
+        return self._unary(
+            Opcode.ENTITY_UPDATE_REQ, Opcode.ENTITY_UPDATE_RESP, EntityUpdateResponse, request
+        )
+
+    def rename_entity(self, request: EntityRenameRequest) -> EntityRenameResponse:
+        """Rename an entity, optionally keeping the old name as an alias
+        (ENTITY_RENAME)."""
+        return self._unary(
+            Opcode.ENTITY_RENAME_REQ, Opcode.ENTITY_RENAME_RESP, EntityRenameResponse, request
+        )
+
+    def merge_entities(self, request: EntityMergeRequest) -> EntityMergeResponse:
+        """Merge two entities that are the same real-world thing (ENTITY_MERGE).
+        Reversible within the returned grace window via :meth:`unmerge_entity`."""
+        return self._unary(
+            Opcode.ENTITY_MERGE_REQ, Opcode.ENTITY_MERGE_RESP, EntityMergeResponse, request
+        )
+
+    def unmerge_entity(self, request: EntityUnmergeRequest) -> EntityUnmergeResponse:
+        """Undo a merge within its grace window (ENTITY_UNMERGE)."""
+        return self._unary(
+            Opcode.ENTITY_UNMERGE_REQ, Opcode.ENTITY_UNMERGE_RESP, EntityUnmergeResponse, request
+        )
+
+    def tombstone_entity(self, request: EntityTombstoneRequest) -> EntityTombstoneResponse:
+        """Retire an entity with an audit reason (ENTITY_TOMBSTONE). Soft: the
+        row survives but drops out of resolution and traversal."""
+        return self._unary(
+            Opcode.ENTITY_TOMBSTONE_REQ,
+            Opcode.ENTITY_TOMBSTONE_RESP,
+            EntityTombstoneResponse,
+            request,
+        )
+
+    def supersede_statement(
+        self, request: StatementSupersedeRequest
+    ) -> StatementSupersedeResponse:
+        """Replace a statement with a revised one (STATEMENT_SUPERSEDE), keeping
+        both on the same chain so history is preserved."""
+        return self._unary(
+            Opcode.STATEMENT_SUPERSEDE_REQ,
+            Opcode.STATEMENT_SUPERSEDE_RESP,
+            StatementSupersedeResponse,
+            request,
+        )
+
+    def tombstone_statement(
+        self, request: StatementTombstoneRequest
+    ) -> StatementTombstoneResponse:
+        """Retire a statement with a coded reason (STATEMENT_TOMBSTONE). Soft and
+        recoverable."""
+        return self._unary(
+            Opcode.STATEMENT_TOMBSTONE_REQ,
+            Opcode.STATEMENT_TOMBSTONE_RESP,
+            StatementTombstoneResponse,
+            request,
+        )
+
+    def retract_statement(self, request: StatementRetractRequest) -> StatementRetractResponse:
+        """Assert a statement was wrong (STATEMENT_RETRACT). Unlike a tombstone,
+        retraction schedules a hard-zero so a genuine mistake gets scrubbed."""
+        return self._unary(
+            Opcode.STATEMENT_RETRACT_REQ,
+            Opcode.STATEMENT_RETRACT_RESP,
+            StatementRetractResponse,
+            request,
+        )
+
+    def statement_history(self, request: StatementHistoryRequest) -> list[StatementView]:
+        """Walk a claim's full version chain (STATEMENT_HISTORY), flattening
+        every streamed frame's ``items``. For the raw frames, use
+        :meth:`statement_history_frames`."""
+        items: list[StatementView] = []
+        for frame in self.statement_history_frames(request):
+            items.extend(frame.items)
+        return items
+
+    def statement_history_frames(
+        self, request: StatementHistoryRequest
+    ) -> list[StatementHistoryResponseFrame]:
+        """Walk a claim's version chain, returning each decoded STATEMENT_HISTORY
+        frame (with ``total_versions`` / ``is_final``)."""
+        return self._streamed(
+            Opcode.STATEMENT_HISTORY_REQ,
+            Opcode.STATEMENT_HISTORY_RESP,
+            StatementHistoryResponseFrame,
+            request,
+        )
+
     def create_relation(self, request: RelationCreateRequest) -> RelationCreateResponse:
         """Create a relation between two entities (RELATION_CREATE)."""
         return self._unary(
             Opcode.RELATION_CREATE_REQ,
             Opcode.RELATION_CREATE_RESP,
             RelationCreateResponse,
+            request,
+        )
+
+    def get_relation(self, request: RelationGetRequest) -> RelationGetResponse:
+        """Fetch one relation by id (RELATION_GET). ``follow_supersession``
+        returns the current chain head when the id has been superseded."""
+        return self._unary(
+            Opcode.RELATION_GET_REQ, Opcode.RELATION_GET_RESP, RelationGetResponse, request
+        )
+
+    def supersede_relation(
+        self, request: RelationSupersedeRequest
+    ) -> RelationSupersedeResponse:
+        """Revise a relation, keeping both on one chain (RELATION_SUPERSEDE)."""
+        return self._unary(
+            Opcode.RELATION_SUPERSEDE_REQ,
+            Opcode.RELATION_SUPERSEDE_RESP,
+            RelationSupersedeResponse,
+            request,
+        )
+
+    def tombstone_relation(
+        self, request: RelationTombstoneRequest
+    ) -> RelationTombstoneResponse:
+        """Soft-retire a relation with a reason (RELATION_TOMBSTONE)."""
+        return self._unary(
+            Opcode.RELATION_TOMBSTONE_REQ,
+            Opcode.RELATION_TOMBSTONE_RESP,
+            RelationTombstoneResponse,
+            request,
+        )
+
+    def traverse_relations(self, request: RelationTraverseRequest) -> list[TraversalPathWire]:
+        """Multi-hop walk of the relation graph from an entity
+        (RELATION_TRAVERSE), flattening every streamed frame's ``paths`` into
+        one ordered list. For the raw frames (with ``truncated`` /
+        ``total_paths``), use :meth:`traverse_relations_frames`."""
+        paths: list[TraversalPathWire] = []
+        for frame in self.traverse_relations_frames(request):
+            paths.extend(frame.paths)
+        return paths
+
+    def traverse_relations_frames(
+        self, request: RelationTraverseRequest
+    ) -> list[RelationTraverseResponseFrame]:
+        """Traverse the relation graph, returning each decoded
+        RELATION_TRAVERSE_RESP frame."""
+        return self._streamed(
+            Opcode.RELATION_TRAVERSE_REQ,
+            Opcode.RELATION_TRAVERSE_RESP,
+            RelationTraverseResponseFrame,
             request,
         )
 
@@ -335,10 +522,17 @@ class BrainClient:
             Opcode.SCHEMA_UPLOAD_REQ, Opcode.SCHEMA_UPLOAD_RESP, SchemaUploadResponse, request
         )
 
-    def query(self, request: QueryRequest) -> QueryResponse:
-        """Run a typed-graph query (QUERY). Returns fused, ranked results
-        with per-retriever contributions and outcome diagnostics."""
-        return self._unary(Opcode.QUERY_REQ, Opcode.QUERY_RESP, QueryResponse, request)
+    def query_explain(self, request: QueryExplainRequest) -> QueryExplainResponse:
+        """Return a query's plan without running it (QUERY_EXPLAIN)."""
+        return self._unary(
+            Opcode.QUERY_EXPLAIN_REQ, Opcode.QUERY_EXPLAIN_RESP, QueryExplainResponse, request
+        )
+
+    def query_trace(self, request: QueryTraceRequest) -> QueryTraceResponse:
+        """Run a query and return its per-stage execution trace (QUERY_TRACE)."""
+        return self._unary(
+            Opcode.QUERY_TRACE_REQ, Opcode.QUERY_TRACE_RESP, QueryTraceResponse, request
+        )
 
     def materialize_procedural(
         self, request: MaterializeProceduralRequest
@@ -371,6 +565,21 @@ class BrainClient:
             Opcode.GET_CAPABILITIES_REQ,
             Opcode.GET_CAPABILITIES_RESP,
             GetCapabilitiesResponse,
+            request,
+        )
+
+    def extractor_list(
+        self, request: ExtractorListRequest | None = None
+    ) -> ExtractorListResponseFrame:
+        """List the connected shard's registered extractors (EXTRACTOR_LIST):
+        each extractor's id, namespace, name, tier kind, schema version, and
+        creation time. Read-only introspection — extraction is always-on and
+        cannot be toggled at runtime."""
+        request = request or ExtractorListRequest()
+        return self._unary(
+            Opcode.EXTRACTOR_LIST_REQ,
+            Opcode.EXTRACTOR_LIST_RESP,
+            ExtractorListResponseFrame,
             request,
         )
 

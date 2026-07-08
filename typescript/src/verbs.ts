@@ -16,7 +16,6 @@ import {
   type ForgetRequest,
   MemoryKindWire,
   type RecallRequest,
-  type WireUuid,
 } from "./wire/types.js";
 
 /** Builder for an ENCODE request (defaults: context 0). */
@@ -49,7 +48,7 @@ export class EncodeBuilder {
   }
 }
 
-/** Builder for a RECALL request (defaults: 10 results, own agent). */
+/** Builder for a RECALL request (defaults: 10 results). */
 export class RecallBuilder {
   private subjectName = "";
   private maxResultsValue = 10;
@@ -62,8 +61,6 @@ export class RecallBuilder {
   private includeEdges = true;
   private includeGraph = false;
   private includeText = true;
-  private agentFilter: WireUuid[] = [];
-  private includeOtherAgents = false;
 
   constructor(private readonly cueText: string) {}
 
@@ -119,16 +116,6 @@ export class RecallBuilder {
     return this;
   }
 
-  agents(agents: WireUuid[]): this {
-    this.agentFilter = agents;
-    return this;
-  }
-
-  otherAgents(include: boolean): this {
-    this.includeOtherAgents = include;
-    return this;
-  }
-
   /** Finish into a wire `RecallRequest`, minting a fresh `requestId`. */
   build(): RecallRequest {
     return {
@@ -146,8 +133,6 @@ export class RecallBuilder {
       includeText: this.includeText,
       requestId: newId(),
       txnId: null,
-      agentFilter: this.agentFilter,
-      includeOtherAgents: this.includeOtherAgents,
     };
   }
 }

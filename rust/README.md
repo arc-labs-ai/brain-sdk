@@ -12,7 +12,7 @@ reader task demultiplexing responses by `stream_id`, and a high-level
 run in flight at once over one connection** (share a client across tasks behind
 an `Arc`). The full v1 + typed-graph API is present: `encode()`, `recall()`
 (streaming to EOS / `recall_frames()`), `forget()`, `create_entity()`,
-`create_statement()`, `create_relation()`, `upload_schema()`, `query()`,
+`create_statement()`, `create_relation()`, `upload_schema()`,
 `materialize_procedural()` — each with an ergonomic builder, plus a retry layer
 (`RetryPolicy` + the free `with_retry` combinator). The connection pool and
 transparent reconnect are later work; the serial one-at-a-time [`Connection`]

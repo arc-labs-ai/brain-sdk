@@ -9,8 +9,10 @@ Brain's conformance corpus.
 Status: the wire codec (L1 frame + L2 CBOR payload + typed payloads) is
 corpus-verified, and on top of it a synchronous connection layer —
 transport, handshake, a multiplexed :class:`MuxConnection`, a high-level
-:class:`BrainClient` (connect / handshake / encode / recall / forget), a
-connection :class:`Pool`, and a retry helper.
+:class:`BrainClient` serving the full v1 + typed-graph verb surface
+(encode, recall, forget, link, the entity / statement / relation / schema
+graph ops, transactions, and subscriptions), a connection
+:class:`Pool`, and a retry helper.
 """
 
 from __future__ import annotations
@@ -19,8 +21,7 @@ __version__ = "0.1.0"
 
 from . import wire  # noqa: F401
 from .client import Auth, BrainClient, ClientConfig, SessionInfo, new_id
-from .connection import Connection, HandshakeOutcome
-from .mux import MuxConnection, Subscription
+from .mux import HandshakeOutcome, MuxConnection, Subscription
 from .pool import Pool
 from .retry import RetryPolicy, with_retry
 from .verbs import EncodeBuilder, ForgetBuilder, RecallBuilder
@@ -42,7 +43,6 @@ __all__ = [
     "SessionInfo",
     "Auth",
     "new_id",
-    "Connection",
     "HandshakeOutcome",
     "MuxConnection",
     "Subscription",

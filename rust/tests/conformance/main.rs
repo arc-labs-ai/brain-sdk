@@ -152,8 +152,6 @@ fn payload_cases_round_trip() {
     check_payload::<RelationCreateResponse>("resp_relation_create");
     check_payload::<SchemaUploadRequest>("req_schema_upload");
     check_payload::<SchemaUploadResponse>("resp_schema_upload");
-    check_payload::<QueryRequest>("req_query");
-    check_payload::<QueryResponse>("resp_query");
     check_payload::<MaterializeProceduralRequest>("req_materialize_procedural");
     check_payload::<MaterializeProceduralResponse>("resp_materialize_procedural");
 
@@ -178,6 +176,10 @@ fn payload_cases_round_trip() {
     // Capabilities + subscription event.
     check_payload::<GetCapabilitiesResponse>("resp_get_capabilities");
     check_payload::<SubscriptionEvent>("resp_subscribe_event");
+
+    // Extractor introspection.
+    check_payload::<ExtractorListRequest>("req_extractor_list");
+    check_payload::<ExtractorListResponseFrame>("resp_extractor_list");
 
     // Keepalive responses.
     check_payload::<PongResponse>("resp_pong");

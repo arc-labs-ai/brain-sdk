@@ -84,8 +84,8 @@ export class ServerError extends BrainError {
 /**
  * Whether retrying the operation could plausibly succeed. A transient
  * transport drop or timeout, or a resource-exhaustion / unavailable server
- * verdict, is retryable; a malformed-input or auth verdict is not. The full
- * retry policy is a later phase; this is its category signal.
+ * verdict, is retryable; a malformed-input or auth verdict is not. This is the
+ * category signal the `withRetry` combinator consults.
  */
 export function isRetryable(err: unknown): boolean {
   if (err instanceof ConnectionClosed || err instanceof BrainTimeout) return true;

@@ -1,9 +1,8 @@
 """Multiplexed connection: many requests in flight at once over one socket.
 
-The one-at-a-time :class:`~brain_db_sdk.connection.Connection` sends a request
-and blocks the socket until its response arrives. A :class:`MuxConnection` runs
-a background **reader thread** that demultiplexes every inbound frame to the
-waiting request by its ``stream_id``, so callers issue requests concurrently
+A :class:`MuxConnection` is the SDK's one connection type. It runs a background
+**reader thread** that demultiplexes every inbound frame to the waiting request
+by its ``stream_id``, so callers issue requests concurrently
 from many threads over one shared connection. Each request registers a
 thread-safe queue under a fresh ``stream_id``, writes its frame (writes are
 serialized by a lock so frames never interleave), and drains frames from its

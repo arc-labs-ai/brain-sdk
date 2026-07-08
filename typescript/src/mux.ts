@@ -1,10 +1,10 @@
 /**
  * Multiplexed connection: many requests in flight at once over one socket.
  *
- * The one-at-a-time `Connection` sends a request and reads frames back in
- * order. A `MuxConnection` instead routes every inbound frame to the waiting
- * request by its `streamId`, so callers issue requests concurrently over one
- * shared connection. A single `data` pump decodes whole frames (a frame can
+ * A `MuxConnection` routes every inbound frame to the waiting request by its
+ * `streamId`, so callers issue requests concurrently over one shared
+ * connection — no serial one-at-a-time request/response discipline. A single
+ * `data` pump decodes whole frames (a frame can
  * straddle socket reads) and dispatches each to the per-stream sink registered
  * for it; a socket error or peer close fails every outstanding request.
  *

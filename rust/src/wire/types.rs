@@ -270,9 +270,6 @@ pub struct RecallRequest {
     pub request_id: Option<WireUuid>,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
-    #[serde(with = "crate::wire::cbor::vec_byte_array16")]
-    pub agent_filter: Vec<WireUuid>,
-    pub include_other_agents: bool,
 }
 
 /// One streaming RECALL_RESP frame (`0x00A1`).
@@ -341,6 +338,8 @@ pub struct GraphEnrichment {
     pub relations: Vec<EnrichedRelation>,
 }
 
+/// A typed entity attached to a recall hit by [`GraphEnrichment`]: the resolved
+/// entity id, its display name, and its schema type qname.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EnrichedEntity {
     #[serde(with = "serde_bytes")]
@@ -349,6 +348,9 @@ pub struct EnrichedEntity {
     pub type_qname: String,
 }
 
+/// A typed statement attached to a recall hit by [`GraphEnrichment`], flattened
+/// to display strings (subject name, predicate, object label) plus its
+/// confidence.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EnrichedStatement {
     #[serde(with = "serde_bytes")]
@@ -359,6 +361,8 @@ pub struct EnrichedStatement {
     pub confidence: f32,
 }
 
+/// A typed relation attached to a recall hit by [`GraphEnrichment`], flattened
+/// to the two endpoint names and the connecting predicate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EnrichedRelation {
     pub from_name: String,
@@ -827,6 +831,105 @@ pub struct EntityCreateRequest {
     pub request_id: WireUuid,
 }
 
+/// ENTITY_UPDATE (`0x0132`). Replace an entity's name, aliases, and
+/// attribute blob wholesale — the way an agent revises what it knows about a
+/// thing as new detail arrives.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntityUpdateRequest {
+    #[serde(with = "serde_bytes")]
+    pub entity_id: WireUuid,
+    pub canonical_name: String,
+    pub aliases: Vec<String>,
+    pub attributes_blob: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// ENTITY_UPDATE_RESP (`0x01B2`). The post-update view.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntityUpdateResponse {
+    pub entity: EntityView,
+}
+
+/// ENTITY_RENAME (`0x0133`). Change only the canonical name. `move_to_alias`
+/// keeps the old name reachable as an alias instead of dropping it, so a
+/// rename never silently loses a name the graph already links by.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntityRenameRequest {
+    #[serde(with = "serde_bytes")]
+    pub entity_id: WireUuid,
+    pub new_canonical_name: String,
+    pub move_to_alias: bool,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// ENTITY_RENAME_RESP (`0x01B3`). The post-rename view.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntityRenameResponse {
+    pub entity: EntityView,
+}
+
+/// ENTITY_MERGE (`0x0134`). Fold `merged` into `survivor` when they turn out
+/// to be the same real-world entity. The merge is reversible within a grace
+/// window (see the response), so a wrong merge is recoverable rather than
+/// destructive.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntityMergeRequest {
+    #[serde(with = "serde_bytes")]
+    pub survivor: WireUuid,
+    #[serde(with = "serde_bytes")]
+    pub merged: WireUuid,
+    pub confidence: f32,
+    pub reason: String,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// ENTITY_MERGE_RESP (`0x01B4`). `audit_id` is the merge record (not an
+/// entity id); `grace_period_seconds` is how long an unmerge can still undo it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityMergeResponse {
+    #[serde(with = "serde_bytes")]
+    pub audit_id: WireUuid,
+    pub grace_period_seconds: u64,
+}
+
+/// ENTITY_UNMERGE (`0x0135`). Undo a merge, restoring the folded-away entity
+/// as its own row again. Only valid inside the merge's grace window.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntityUnmergeRequest {
+    #[serde(with = "serde_bytes")]
+    pub merged_entity: WireUuid,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// ENTITY_UNMERGE_RESP (`0x01B5`). The id the restored entity now lives under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityUnmergeResponse {
+    #[serde(with = "serde_bytes")]
+    pub restored_entity_id: WireUuid,
+}
+
+/// ENTITY_TOMBSTONE (`0x0138`). Retire an entity with a reason for the audit
+/// trail. Tombstoning is soft — the row survives (recoverable) but drops out
+/// of resolution and traversal.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EntityTombstoneRequest {
+    #[serde(with = "serde_bytes")]
+    pub entity_id: WireUuid,
+    pub reason: String,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// ENTITY_TOMBSTONE_RESP (`0x01B8`). When the retirement took effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityTombstoneResponse {
+    pub tombstoned_at_unix_nanos: u64,
+}
+
 /// ENTITY_CREATE_RESP (`0x01B0`). The id is a plain CBOR array of bytes,
 /// not a byte string — the server's response struct omits `serde_bytes`
 /// on this field.
@@ -865,6 +968,89 @@ pub struct StatementCreateResponse {
     pub auto_superseded: WireUuid,
     #[serde(with = "serde_bytes")]
     pub chain_root: WireUuid,
+}
+
+/// STATEMENT_SUPERSEDE (`0x0142`). Replace an existing claim with a revised
+/// one, keeping both linked on the same supersession chain so history stays
+/// intact — the way an agent updates a belief without erasing what it used to
+/// hold.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StatementSupersedeRequest {
+    #[serde(with = "serde_bytes")]
+    pub old_statement_id: WireUuid,
+    pub new_statement: StatementCreateRequest,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// STATEMENT_SUPERSEDE_RESP (`0x01C2`). The new statement plus its chain root
+/// and monotonically-increasing version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatementSupersedeResponse {
+    #[serde(with = "serde_bytes")]
+    pub new_statement_id: WireUuid,
+    #[serde(with = "serde_bytes")]
+    pub chain_root: WireUuid,
+    pub version: u32,
+}
+
+/// STATEMENT_TOMBSTONE (`0x0143`). Retire a statement with a coded reason for
+/// the audit trail. Soft: the row survives (recoverable) but stops answering.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StatementTombstoneRequest {
+    #[serde(with = "serde_bytes")]
+    pub statement_id: WireUuid,
+    pub reason: u8,
+    pub reason_message: String,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// STATEMENT_TOMBSTONE_RESP (`0x01C3`). When the retirement took effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatementTombstoneResponse {
+    pub tombstoned_at_unix_nanos: u64,
+}
+
+/// STATEMENT_RETRACT (`0x0144`). Assert a claim was wrong (not merely
+/// superseded). Retraction schedules a hard-zero after a window, so a genuine
+/// mistake can be scrubbed rather than left tombstoned forever.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StatementRetractRequest {
+    #[serde(with = "serde_bytes")]
+    pub statement_id: WireUuid,
+    pub reason: u8,
+    pub reason_message: String,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// STATEMENT_RETRACT_RESP (`0x01C4`). When it was retracted, and when the
+/// scheduled hard-zero will scrub it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatementRetractResponse {
+    pub retracted_at_unix_nanos: u64,
+    pub will_zero_at_unix_nanos: u64,
+}
+
+/// STATEMENT_HISTORY (`0x0145`). Walk every version on a claim's supersession
+/// chain. A read, so it carries no `request_id`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StatementHistoryRequest {
+    #[serde(with = "serde_bytes")]
+    pub anchor_id: WireUuid,
+    pub include_tombstoned: bool,
+}
+
+/// STATEMENT_HISTORY_RESP (`0x01C5`), one streamed frame. `is_final` marks the
+/// last frame; `total_versions` is the chain length.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StatementHistoryResponseFrame {
+    pub items: Vec<StatementView>,
+    #[serde(with = "serde_bytes")]
+    pub chain_root: WireUuid,
+    pub total_versions: u32,
+    pub is_final: bool,
 }
 
 /// RELATION_CREATE (`0x0150`).
@@ -956,7 +1142,8 @@ pub struct FusionConfigWire {
     pub graph_weight: f32,
 }
 
-/// QUERY (`0x0160`).
+/// The retriever/fusion selection carried by a query. Embedded by the
+/// `QUERY_EXPLAIN` / `QUERY_TRACE` debug ops.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QueryRequest {
     pub text: String,
@@ -974,48 +1161,6 @@ pub struct QueryRequest {
     pub fusion_config: Option<FusionConfigWire>,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
-}
-
-/// 4-variant ranked-item id projected to the wire.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ItemIdWire {
-    pub kind: u8,
-    #[serde(with = "serde_bytes")]
-    pub bytes: [u8; 16],
-}
-
-/// Per-retriever contribution to a fused item.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RetrieverContributionWire {
-    pub retriever: RetrieverWire,
-    pub rank: u32,
-    pub raw_score: f32,
-}
-
-/// Retriever outcome summary.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RetrieverOutcomeWire {
-    pub retriever: RetrieverWire,
-    pub status: u8,
-    pub message: String,
-    pub latency_ms: f64,
-    pub result_count: u32,
-}
-
-/// One fused query result.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct QueryResultItem {
-    pub id: ItemIdWire,
-    pub fused_score: f64,
-    pub contributing: Vec<RetrieverContributionWire>,
-}
-
-/// QUERY_RESP (`0x01E0`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct QueryResponse {
-    pub items: Vec<QueryResultItem>,
-    pub total_latency_ms: f64,
-    pub retriever_outcomes: Vec<RetrieverOutcomeWire>,
 }
 
 /// MATERIALIZE_PROCEDURAL (`0x0164`).
@@ -1160,16 +1305,22 @@ pub enum StageAuditStatus {
     Skipped = 3,
 }
 
+/// [`StagePayload::AutoEdge`] body: how many similarity edges the auto-edge
+/// stage wrote for the source memory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageAutoEdgePayload {
     pub edges_written: u32,
 }
 
+/// [`StagePayload::TemporalEdge`] body: how many temporal (followed-by) edges
+/// the temporal-edge stage wrote.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageTemporalEdgePayload {
     pub edges_written: u32,
 }
 
+/// [`StagePayload::Extractor`] body: the typed-graph rows the extractor stage
+/// produced (entity / statement / relation counts) plus its audit verdict.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageExtractorPayload {
     pub entity_count: u32,
@@ -1304,6 +1455,7 @@ pub enum GraphEventPayload {
     SchemaUpdated(SchemaUpdatedEvent),
 }
 
+/// [`GraphEventPayload::EntityCreated`] body: a new typed entity was created.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityCreatedEvent {
     #[serde(with = "serde_bytes")]
@@ -1312,6 +1464,8 @@ pub struct EntityCreatedEvent {
     pub canonical_name: String,
 }
 
+/// [`GraphEventPayload::EntityUpdated`] body: an entity's attributes changed;
+/// `embedding_version_changed` flags whether its vector was re-embedded.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityUpdatedEvent {
     #[serde(with = "serde_bytes")]
@@ -1321,6 +1475,8 @@ pub struct EntityUpdatedEvent {
     pub embedding_version_changed: bool,
 }
 
+/// [`GraphEventPayload::EntityRenamed`] body: an entity's canonical name
+/// changed; `old_moved_to_alias` says whether the old name was kept as an alias.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityRenamedEvent {
     #[serde(with = "serde_bytes")]
@@ -1330,6 +1486,8 @@ pub struct EntityRenamedEvent {
     pub old_moved_to_alias: bool,
 }
 
+/// [`GraphEventPayload::EntityMerged`] body: two entities were unified into
+/// `survivor`; reports how many statements and relations were rerouted.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityMergedEvent {
     #[serde(with = "serde_bytes")]
@@ -1343,6 +1501,8 @@ pub struct EntityMergedEvent {
     pub relations_rerouted: u32,
 }
 
+/// [`GraphEventPayload::EntityUnmerged`] body: a prior merge was reversed,
+/// splitting `restored_entity_id` back out of `from_survivor`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntityUnmergedEvent {
     #[serde(with = "serde_bytes")]
@@ -1353,6 +1513,8 @@ pub struct EntityUnmergedEvent {
     pub audit_id: WireUuid,
 }
 
+/// [`GraphEventPayload::EntityTombstoned`] body: an entity was soft-deleted, with
+/// the operator-supplied reason.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityTombstonedEvent {
     #[serde(with = "serde_bytes")]
@@ -1360,6 +1522,8 @@ pub struct EntityTombstonedEvent {
     pub reason: String,
 }
 
+/// [`GraphEventPayload::StatementCreated`] body: a new typed statement was
+/// asserted about `subject`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatementCreatedEvent {
     #[serde(with = "serde_bytes")]
@@ -1372,6 +1536,8 @@ pub struct StatementCreatedEvent {
     pub confidence: f32,
 }
 
+/// [`GraphEventPayload::StatementSuperseded`] body: `new_statement_id` replaced
+/// `old_statement_id`; `chain_root` identifies the supersession chain's origin.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatementSupersededEvent {
     #[serde(with = "serde_bytes")]
@@ -1382,6 +1548,8 @@ pub struct StatementSupersededEvent {
     pub chain_root: WireUuid,
 }
 
+/// [`GraphEventPayload::StatementTombstoned`] body: a statement was soft-deleted,
+/// with the operator-supplied reason.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatementTombstonedEvent {
     #[serde(with = "serde_bytes")]
@@ -1389,6 +1557,8 @@ pub struct StatementTombstonedEvent {
     pub reason: String,
 }
 
+/// [`GraphEventPayload::RelationCreated`] body: a new typed relation was created
+/// from `from` to `to`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RelationCreatedEvent {
     #[serde(with = "serde_bytes")]
@@ -1400,6 +1570,8 @@ pub struct RelationCreatedEvent {
     pub to: WireUuid,
 }
 
+/// [`GraphEventPayload::RelationSuperseded`] body: `new_relation_id` replaced
+/// `old_relation_id`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelationSupersededEvent {
     #[serde(with = "serde_bytes")]
@@ -1408,6 +1580,8 @@ pub struct RelationSupersededEvent {
     pub new_relation_id: WireUuid,
 }
 
+/// [`GraphEventPayload::RelationTombstoned`] body: a relation was soft-deleted,
+/// with the operator-supplied reason.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RelationTombstonedEvent {
     #[serde(with = "serde_bytes")]
@@ -1415,6 +1589,8 @@ pub struct RelationTombstonedEvent {
     pub reason: String,
 }
 
+/// [`GraphEventPayload::SchemaUpdated`] body: a namespace's schema advanced from
+/// `from_version` to `to_version` (via SCHEMA_UPLOAD or SCHEMA_REPLACE).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaUpdatedEvent {
     pub namespace: String,
@@ -1457,6 +1633,38 @@ pub struct Capabilities {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GetCapabilitiesResponse {
     pub capabilities: Capabilities,
+}
+
+// ===========================================================================
+// EXTRACTOR_LIST.
+// ===========================================================================
+
+/// EXTRACTOR_LIST (`0x0124`). Empty request — extraction is always-on and
+/// takes no arguments, so every registered extractor is returned. Kept as a
+/// struct (not a unit type) so the encoding matches every other request body
+/// (a CBOR map, here empty).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractorListRequest {}
+
+/// One registered extractor row in [`ExtractorListResponseFrame`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractorListItem {
+    pub extractor_id: u32,
+    pub namespace: String,
+    pub name: String,
+    /// `0`=pattern, `1`=classifier, `2`=llm.
+    pub kind: u8,
+    pub schema_version: u32,
+    pub created_at_unix_nanos: u64,
+}
+
+/// EXTRACTOR_LIST_RESP (`0x01A4`). Single-frame snapshot of the always-on
+/// extractor registry.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractorListResponseFrame {
+    pub items: Vec<ExtractorListItem>,
+    pub total: u32,
+    pub is_final: bool,
 }
 
 // ===========================================================================
@@ -1851,4 +2059,136 @@ pub struct ServerPingResponse {
 pub struct ClientPongRequest {
     pub server_timestamp_unix_nanos: u64,
     pub client_timestamp_unix_nanos: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Relation lifecycle + traversal — fetch one (get), revise (supersede), retire
+// (tombstone), or walk the graph from an entity (traverse).
+// ---------------------------------------------------------------------------
+
+/// RELATION_GET (`0x0151`). `follow_supersession` returns the current head of a
+/// superseded relation's chain rather than the (retired) id asked for.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RelationGetRequest {
+    #[serde(with = "serde_bytes")]
+    pub relation_id: WireUuid,
+    pub follow_supersession: bool,
+}
+
+/// RELATION_GET_RESP (`0x01D1`). `returned_via_supersession` flags that the
+/// view is the chain head, not the exact id requested.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RelationGetResponse {
+    pub relation: RelationView,
+    pub returned_via_supersession: bool,
+}
+
+/// RELATION_SUPERSEDE (`0x0152`). Revise a relation, keeping both on one chain.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RelationSupersedeRequest {
+    #[serde(with = "serde_bytes")]
+    pub old_relation_id: WireUuid,
+    pub new_relation: RelationCreateRequest,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// RELATION_SUPERSEDE_RESP (`0x01D2`). New id + monotonic version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationSupersedeResponse {
+    #[serde(with = "serde_bytes")]
+    pub new_relation_id: WireUuid,
+    pub version: u32,
+}
+
+/// RELATION_TOMBSTONE (`0x0153`). Soft-retire a relation with a reason.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RelationTombstoneRequest {
+    #[serde(with = "serde_bytes")]
+    pub relation_id: WireUuid,
+    pub reason: String,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// RELATION_TOMBSTONE_RESP (`0x01D3`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationTombstoneResponse {
+    pub tombstoned_at_unix_nanos: u64,
+}
+
+/// One hop in a traversal path: the relation edge crossed and its endpoints.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraversalStepWire {
+    #[serde(with = "serde_bytes")]
+    pub relation_id: WireUuid,
+    #[serde(with = "serde_bytes")]
+    pub from: WireUuid,
+    #[serde(with = "serde_bytes")]
+    pub to: WireUuid,
+    pub relation_type: String,
+    pub depth: u32,
+}
+
+/// One path the traversal found, as an ordered list of steps.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraversalPathWire {
+    pub steps: Vec<TraversalStepWire>,
+}
+
+/// RELATION_TRAVERSE (`0x0156`). Multi-hop walk of the relation graph from
+/// `start_entity`. `direction` is outgoing/incoming/both; the bounds cap the
+/// search; `time_at_unix_nanos` walks the graph as it stood at a record time.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RelationTraverseRequest {
+    #[serde(with = "serde_bytes")]
+    pub start_entity: WireUuid,
+    pub relation_types: Vec<String>,
+    pub direction: u8,
+    pub max_depth: u32,
+    pub max_nodes: u32,
+    pub time_at_unix_nanos: u64,
+    pub include_superseded: bool,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// RELATION_TRAVERSE_RESP (`0x01D6`), one streamed frame. `is_final` marks the
+/// last; `truncated` flags a bound was hit before the graph was exhausted.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RelationTraverseResponseFrame {
+    pub paths: Vec<TraversalPathWire>,
+    pub total_paths: u32,
+    pub truncated: bool,
+    pub is_final: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Query introspection debug surface — the plan (explain) and execution trace.
+// ---------------------------------------------------------------------------
+
+/// QUERY_EXPLAIN (`0x0161`). Ask for the plan of a query without running it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QueryExplainRequest {
+    pub query: QueryRequest,
+}
+
+/// QUERY_EXPLAIN_RESP (`0x01E1`). The plan plus an estimated cost.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QueryExplainResponse {
+    pub plan_text: String,
+    pub estimated_cost_ms: f32,
+}
+
+/// QUERY_TRACE (`0x0162`). Run a query and return its per-stage execution trace.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QueryTraceRequest {
+    pub query: QueryRequest,
+}
+
+/// QUERY_TRACE_RESP (`0x01E2`). The trace plus total latency.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QueryTraceResponse {
+    pub trace_text: String,
+    pub total_latency_ms: f64,
 }

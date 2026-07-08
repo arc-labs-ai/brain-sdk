@@ -77,8 +77,6 @@ pub struct RecallBuilder {
     include_edges: bool,
     include_graph: bool,
     include_text: bool,
-    agent_filter: Vec<[u8; 16]>,
-    include_other_agents: bool,
 }
 
 impl RecallBuilder {
@@ -99,8 +97,6 @@ impl RecallBuilder {
             include_edges: true,
             include_graph: false,
             include_text: true,
-            agent_filter: Vec::new(),
-            include_other_agents: false,
         }
     }
 
@@ -174,20 +170,6 @@ impl RecallBuilder {
         self
     }
 
-    /// Also search the listed agents' memories.
-    #[must_use]
-    pub fn agent_filter(mut self, agents: Vec<[u8; 16]>) -> Self {
-        self.agent_filter = agents;
-        self
-    }
-
-    /// Search across all agents, not just the connected one.
-    #[must_use]
-    pub fn include_other_agents(mut self, include: bool) -> Self {
-        self.include_other_agents = include;
-        self
-    }
-
     /// Finish into a wire [`RecallRequest`], minting a fresh `request_id`.
     #[must_use]
     pub fn build(self) -> RecallRequest {
@@ -206,8 +188,6 @@ impl RecallBuilder {
             include_text: self.include_text,
             request_id: Some(new_id()),
             txn_id: None,
-            agent_filter: self.agent_filter,
-            include_other_agents: self.include_other_agents,
         }
     }
 }

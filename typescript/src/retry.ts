@@ -14,8 +14,8 @@
  * retried verb does not double-apply. A server `ResourceExhausted` /
  * `Unavailable` verdict arrives as a normal ERROR frame, leaving the connection
  * usable — so those retry in place. A transport drop is reported retryable too,
- * but on a single non-reconnecting connection it re-fails fast; transparent
- * reconnect is a later phase.
+ * but this SDK does not transparently reconnect a dropped socket: a retry over
+ * a dead connection re-fails fast, so recover by opening a fresh connection.
  */
 
 import { ServerError, isRetryable } from "./errors.js";

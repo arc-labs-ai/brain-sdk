@@ -1,6 +1,6 @@
 /**
  * Typed-graph verb round-trips against an in-process mock server:
- * ENTITY_CREATE, STATEMENT_CREATE, RELATION_CREATE, SCHEMA_UPLOAD, QUERY, and
+ * ENTITY_CREATE, STATEMENT_CREATE, RELATION_CREATE, SCHEMA_UPLOAD, and
  * MATERIALIZE_PROCEDURAL. Each is a single-shot request/response; the test
  * drives them in sequence over one connection and checks the decoded replies.
  */
@@ -18,7 +18,6 @@ import {
   type AuthOkPayload,
   type EntityCreateResponse,
   type MaterializeProceduralResponse,
-  type QueryResponse,
   type RelationCreateResponse,
   type SchemaUploadResponse,
   type StatementCreateResponse,
@@ -27,14 +26,12 @@ import {
   decodeEntityCreate,
   decodeHello,
   decodeMaterializeProcedural,
-  decodeQuery,
   decodeRelationCreate,
   decodeSchemaUpload,
   decodeStatementCreate,
   encodeAuthOk,
   encodeEntityCreateResponse,
   encodeMaterializeProceduralResponse,
-  encodeQueryResponse,
   encodeRelationCreateResponse,
   encodeSchemaUploadResponse,
   encodeStatementCreateResponse,
@@ -132,17 +129,6 @@ async function serveGraph(sock: net.Socket): Promise<void> {
   };
   await chan.write({ opcode: Opcode.SchemaUploadResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeSchemaUploadResponse(schemaResp) });
 
-  // QUERY.
-  f = await chan.read();
-  expect(f.opcode).toBe(Opcode.QueryReq);
-  expect(decodeQuery(f.payload).text).toBe("computing pioneers");
-  const queryResp: QueryResponse = {
-    items: [{ id: { kind: 1, bytes: ENTITY_ID }, fusedScore: 0.95, contributing: [] }],
-    totalLatencyMs: 1.5,
-    retrieverOutcomes: [],
-  };
-  await chan.write({ opcode: Opcode.QueryResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeQueryResponse(queryResp) });
-
   // MATERIALIZE_PROCEDURAL.
   f = await chan.read();
   expect(f.opcode).toBe(Opcode.MaterializeProceduralReq);
@@ -161,7 +147,7 @@ async function serveGraph(sock: net.Socket): Promise<void> {
 }
 
 describe("typed-graph verbs", () => {
-  it("round-trip ENTITY/STATEMENT/RELATION/SCHEMA/QUERY/MATERIALIZE", async () => {
+  it("round-trip ENTITY/STATEMENT/RELATION/SCHEMA/MATERIALIZE", async () => {
     const { server, port } = await startServer(serveGraph);
     try {
       const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
@@ -214,24 +200,6 @@ describe("typed-graph verbs", () => {
       });
       expect(schema.namespace).toBe("people");
       expect(schema.backwardCompatible).toBe(true);
-
-      const results = await client.query({
-        text: "computing pioneers",
-        entityAnchor: null,
-        kindFilter: [],
-        predicateFilter: [],
-        timeFilter: null,
-        asOfRecordTimeUnixNanos: null,
-        confidenceMin: null,
-        includeTombstoned: false,
-        includeSuperseded: false,
-        limit: 10,
-        retrievers: { kind: "Auto" },
-        fusionConfig: null,
-        requestId: newId(),
-      });
-      expect(results.items.length).toBe(1);
-      expect([...results.items[0]!.id.bytes]).toEqual([...ENTITY_ID]);
 
       const proc = await client.materializeProcedural({
         agentId: client.agentId,

@@ -184,7 +184,6 @@ fn builder_defaults_are_sane() {
     assert_eq!(recall.max_results, 10);
     assert!(recall.include_text);
     assert!(recall.include_edges);
-    assert!(!recall.include_other_agents);
     assert!(recall.request_id.is_some());
 
     let forget = ForgetBuilder::new(7).build();

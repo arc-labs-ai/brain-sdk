@@ -115,9 +115,6 @@ const handlers: Record<string, Handler> = {
     t.encodeSchemaUploadResponse,
   ),
 
-  req_query: payloadRoundTrip(t.decodeQuery, t.encodeQuery),
-  resp_query: payloadRoundTrip(t.decodeQueryResponse, t.encodeQueryResponse),
-
   req_materialize_procedural: payloadRoundTrip(
     t.decodeMaterializeProcedural,
     t.encodeMaterializeProcedural,
@@ -160,6 +157,11 @@ const handlers: Record<string, Handler> = {
   resp_get_capabilities: payloadRoundTrip(
     t.decodeGetCapabilitiesResponse,
     t.encodeGetCapabilitiesResponse,
+  ),
+  req_extractor_list: payloadRoundTrip(t.decodeExtractorList, t.encodeExtractorList),
+  resp_extractor_list: payloadRoundTrip(
+    t.decodeExtractorListResponse,
+    t.encodeExtractorListResponse,
   ),
   resp_subscribe_event: payloadRoundTrip(
     t.decodeSubscriptionEvent,

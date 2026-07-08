@@ -36,5 +36,12 @@ Repository = "https://github.com/brain-db-io/brain-sdk"
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
+[tool.pytest.ini_options]
+# importlib import mode lets the feature folders (tests/encode/, tests/recall/,
+# …) each carry a `test_<feature>.py` without basename collisions against the
+# flat offline suites (e.g. tests/test_handshake.py vs tests/handshake/…).
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/brain_db_sdk"]

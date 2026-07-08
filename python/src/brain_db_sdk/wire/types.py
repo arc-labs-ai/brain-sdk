@@ -49,12 +49,16 @@ from .cbor import (
 
 
 class MemoryKind:
+    """The stored kind of a memory record, as its on-wire integer discriminant."""
+
     EPISODIC = 0
     SEMANTIC = 1
     CONSOLIDATED = 2
 
 
 class EdgeKind:
+    """The relationship kind of a memory-to-memory edge, as its on-wire integer discriminant."""
+
     CAUSED = 0
     FOLLOWED_BY = 1
     DERIVED_FROM = 2
@@ -66,28 +70,38 @@ class EdgeKind:
 
 
 class ForgetMode:
+    """FORGET semantics — soft tombstone vs. hard zero — as its on-wire integer discriminant."""
+
     SOFT = 0
     HARD = 1
 
 
 class StageKind:
+    """The write-pipeline background stage a subscription event reports, as its on-wire integer discriminant."""
+
     AUTO_EDGE = 0
     TEMPORAL_EDGE = 1
     EXTRACTOR = 2
 
 
 class AuthMethod:
+    """The credential scheme presented at AUTH, as its on-wire integer discriminant."""
+
     TOKEN = 0
     MTLS = 1
 
 
 class RetrieverName:
+    """Which of the three fused retrievers a result came from, as its on-wire integer discriminant."""
+
     SEMANTIC = 0
     LEXICAL = 1
     GRAPH = 2
 
 
 class ErrorCategory:
+    """The coarse class of an ERROR frame, as its on-wire integer discriminant."""
+
     PROTOCOL = 0
     AUTHENTICATION = 1
     AUTHORIZATION = 2
@@ -106,6 +120,8 @@ class ErrorCategory:
 
 @dataclass
 class HelloCapabilities:
+    """Optional-feature flags a peer advertises in the handshake — streaming, zstd compression, and server push."""
+
     streaming: bool
     compression_zstd: bool
     server_push: bool
@@ -124,6 +140,8 @@ class HelloCapabilities:
 
 @dataclass
 class HelloPayload:
+    """HELLO (``0x0001``). The client's opening frame: its id, the protocol versions it speaks, its capability flags, and an optional session-resumption token."""
+
     client_id: str
     supported_versions: list[int]
     capabilities: HelloCapabilities
@@ -150,6 +168,8 @@ class HelloPayload:
 
 @dataclass
 class MtlsClaim:
+    """An mTLS credential: the peer certificate's fingerprint and the subject it asserts."""
+
     cert_fingerprint: bytes  # 32-byte byte string
     asserted_subject: str
 
@@ -226,6 +246,8 @@ class AuthPayload:
 
 @dataclass
 class AgentPermissions:
+    """The per-verb capability grants the server resolved for the authenticated agent."""
+
     can_encode: bool
     can_recall: bool
     can_plan: bool
@@ -257,6 +279,8 @@ class AgentPermissions:
 
 @dataclass
 class ServerFeatures:
+    """Server-side limits and options surfaced in WELCOME — payload cap, stream cap, idle timeout, and accepted auth methods."""
+
     max_payload_size: int
     max_concurrent_streams: int
     idle_timeout_seconds: int
@@ -282,6 +306,8 @@ class ServerFeatures:
 
 @dataclass
 class WelcomePayload:
+    """WELCOME (``0x0081``). The server's handshake reply: its id, the negotiated version, the session id, shared capabilities, and server limits."""
+
     server_id: str
     chosen_version: int
     session_id: bytes  # 16-byte byte string
@@ -310,6 +336,8 @@ class WelcomePayload:
 
 @dataclass
 class AuthOkPayload:
+    """AUTH_OK (``0x0082``). The successful-auth reply: the server-assigned agent id, bound shard, granted permissions, resolved namespace, and server clock."""
+
     agent_id: bytes
     bound_shard_id: int
     permissions: AgentPermissions
@@ -426,6 +454,8 @@ class ClientPongRequest:
 
 @dataclass
 class EdgeRequest:
+    """A caller-supplied edge to attach at encode time: target memory, edge kind, and weight."""
+
     target: int  # u128 MemoryId
     kind: int
     weight: float  # f32
@@ -444,6 +474,8 @@ class EdgeRequest:
 
 @dataclass
 class EncodeRequest:
+    """ENCODE (``0x0020``). Store a memory from text — the server embeds it. Carries the text, context, idempotency and txn ids, and an optional event time."""
+
     text: str
     context_id: int  # u64
     request_id: bytes  # 16-byte byte string
@@ -518,6 +550,8 @@ class EncodeVectorDirectRequest:
 
 @dataclass
 class EncodeResponse:
+    """ENCODE_RESP (``0x00A0``). The stored memory's id plus write-path outcome: dedup flag, salience, auto-edge count, LSN, and the pending background stages."""
+
     memory_id: int  # u128
     was_deduplicated: bool
     salience: float  # f32
@@ -589,6 +623,8 @@ class AnswerKind:
 
 @dataclass
 class RecallRequest:
+    """RECALL (``0x0021``). Cue-driven memory retrieval: the cue text and subject, result and confidence bounds, temporal/kind filters, and enrichment toggles."""
+
     cue_text: str
     subject_name: str
     max_results: int
@@ -603,8 +639,6 @@ class RecallRequest:
     include_text: bool
     request_id: Optional[bytes]
     txn_id: Optional[bytes]
-    agent_filter: list[bytes]  # list of 16-byte byte strings
-    include_other_agents: bool
 
     def to_map(self) -> dict:
         return {
@@ -624,8 +658,6 @@ class RecallRequest:
             "include_text": self.include_text,
             "request_id": self.request_id,
             "txn_id": self.txn_id,
-            "agent_filter": list(self.agent_filter),
-            "include_other_agents": self.include_other_agents,
         }
 
     @classmethod
@@ -645,13 +677,13 @@ class RecallRequest:
             m["include_text"],
             m["request_id"],
             m["txn_id"],
-            list(m["agent_filter"]),
-            m["include_other_agents"],
         )
 
 
 @dataclass
 class EdgeView:
+    """A memory edge as returned on the read path: target memory, edge kind, and weight."""
+
     target: int
     kind: int
     weight: float  # f32
@@ -666,6 +698,8 @@ class EdgeView:
 
 @dataclass
 class EnrichedEntity:
+    """A graph entity attached to a recall result: its id, name, and type qname."""
+
     id: bytes
     name: str
     type_qname: str
@@ -680,6 +714,8 @@ class EnrichedEntity:
 
 @dataclass
 class EnrichedStatement:
+    """A graph statement attached to a recall result: subject, predicate, object label, and confidence."""
+
     id: bytes
     subject_name: str
     predicate: str
@@ -702,6 +738,8 @@ class EnrichedStatement:
 
 @dataclass
 class EnrichedRelation:
+    """A graph relation attached to a recall result: the from-name, predicate, and to-name."""
+
     from_name: str
     predicate: str
     to_name: str
@@ -716,6 +754,8 @@ class EnrichedRelation:
 
 @dataclass
 class GraphEnrichment:
+    """The typed-graph context attached to a recall result — the entities, statements, and relations near the answer."""
+
     entities: list[EnrichedEntity]
     statements: list[EnrichedStatement]
     relations: list[EnrichedRelation]
@@ -738,6 +778,8 @@ class GraphEnrichment:
 
 @dataclass
 class MemoryResult:
+    """One memory in a recall answer: its text and ids plus the full scoring/provenance surface — similarity, confidence, salience, fused/rerank scores, edges, and optional graph enrichment."""
+
     memory_id: int  # u128
     text: str
     similarity_score: float  # f32
@@ -820,6 +862,8 @@ class MemoryResult:
 
 @dataclass
 class RecallResponseFrame:
+    """RECALL_RESP (``0x00A1``), one streamed frame. Carries the answer shape, this frame's memories, and streaming progress (final flag, cumulative and estimated-remaining counts)."""
+
     answer_kind: str  # AnswerKind variant-name string
     memories: list[MemoryResult]
     is_final: bool
@@ -872,6 +916,8 @@ class RecallAnswer:
 
 @dataclass
 class ForgetRequest:
+    """FORGET (``0x0024``). Retire a memory by id under soft or hard mode, with idempotency and txn ids."""
+
     memory_id: int  # u128
     mode: int
     request_id: bytes
@@ -892,6 +938,8 @@ class ForgetRequest:
 
 @dataclass
 class ForgetResponse:
+    """FORGET_RESP (``0x00A4``). The forgotten memory's id, whether it was already gone, and how many edges were removed."""
+
     memory_id: int  # u128
     was_already_forgotten: bool
     edges_removed: int
@@ -915,6 +963,8 @@ class ForgetResponse:
 
 @dataclass
 class ErrorDetails:
+    """Optional structured context on an ERROR — the offending field and its expected vs. actual values."""
+
     field: Optional[str]
     expected: Optional[str]
     actual: Optional[str]
@@ -929,6 +979,8 @@ class ErrorDetails:
 
 @dataclass
 class ErrorResponse:
+    """ERROR (``0x00FF``). A structured failure: numeric code, category, human message, optional field details, and an optional retry-after hint."""
+
     code: int  # u16
     category: int  # u8
     message: str
@@ -1093,6 +1145,8 @@ class EvidenceRef:
 
 @dataclass
 class EntityCreateRequest:
+    """ENTITY_CREATE (``0x0130``). Create a typed-graph entity: its type, canonical name, aliases, opaque attributes blob, and idempotency id."""
+
     entity_type_id: int
     canonical_name: str
     aliases: list[str]
@@ -1121,6 +1175,8 @@ class EntityCreateRequest:
 
 @dataclass
 class EntityCreateResponse:
+    """ENTITY_CREATE_RESP (``0x01B0``). The new entity's id."""
+
     entity_id: bytes  # 16-byte byte string
 
     def to_map(self) -> dict:
@@ -1133,6 +1189,8 @@ class EntityCreateResponse:
 
 @dataclass
 class StatementCreateRequest:
+    """STATEMENT_CREATE (``0x0140``). Assert a typed-graph statement: kind, subject, predicate, object, confidence, evidence, extractor, and bi-temporal validity."""
+
     kind: str  # StatementKind variant-name string
     subject: bytes  # 16-byte byte string
     predicate: str
@@ -1182,6 +1240,8 @@ class StatementCreateRequest:
 
 @dataclass
 class StatementCreateResponse:
+    """STATEMENT_CREATE_RESP (``0x01C0``). The new statement's id, any statement it auto-superseded, and its supersession-chain root."""
+
     statement_id: bytes
     auto_superseded: bytes
     chain_root: bytes
@@ -1200,6 +1260,8 @@ class StatementCreateResponse:
 
 @dataclass
 class RelationCreateRequest:
+    """RELATION_CREATE (``0x0150``). Assert a typed-graph relation between two entities: type, endpoints, properties blob, evidence, confidence, and validity window."""
+
     relation_type: str
     from_entity: bytes
     to_entity: bytes
@@ -1243,6 +1305,8 @@ class RelationCreateRequest:
 
 @dataclass
 class RelationCreateResponse:
+    """RELATION_CREATE_RESP (``0x01D0``). The new relation's id."""
+
     relation_id: bytes
 
     def to_map(self) -> dict:
@@ -1255,6 +1319,8 @@ class RelationCreateResponse:
 
 @dataclass
 class SchemaUploadRequest:
+    """SCHEMA_UPLOAD (``0x0120``). Merge a schema document into the active namespace, with dry-run and allow-breaking flags plus an idempotency id."""
+
     schema_document: str
     dry_run: bool
     allow_breaking: bool
@@ -1275,6 +1341,8 @@ class SchemaUploadRequest:
 
 @dataclass
 class SchemaValidationError:
+    """One diagnostic from schema validation: code, message, source span (line/column/length), and severity."""
+
     code: str
     message: str
     line: int
@@ -1299,6 +1367,8 @@ class SchemaValidationError:
 
 @dataclass
 class SchemaUploadResponse:
+    """SCHEMA_UPLOAD_RESP (``0x01A0``). The resolved namespace and new version, any validation errors, whether the change is backward-compatible, and a migration summary."""
+
     namespace: str
     schema_version: int
     validation_errors: list[SchemaValidationError]
@@ -1327,6 +1397,8 @@ class SchemaUploadResponse:
 
 @dataclass
 class TimeRange:
+    """An optional-bounded time window (unix-ms from/to) used as a query filter."""
+
     from_unix_ms: Optional[int]
     to_unix_ms: Optional[int]
 
@@ -1340,6 +1412,8 @@ class TimeRange:
 
 @dataclass
 class FusionConfig:
+    """RRF fusion tuning for a query — the ``k`` constant and per-retriever semantic/lexical/graph weights."""
+
     k: int
     semantic_weight: float  # f32
     lexical_weight: float  # f32
@@ -1389,6 +1463,8 @@ class RetrieverSelection:
 
 @dataclass
 class QueryRequest:
+    """Typed-graph query payload fusing the three retrievers: the cue text, optional entity anchor, kind/predicate/time/confidence filters, retriever selection, and fusion config. RECALL is the sole primary read verb; this payload is no longer a standalone op and is now carried only inside QUERY_EXPLAIN / QUERY_TRACE."""
+
     text: str
     entity_anchor: Optional[bytes]
     kind_filter: list[int]  # Vec<u8> -> array of ints
@@ -1442,104 +1518,9 @@ class QueryRequest:
 
 
 @dataclass
-class ItemId:
-    kind: int
-    bytes: bytes  # 16-byte byte string
-
-    def to_map(self) -> dict:
-        return {"kind": self.kind, "bytes": self.bytes}
-
-    @classmethod
-    def from_map(cls, m: dict) -> "ItemId":
-        return cls(m["kind"], m["bytes"])
-
-
-@dataclass
-class RetrieverContribution:
-    retriever: int
-    rank: int
-    raw_score: float  # f32
-
-    def to_map(self) -> dict:
-        return {
-            "retriever": self.retriever,
-            "rank": self.rank,
-            "raw_score": round_f32(self.raw_score),
-        }
-
-    @classmethod
-    def from_map(cls, m: dict) -> "RetrieverContribution":
-        return cls(m["retriever"], m["rank"], m["raw_score"])
-
-
-@dataclass
-class RetrieverOutcome:
-    retriever: int
-    status: int
-    message: str
-    latency_ms: float  # f64
-    result_count: int
-
-    def to_map(self) -> dict:
-        return {
-            "retriever": self.retriever,
-            "status": self.status,
-            "message": self.message,
-            "latency_ms": mark_f64(self.latency_ms),
-            "result_count": self.result_count,
-        }
-
-    @classmethod
-    def from_map(cls, m: dict) -> "RetrieverOutcome":
-        return cls(m["retriever"], m["status"], m["message"], m["latency_ms"], m["result_count"])
-
-
-@dataclass
-class QueryResultItem:
-    id: ItemId
-    fused_score: float  # f64
-    contributing: list[RetrieverContribution]
-
-    def to_map(self) -> dict:
-        return {
-            "id": self.id.to_map(),
-            "fused_score": mark_f64(self.fused_score),
-            "contributing": [c.to_map() for c in self.contributing],
-        }
-
-    @classmethod
-    def from_map(cls, m: dict) -> "QueryResultItem":
-        return cls(
-            ItemId.from_map(m["id"]),
-            m["fused_score"],
-            [RetrieverContribution.from_map(c) for c in m["contributing"]],
-        )
-
-
-@dataclass
-class QueryResponse:
-    items: list[QueryResultItem]
-    total_latency_ms: float  # f64
-    retriever_outcomes: list[RetrieverOutcome]
-
-    def to_map(self) -> dict:
-        return {
-            "items": [i.to_map() for i in self.items],
-            "total_latency_ms": mark_f64(self.total_latency_ms),
-            "retriever_outcomes": [o.to_map() for o in self.retriever_outcomes],
-        }
-
-    @classmethod
-    def from_map(cls, m: dict) -> "QueryResponse":
-        return cls(
-            [QueryResultItem.from_map(i) for i in m["items"]],
-            m["total_latency_ms"],
-            [RetrieverOutcome.from_map(o) for o in m["retriever_outcomes"]],
-        )
-
-
-@dataclass
 class MaterializeProceduralRequest:
+    """MATERIALIZE_PROCEDURAL (``0x0164``). Assemble a procedural-memory system block for an agent: context filter, top-k, confidence floor, and category selection."""
+
     agent_id: bytes
     context_filter: int  # u64
     top_k: int
@@ -1571,6 +1552,8 @@ class MaterializeProceduralRequest:
 
 @dataclass
 class MaterializeProceduralResponse:
+    """MATERIALIZE_PROCEDURAL_RESP (``0x01E4``). The rendered system block, the statement ids it drew on, the candidate count, and whether budget trimmed it."""
+
     system_block: str
     statement_ids: list[bytes]  # list of 16-byte byte strings
     total_candidates: int
@@ -1601,6 +1584,8 @@ class MaterializeProceduralResponse:
 
 @dataclass
 class LinkRequest:
+    """LINK (``0x0025``). Add a directed edge between two memories: source, target, kind, weight, plus idempotency and txn ids."""
+
     source: int  # u128 MemoryId
     target: int  # u128 MemoryId
     kind: int
@@ -1625,6 +1610,8 @@ class LinkRequest:
 
 @dataclass
 class LinkResponse:
+    """LINK_RESP (``0x00A5``). The created edge's endpoints, kind, weight, creation time, and whether it already existed."""
+
     source: int
     target: int
     kind: int
@@ -1656,6 +1643,8 @@ class LinkResponse:
 
 @dataclass
 class UnlinkRequest:
+    """UNLINK (``0x0026``). Remove the edge of a given kind between two memories, with idempotency and txn ids."""
+
     source: int
     target: int
     kind: int
@@ -1678,6 +1667,8 @@ class UnlinkRequest:
 
 @dataclass
 class UnlinkResponse:
+    """UNLINK_RESP (``0x00A6``). The targeted edge's endpoints and kind, and whether it was actually removed."""
+
     source: int
     target: int
     kind: int
@@ -1702,6 +1693,8 @@ class UnlinkResponse:
 
 
 class PlanStrategy:
+    """The search strategy requested for PLAN, as its on-wire integer discriminant."""
+
     AUTO = 0
     A_STAR = 1
     MCTS = 2
@@ -1709,6 +1702,8 @@ class PlanStrategy:
 
 
 class PlanStatus:
+    """The terminal outcome of a PLAN run, as its on-wire integer discriminant."""
+
     GOAL_REACHED = 0
     BUDGET_EXHAUSTED = 1
     NO_PATH_FOUND = 2
@@ -1776,6 +1771,8 @@ class TransitionKind:
 
 @dataclass
 class PlanBudget:
+    """Search-cost bounds for a plan: max steps, wall-time, and branches explored."""
+
     max_steps: int
     max_wall_time_ms: int
     max_branches_explored: int
@@ -1794,6 +1791,8 @@ class PlanBudget:
 
 @dataclass
 class PlanRequest:
+    """PLAN (``0x0022``). Search for a memory path from ``start`` to ``goal`` under a budget, with an optional strategy hint, context filter, and idempotency/txn ids."""
+
     start: PlanState
     goal: PlanState
     budget: PlanBudget
@@ -1830,6 +1829,8 @@ class PlanRequest:
 
 @dataclass
 class PlanStep:
+    """One step in a returned plan: its index, the memory, how the step was reached (transition kind), confidence, and estimated distance to goal."""
+
     step_index: int
     memory_id: int  # u128
     text: str
@@ -1861,6 +1862,8 @@ class PlanStep:
 
 @dataclass
 class PlanResponseFrame:
+    """PLAN_RESP (``0x00A2``), one streamed frame. The plan steps in this frame, the final flag, and the terminal plan status."""
+
     steps: list[PlanStep]
     is_final: bool
     plan_status: Optional[int]
@@ -1887,6 +1890,8 @@ class PlanResponseFrame:
 
 
 class ReasonStatus:
+    """The terminal outcome of a REASON run, as its on-wire integer discriminant."""
+
     COMPLETE = 0
     BUDGET_EXHAUSTED = 1
     DEPTH_LIMIT_REACHED = 2
@@ -1946,6 +1951,8 @@ class InferenceKind:
 
 @dataclass
 class ReasonRequest:
+    """REASON (``0x0023``). Draw inferences from an observation: the input, search depth, confidence threshold, context filter, inference cap, and wall-time budget."""
+
     observation: ObservationInput
     depth: int
     confidence_threshold: float  # f32
@@ -1985,6 +1992,8 @@ class ReasonRequest:
 
 @dataclass
 class InferenceStep:
+    """One inference in a reasoning chain: its index, the claim, supporting and contradicting memories, confidence, and inference kind."""
+
     step_index: int
     claim: str
     supporting_memories: list[int]  # list of u128
@@ -2016,6 +2025,8 @@ class InferenceStep:
 
 @dataclass
 class ReasonResponseFrame:
+    """REASON_RESP (``0x00A3``), one streamed frame. The inference steps in this frame, the final flag, and the terminal reason status."""
+
     inferences: list[InferenceStep]
     is_final: bool
     reason_status: Optional[int]
@@ -2043,6 +2054,8 @@ class ReasonResponseFrame:
 
 @dataclass
 class TxnBeginRequest:
+    """TXN_BEGIN (``0x0040``). Open a transaction under a client-chosen id, with a timeout."""
+
     txn_id: bytes
     timeout_seconds: int
 
@@ -2056,6 +2069,8 @@ class TxnBeginRequest:
 
 @dataclass
 class TxnBeginResponse:
+    """TXN_BEGIN_RESP (``0x00C0``). The transaction id, its timeout, and when it started."""
+
     txn_id: bytes
     timeout_seconds: int
     started_at_unix_nanos: int
@@ -2074,6 +2089,8 @@ class TxnBeginResponse:
 
 @dataclass
 class TxnCommitRequest:
+    """TXN_COMMIT (``0x0041``). Commit the transaction with the given id."""
+
     txn_id: bytes
 
     def to_map(self) -> dict:
@@ -2086,6 +2103,8 @@ class TxnCommitRequest:
 
 @dataclass
 class TxnCommitResponse:
+    """TXN_COMMIT_RESP (``0x00C1``). The transaction id, commit time, and how many operations were applied."""
+
     txn_id: bytes
     committed_at_unix_nanos: int
     operations_applied: int
@@ -2104,6 +2123,8 @@ class TxnCommitResponse:
 
 @dataclass
 class TxnAbortRequest:
+    """TXN_ABORT (``0x0042``). Abort the transaction with the given id."""
+
     txn_id: bytes
 
     def to_map(self) -> dict:
@@ -2116,6 +2137,8 @@ class TxnAbortRequest:
 
 @dataclass
 class TxnAbortResponse:
+    """TXN_ABORT_RESP (``0x00C2``). The transaction id and how many operations were discarded."""
+
     txn_id: bytes
     operations_discarded: int
 
@@ -2133,6 +2156,8 @@ class TxnAbortResponse:
 
 
 class EventType:
+    """The kind of change a subscription event reports, as its on-wire integer discriminant."""
+
     # Cognitive events.
     ENCODED = 0
     FORGOTTEN = 1
@@ -2160,12 +2185,16 @@ class EventType:
 
 
 class StageOutcome:
+    """The result of a write-pipeline background stage, as its on-wire integer discriminant."""
+
     OK = 0
     EMPTY = 1
     FAILED = 2
 
 
 class StageAuditStatus:
+    """The audit disposition of an extractor stage, as its on-wire integer discriminant."""
+
     SUCCEEDED = 0
     PARTIALLY_APPLIED = 1
     FAILED = 2
@@ -2174,6 +2203,8 @@ class StageAuditStatus:
 
 @dataclass
 class StageAutoEdgePayload:
+    """Auto-edge stage detail: how many edges the stage wrote."""
+
     edges_written: int
 
     def to_map(self) -> dict:
@@ -2186,6 +2217,8 @@ class StageAutoEdgePayload:
 
 @dataclass
 class StageTemporalEdgePayload:
+    """Temporal-edge stage detail: how many edges the stage wrote."""
+
     edges_written: int
 
     def to_map(self) -> dict:
@@ -2198,6 +2231,8 @@ class StageTemporalEdgePayload:
 
 @dataclass
 class StageExtractorPayload:
+    """Extractor stage detail: entity/statement/relation counts, the audit status, and any error message."""
+
     entity_count: int
     statement_count: int
     relation_count: int
@@ -2250,6 +2285,8 @@ class StagePayload:
 
 @dataclass
 class SimilarityFilter:
+    """A subscription filter admitting only memories similar to a reference memory above a threshold."""
+
     reference_memory_id: int  # u128
     threshold: float  # f32
 
@@ -2266,6 +2303,8 @@ class SimilarityFilter:
 
 @dataclass
 class SubscriptionFilter:
+    """The selection filter on a subscription: optional context, kind, similarity, and agent-subset constraints (None = no constraint)."""
+
     contexts: Optional[list[int]]
     kinds: Optional[list[int]]
     similar_to: Optional[SimilarityFilter]
@@ -2291,6 +2330,8 @@ class SubscriptionFilter:
 
 @dataclass
 class SubscribeRequest:
+    """SUBSCRIBE (``0x0030``). Open an event stream under a filter, with history replay, an optional starting LSN, and an in-flight cap."""
+
     filter: SubscriptionFilter
     include_history: bool
     from_lsn: Optional[int]
@@ -2316,6 +2357,8 @@ class SubscribeRequest:
 
 @dataclass
 class EdgeEventPayload:
+    """The unified-edge change carried by an edge event: typed endpoints, edge-kind tag/byte, relation type and id, weight, superseded id, and origin."""
+
     from_kind: int  # 0 = Memory, 1 = Entity
     from_id: bytes
     to_kind: int
@@ -2362,6 +2405,8 @@ class EdgeEventPayload:
 
 @dataclass
 class EntityCreatedEvent:
+    """Graph event body for an entity creation: the new entity's id, type, and canonical name."""
+
     entity_id: bytes
     entity_type_id: int
     canonical_name: str
@@ -2380,6 +2425,8 @@ class EntityCreatedEvent:
 
 @dataclass
 class EntityUpdatedEvent:
+    """Graph event body for an entity update: id, type, canonical name, and whether its embedding version changed."""
+
     entity_id: bytes
     entity_type_id: int
     canonical_name: str
@@ -2405,6 +2452,8 @@ class EntityUpdatedEvent:
 
 @dataclass
 class EntityRenamedEvent:
+    """Graph event body for an entity rename: the id, old and new canonical names, and whether the old name became an alias."""
+
     entity_id: bytes
     old_canonical_name: str
     new_canonical_name: str
@@ -2430,6 +2479,8 @@ class EntityRenamedEvent:
 
 @dataclass
 class EntityMergedEvent:
+    """Graph event body for an entity merge: survivor and merged ids, the audit id, confidence, and how many statements/relations were rerouted."""
+
     survivor: bytes
     merged: bytes
     audit_id: bytes
@@ -2461,6 +2512,8 @@ class EntityMergedEvent:
 
 @dataclass
 class EntityUnmergedEvent:
+    """Graph event body for an entity unmerge: the restored entity id, the survivor it split from, and the audit id."""
+
     restored_entity_id: bytes
     from_survivor: bytes
     audit_id: bytes
@@ -2479,6 +2532,8 @@ class EntityUnmergedEvent:
 
 @dataclass
 class EntityTombstonedEvent:
+    """Graph event body for an entity tombstone: the entity id and the reason."""
+
     entity_id: bytes
     reason: str
 
@@ -2492,6 +2547,8 @@ class EntityTombstonedEvent:
 
 @dataclass
 class StatementCreatedEvent:
+    """Graph event body for a statement creation: id, kind, subject, predicate, and confidence."""
+
     statement_id: bytes
     kind: int  # 1=Fact, 2=Preference, 3=Event
     subject: bytes
@@ -2514,6 +2571,8 @@ class StatementCreatedEvent:
 
 @dataclass
 class StatementSupersededEvent:
+    """Graph event body for a statement supersession: the old and new statement ids and their chain root."""
+
     old_statement_id: bytes
     new_statement_id: bytes
     chain_root: bytes
@@ -2532,6 +2591,8 @@ class StatementSupersededEvent:
 
 @dataclass
 class StatementTombstonedEvent:
+    """Graph event body for a statement tombstone: the statement id and the reason."""
+
     statement_id: bytes
     reason: str
 
@@ -2545,6 +2606,8 @@ class StatementTombstonedEvent:
 
 @dataclass
 class RelationCreatedEvent:
+    """Graph event body for a relation creation: the relation id, its type, and its from/to endpoints."""
+
     relation_id: bytes
     relation_type: str
     from_: bytes
@@ -2565,6 +2628,8 @@ class RelationCreatedEvent:
 
 @dataclass
 class RelationSupersededEvent:
+    """Graph event body for a relation supersession: the old and new relation ids."""
+
     old_relation_id: bytes
     new_relation_id: bytes
 
@@ -2581,6 +2646,8 @@ class RelationSupersededEvent:
 
 @dataclass
 class RelationTombstonedEvent:
+    """Graph event body for a relation tombstone: the relation id and the reason."""
+
     relation_id: bytes
     reason: str
 
@@ -2594,6 +2661,8 @@ class RelationTombstonedEvent:
 
 @dataclass
 class SchemaUpdatedEvent:
+    """Graph event body for a schema change: the namespace, its from/to versions, and whether the change is backward-compatible."""
+
     namespace: str
     from_version: int
     to_version: int
@@ -2655,6 +2724,8 @@ class GraphEventPayload:
 
 @dataclass
 class SubscriptionEvent:
+    """SUBSCRIBE_EVENT (``0x00B0``). One pushed event: the event type and core memory fields, plus the optional graph, edge, or stage payload for typed-graph and pipeline events."""
+
     event_type: int
     memory_id: int  # u128
     context_id: int
@@ -2711,6 +2782,8 @@ class SubscriptionEvent:
 
 @dataclass
 class UnsubscribeRequest:
+    """UNSUBSCRIBE (``0x0031``). Close the subscription on the given stream id."""
+
     target_stream_id: int
 
     def to_map(self) -> dict:
@@ -2723,6 +2796,8 @@ class UnsubscribeRequest:
 
 @dataclass
 class UnsubscribeResponse:
+    """UNSUBSCRIBE_RESP (``0x00B1``). The closed stream id and the final LSN delivered."""
+
     target_stream_id: int
     final_lsn: int
 
@@ -2754,6 +2829,8 @@ class GetCapabilitiesRequest:
 
 @dataclass
 class Capabilities:
+    """The live capability set of the connected shard: rerank and extractor-tier flags, the active schema namespaces, and the embedding vector dimension."""
+
     rerank: bool
     llm_extractor: bool
     classifier_extractor: bool
@@ -2785,6 +2862,8 @@ class Capabilities:
 
 @dataclass
 class GetCapabilitiesResponse:
+    """GET_CAPABILITIES_RESP (``0x00B2``). The connected shard's live capability set."""
+
     capabilities: Capabilities
 
     def to_map(self) -> dict:
@@ -2796,12 +2875,95 @@ class GetCapabilitiesResponse:
 
 
 # ===========================================================================
+# EXTRACTOR_LIST.
+# ===========================================================================
+
+
+@dataclass
+class ExtractorListRequest:
+    """EXTRACTOR_LIST (``0x0124``). Empty request — every registered
+    extractor is returned. Extraction is always-on; this is read-only
+    introspection with no runtime enable/disable. Encodes as an empty CBOR
+    map, matching every other request body."""
+
+    def to_map(self) -> dict:
+        return {}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ExtractorListRequest":
+        return cls()
+
+
+@dataclass
+class ExtractorListItem:
+    """One registered extractor: its id, owning namespace, name, tier kind
+    (``0``=pattern, ``1``=classifier, ``2``=llm), the schema version it was
+    registered against, and its creation timestamp."""
+
+    extractor_id: int
+    namespace: str
+    name: str
+    kind: int
+    schema_version: int
+    created_at_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {
+            "extractor_id": self.extractor_id,
+            "namespace": self.namespace,
+            "name": self.name,
+            "kind": self.kind,
+            "schema_version": self.schema_version,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ExtractorListItem":
+        return cls(
+            m["extractor_id"],
+            m["namespace"],
+            m["name"],
+            m["kind"],
+            m["schema_version"],
+            m["created_at_unix_nanos"],
+        )
+
+
+@dataclass
+class ExtractorListResponseFrame:
+    """EXTRACTOR_LIST_RESP (``0x01A4``). A single-frame snapshot in v1 (a
+    later cut may split into streaming), carrying the registered extractors,
+    the total count, and ``is_final`` (always ``True`` in v1)."""
+
+    items: list[ExtractorListItem]
+    total: int
+    is_final: bool
+
+    def to_map(self) -> dict:
+        return {
+            "items": [i.to_map() for i in self.items],
+            "total": self.total,
+            "is_final": self.is_final,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ExtractorListResponseFrame":
+        return cls(
+            [ExtractorListItem.from_map(i) for i in m["items"]],
+            m["total"],
+            m["is_final"],
+        )
+
+
+# ===========================================================================
 # ENTITY_GET / ENTITY_LIST.
 # ===========================================================================
 
 
 @dataclass
 class EntityView:
+    """The full stored view of a typed-graph entity: ids, names and aliases, attributes blob, mention count, timestamps, merge target, embedding version, and flags."""
+
     entity_id: bytes
     entity_type_id: int
     canonical_name: str
@@ -2851,6 +3013,8 @@ class EntityView:
 
 @dataclass
 class EntityGetRequest:
+    """ENTITY_GET (``0x0131``). Fetch one entity by id."""
+
     entity_id: bytes
 
     def to_map(self) -> dict:
@@ -2863,6 +3027,8 @@ class EntityGetRequest:
 
 @dataclass
 class EntityGetResponse:
+    """ENTITY_GET_RESP (``0x01B1``). The requested entity's view."""
+
     entity: EntityView
 
     def to_map(self) -> dict:
@@ -2875,6 +3041,8 @@ class EntityGetResponse:
 
 @dataclass
 class EntityListRequest:
+    """ENTITY_LIST (``0x0137``). Page through entities under optional type/name-prefix/mention filters, with tombstone and merge inclusion, a limit, and a cursor."""
+
     entity_type_id: int  # 0 = no filter
     name_prefix: str  # empty = no filter
     mention_count_min: int
@@ -2909,6 +3077,8 @@ class EntityListRequest:
 
 @dataclass
 class EntityListItem:
+    """One entity in an ENTITY_LIST response frame."""
+
     entity: EntityView
 
     def to_map(self) -> dict:
@@ -2921,6 +3091,8 @@ class EntityListItem:
 
 @dataclass
 class EntityListResponseFrame:
+    """ENTITY_LIST_RESP (``0x01B7``), one streamed frame. The entities in this frame, the next-page cursor, cumulative count, and final flag."""
+
     items: list[EntityListItem]
     next_cursor: list[int]  # Vec<u8> -> array of ints
     cumulative_count: int
@@ -2960,6 +3132,8 @@ class ResolutionOutcome:
 
 @dataclass
 class EntityResolveRequest:
+    """ENTITY_RESOLVE (``0x0136``). Resolve a candidate name (with context and an optional type hint) to an entity, optionally creating one, with an idempotency id."""
+
     candidate_name: str
     context: str
     entity_type_hint: int  # 0 = no hint
@@ -2988,6 +3162,8 @@ class EntityResolveRequest:
 
 @dataclass
 class EntityResolveResponse:
+    """ENTITY_RESOLVE_RESP (``0x01B6``). The resolution outcome and tier, confidence, the resolved entity (or ambiguous candidates), and the audit id."""
+
     outcome: int  # ResolutionOutcome discriminant
     tier: int
     confidence: float
@@ -3024,6 +3200,8 @@ class EntityResolveResponse:
 
 @dataclass
 class StatementView:
+    """The full stored view of a statement: subject/predicate/object, confidence and evidence, bi-temporal validity, supersession-chain links, and tombstone state."""
+
     statement_id: bytes
     kind: str  # StatementKind variant-name string
     subject: bytes
@@ -3106,6 +3284,8 @@ class StatementView:
 
 @dataclass
 class StatementGetRequest:
+    """STATEMENT_GET (``0x0141``). Fetch one statement by id, optionally following supersession to the current head."""
+
     statement_id: bytes
     follow_supersession: bool
 
@@ -3122,6 +3302,8 @@ class StatementGetRequest:
 
 @dataclass
 class StatementGetResponse:
+    """STATEMENT_GET_RESP (``0x01C1``). The statement view and whether it was reached by following supersession."""
+
     statement: StatementView
     returned_via_supersession: bool
 
@@ -3138,6 +3320,8 @@ class StatementGetResponse:
 
 @dataclass
 class StatementListRequest:
+    """STATEMENT_LIST (``0x0146``). Page statements for a subject/predicate under kind, confidence, and time-range filters, with current-only/tombstone toggles, a limit, and a cursor."""
+
     subject: bytes
     predicate: str
     kind: int  # 0 = no filter; 1=Fact / 2=Preference / 3=Event
@@ -3181,6 +3365,8 @@ class StatementListRequest:
 
 @dataclass
 class StatementListResponseFrame:
+    """STATEMENT_LIST_RESP (``0x01C6``), one streamed frame. The statements in this frame, the next-page cursor, cumulative count, and final flag."""
+
     items: list[StatementView]
     next_cursor: list[int]  # Vec<u8> -> array of ints
     cumulative_count: int
@@ -3211,6 +3397,8 @@ class StatementListResponseFrame:
 
 @dataclass
 class RelationView:
+    """The full stored view of a relation: type and endpoints, properties blob, evidence and confidence, validity window, supersession-chain links, and tombstone state."""
+
     relation_id: bytes
     chain_root: bytes
     relation_type: str
@@ -3278,6 +3466,8 @@ class RelationView:
 
 @dataclass
 class RelationListFromRequest:
+    """RELATION_LIST_FROM (``0x0154``). Page relations outgoing from an entity under type/time filters, with superseded/tombstone toggles, a limit, and a cursor."""
+
     from_entity: bytes
     relation_type_filter: str  # "" = any type
     time_range_start_unix_nanos: int
@@ -3315,6 +3505,8 @@ class RelationListFromRequest:
 
 @dataclass
 class RelationListFromResponseFrame:
+    """RELATION_LIST_FROM_RESP (``0x01D4``), one streamed frame. The relations in this frame, the next-page cursor, cumulative count, and final flag."""
+
     items: list[RelationView]
     next_cursor: list[int]  # Vec<u8> -> array of ints
     cumulative_count: int
@@ -3340,6 +3532,8 @@ class RelationListFromResponseFrame:
 
 @dataclass
 class RelationListToRequest:
+    """RELATION_LIST_TO (``0x0155``). Page relations incoming to an entity under type/time filters, with superseded/tombstone toggles, a limit, and a cursor."""
+
     to_entity: bytes
     relation_type_filter: str  # "" = any type
     time_range_start_unix_nanos: int
@@ -3377,6 +3571,8 @@ class RelationListToRequest:
 
 @dataclass
 class RelationListToResponseFrame:
+    """RELATION_LIST_TO_RESP (``0x01D5``), one streamed frame. The relations in this frame, the next-page cursor, cumulative count, and final flag."""
+
     items: list[RelationView]
     next_cursor: list[int]  # Vec<u8> -> array of ints
     cumulative_count: int
@@ -3407,6 +3603,8 @@ class RelationListToResponseFrame:
 
 @dataclass
 class SchemaGetRequest:
+    """SCHEMA_GET (``0x0121``). Fetch a namespace's schema at a given version (0 = active)."""
+
     namespace: str
     version: int  # 0 = active version
 
@@ -3420,6 +3618,8 @@ class SchemaGetRequest:
 
 @dataclass
 class SchemaGetResponse:
+    """SCHEMA_GET_RESP (``0x01A1``). The namespace and version, the schema document and source blob, upload time, and validator version."""
+
     namespace: str
     schema_version: int
     schema_document: str
@@ -3451,6 +3651,8 @@ class SchemaGetResponse:
 
 @dataclass
 class SchemaListRequest:
+    """SCHEMA_LIST (``0x0122``). Page a namespace's schema versions with a limit (0 = server-capped) and a cursor."""
+
     namespace: str
     limit: int  # 0 = unlimited (server-capped)
     cursor: list[int]  # Vec<u8> -> array of ints
@@ -3469,6 +3671,8 @@ class SchemaListRequest:
 
 @dataclass
 class SchemaListItem:
+    """One schema version in a SCHEMA_LIST frame: its version, upload time, validator version, and whether source text is retained."""
+
     schema_version: int
     uploaded_at_unix_nanos: int
     validator_version: int
@@ -3494,6 +3698,8 @@ class SchemaListItem:
 
 @dataclass
 class SchemaListResponseFrame:
+    """SCHEMA_LIST_RESP (``0x01A2``), one streamed frame. The namespace, the versions in this frame, the total, the next-page cursor, and the final flag."""
+
     namespace: str
     items: list[SchemaListItem]
     total: int
@@ -3522,6 +3728,8 @@ class SchemaListResponseFrame:
 
 @dataclass
 class SchemaValidateRequest:
+    """SCHEMA_VALIDATE (``0x0123``). Validate a schema document without uploading it."""
+
     schema_document: str
 
     def to_map(self) -> dict:
@@ -3534,6 +3742,8 @@ class SchemaValidateRequest:
 
 @dataclass
 class SchemaValidateResponse:
+    """SCHEMA_VALIDATE_RESP (``0x01A3``). The resolved namespace, the version it would become, and any validation errors."""
+
     namespace: str
     would_be_version: int
     validation_errors: list[SchemaValidationError]
@@ -3584,3 +3794,667 @@ def decode_payload(payload_type, data: bytes):
         value.vector = le_bytes_to_f32_list(data[consumed:])
         return value
     return payload_type.from_map(from_cbor(data))
+
+
+# ---------------------------------------------------------------------------
+# Entity mutation — an entity accretes detail (update/rename), consolidates
+# duplicates (merge/unmerge), and retires (tombstone) over its lifetime.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class EntityUpdateRequest:
+    """ENTITY_UPDATE (``0x0132``). Replace name, aliases, and attributes."""
+
+    entity_id: bytes
+    canonical_name: str
+    aliases: list[str]
+    attributes_blob: list[int]
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "entity_id": self.entity_id,
+            "canonical_name": self.canonical_name,
+            "aliases": list(self.aliases),
+            "attributes_blob": list(self.attributes_blob),
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityUpdateRequest":
+        return cls(
+            m["entity_id"],
+            m["canonical_name"],
+            list(m["aliases"]),
+            list(m["attributes_blob"]),
+            m["request_id"],
+        )
+
+
+@dataclass
+class EntityUpdateResponse:
+    """ENTITY_UPDATE_RESP (``0x01B2``). The post-update view."""
+
+    entity: EntityView
+
+    def to_map(self) -> dict:
+        return {"entity": self.entity.to_map()}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityUpdateResponse":
+        return cls(EntityView.from_map(m["entity"]))
+
+
+@dataclass
+class EntityRenameRequest:
+    """ENTITY_RENAME (``0x0133``). ``move_to_alias`` keeps the old name."""
+
+    entity_id: bytes
+    new_canonical_name: str
+    move_to_alias: bool
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "entity_id": self.entity_id,
+            "new_canonical_name": self.new_canonical_name,
+            "move_to_alias": self.move_to_alias,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityRenameRequest":
+        return cls(
+            m["entity_id"], m["new_canonical_name"], m["move_to_alias"], m["request_id"]
+        )
+
+
+@dataclass
+class EntityRenameResponse:
+    """ENTITY_RENAME_RESP (``0x01B3``). The post-rename view."""
+
+    entity: EntityView
+
+    def to_map(self) -> dict:
+        return {"entity": self.entity.to_map()}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityRenameResponse":
+        return cls(EntityView.from_map(m["entity"]))
+
+
+@dataclass
+class EntityMergeRequest:
+    """ENTITY_MERGE (``0x0134``). Fold ``merged`` into ``survivor``."""
+
+    survivor: bytes
+    merged: bytes
+    confidence: float
+    reason: str
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "survivor": self.survivor,
+            "merged": self.merged,
+            "confidence": round_f32(self.confidence),
+            "reason": self.reason,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityMergeRequest":
+        return cls(
+            m["survivor"], m["merged"], m["confidence"], m["reason"], m["request_id"]
+        )
+
+
+@dataclass
+class EntityMergeResponse:
+    """ENTITY_MERGE_RESP (``0x01B4``). Merge-audit id + reversible window."""
+
+    audit_id: bytes
+    grace_period_seconds: int
+
+    def to_map(self) -> dict:
+        return {"audit_id": self.audit_id, "grace_period_seconds": self.grace_period_seconds}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityMergeResponse":
+        return cls(m["audit_id"], m["grace_period_seconds"])
+
+
+@dataclass
+class EntityUnmergeRequest:
+    """ENTITY_UNMERGE (``0x0135``). Undo a merge within its grace window."""
+
+    merged_entity: bytes
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {"merged_entity": self.merged_entity, "request_id": self.request_id}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityUnmergeRequest":
+        return cls(m["merged_entity"], m["request_id"])
+
+
+@dataclass
+class EntityUnmergeResponse:
+    """ENTITY_UNMERGE_RESP (``0x01B5``). The restored entity's id."""
+
+    restored_entity_id: bytes
+
+    def to_map(self) -> dict:
+        return {"restored_entity_id": self.restored_entity_id}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityUnmergeResponse":
+        return cls(m["restored_entity_id"])
+
+
+@dataclass
+class EntityTombstoneRequest:
+    """ENTITY_TOMBSTONE (``0x0138``). Soft-retire with an audit reason."""
+
+    entity_id: bytes
+    reason: str
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "entity_id": self.entity_id,
+            "reason": self.reason,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityTombstoneRequest":
+        return cls(m["entity_id"], m["reason"], m["request_id"])
+
+
+@dataclass
+class EntityTombstoneResponse:
+    """ENTITY_TOMBSTONE_RESP (``0x01B8``). When the retirement took effect."""
+
+    tombstoned_at_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {"tombstoned_at_unix_nanos": self.tombstoned_at_unix_nanos}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EntityTombstoneResponse":
+        return cls(m["tombstoned_at_unix_nanos"])
+
+
+# ---------------------------------------------------------------------------
+# Statement lifecycle — a claim is revised (supersede), walked back (retract),
+# retired (tombstone), or inspected across versions (history).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class StatementSupersedeRequest:
+    """STATEMENT_SUPERSEDE (``0x0142``). Revise a claim, keeping the chain."""
+
+    old_statement_id: bytes
+    new_statement: StatementCreateRequest
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "old_statement_id": self.old_statement_id,
+            "new_statement": self.new_statement.to_map(),
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StatementSupersedeRequest":
+        return cls(
+            m["old_statement_id"],
+            StatementCreateRequest.from_map(m["new_statement"]),
+            m["request_id"],
+        )
+
+
+@dataclass
+class StatementSupersedeResponse:
+    """STATEMENT_SUPERSEDE_RESP (``0x01C2``). New id + chain root + version."""
+
+    new_statement_id: bytes
+    chain_root: bytes
+    version: int
+
+    def to_map(self) -> dict:
+        return {
+            "new_statement_id": self.new_statement_id,
+            "chain_root": self.chain_root,
+            "version": self.version,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StatementSupersedeResponse":
+        return cls(m["new_statement_id"], m["chain_root"], m["version"])
+
+
+@dataclass
+class StatementTombstoneRequest:
+    """STATEMENT_TOMBSTONE (``0x0143``). Soft-retire; ``reason`` is 1..=4."""
+
+    statement_id: bytes
+    reason: int
+    reason_message: str
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "statement_id": self.statement_id,
+            "reason": self.reason,
+            "reason_message": self.reason_message,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StatementTombstoneRequest":
+        return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"])
+
+
+@dataclass
+class StatementTombstoneResponse:
+    """STATEMENT_TOMBSTONE_RESP (``0x01C3``)."""
+
+    tombstoned_at_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {"tombstoned_at_unix_nanos": self.tombstoned_at_unix_nanos}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StatementTombstoneResponse":
+        return cls(m["tombstoned_at_unix_nanos"])
+
+
+@dataclass
+class StatementRetractRequest:
+    """STATEMENT_RETRACT (``0x0144``). Assert wrong; schedules a hard-zero."""
+
+    statement_id: bytes
+    reason: int
+    reason_message: str
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "statement_id": self.statement_id,
+            "reason": self.reason,
+            "reason_message": self.reason_message,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StatementRetractRequest":
+        return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"])
+
+
+@dataclass
+class StatementRetractResponse:
+    """STATEMENT_RETRACT_RESP (``0x01C4``). Retracted-at + scheduled zero-at."""
+
+    retracted_at_unix_nanos: int
+    will_zero_at_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {
+            "retracted_at_unix_nanos": self.retracted_at_unix_nanos,
+            "will_zero_at_unix_nanos": self.will_zero_at_unix_nanos,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StatementRetractResponse":
+        return cls(m["retracted_at_unix_nanos"], m["will_zero_at_unix_nanos"])
+
+
+@dataclass
+class StatementHistoryRequest:
+    """STATEMENT_HISTORY (``0x0145``). A read — no ``request_id``."""
+
+    anchor_id: bytes
+    include_tombstoned: bool
+
+    def to_map(self) -> dict:
+        return {"anchor_id": self.anchor_id, "include_tombstoned": self.include_tombstoned}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StatementHistoryRequest":
+        return cls(m["anchor_id"], m["include_tombstoned"])
+
+
+@dataclass
+class StatementHistoryResponseFrame:
+    """STATEMENT_HISTORY_RESP (``0x01C5``), one streamed frame."""
+
+    items: list[StatementView]
+    chain_root: bytes
+    total_versions: int
+    is_final: bool
+
+    def to_map(self) -> dict:
+        return {
+            "items": [i.to_map() for i in self.items],
+            "chain_root": self.chain_root,
+            "total_versions": self.total_versions,
+            "is_final": self.is_final,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StatementHistoryResponseFrame":
+        return cls(
+            [StatementView.from_map(x) for x in m["items"]],
+            m["chain_root"],
+            m["total_versions"],
+            m["is_final"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Relation lifecycle + traversal — fetch one (get), revise (supersede), retire
+# (tombstone), or walk the graph from an entity (traverse).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RelationGetRequest:
+    """RELATION_GET (``0x0151``). Fetch one relation by id.
+    ``follow_supersession`` returns the current head of a superseded relation's
+    chain rather than the (retired) id asked for."""
+
+    relation_id: bytes
+    follow_supersession: bool
+
+    def to_map(self) -> dict:
+        return {
+            "relation_id": self.relation_id,
+            "follow_supersession": self.follow_supersession,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RelationGetRequest":
+        return cls(m["relation_id"], m["follow_supersession"])
+
+
+@dataclass
+class RelationGetResponse:
+    """RELATION_GET_RESP (``0x01D1``). The relation view;
+    ``returned_via_supersession`` flags that the view is the chain head, not the
+    exact id requested."""
+
+    relation: RelationView
+    returned_via_supersession: bool
+
+    def to_map(self) -> dict:
+        return {
+            "relation": self.relation.to_map(),
+            "returned_via_supersession": self.returned_via_supersession,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RelationGetResponse":
+        return cls(RelationView.from_map(m["relation"]), m["returned_via_supersession"])
+
+
+@dataclass
+class RelationSupersedeRequest:
+    """RELATION_SUPERSEDE (``0x0152``). Revise a relation, keeping the old and
+    new on one chain. The new edge is a full ``RelationCreateRequest``."""
+
+    old_relation_id: bytes
+    new_relation: RelationCreateRequest
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "old_relation_id": self.old_relation_id,
+            "new_relation": self.new_relation.to_map(),
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RelationSupersedeRequest":
+        return cls(
+            m["old_relation_id"],
+            RelationCreateRequest.from_map(m["new_relation"]),
+            m["request_id"],
+        )
+
+
+@dataclass
+class RelationSupersedeResponse:
+    """RELATION_SUPERSEDE_RESP (``0x01D2``). New relation id + monotonic
+    version."""
+
+    new_relation_id: bytes
+    version: int
+
+    def to_map(self) -> dict:
+        return {"new_relation_id": self.new_relation_id, "version": self.version}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RelationSupersedeResponse":
+        return cls(m["new_relation_id"], m["version"])
+
+
+@dataclass
+class RelationTombstoneRequest:
+    """RELATION_TOMBSTONE (``0x0153``). Soft-retire a relation with a reason."""
+
+    relation_id: bytes
+    reason: str
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "relation_id": self.relation_id,
+            "reason": self.reason,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RelationTombstoneRequest":
+        return cls(m["relation_id"], m["reason"], m["request_id"])
+
+
+@dataclass
+class RelationTombstoneResponse:
+    """RELATION_TOMBSTONE_RESP (``0x01D3``). When the retire took effect."""
+
+    tombstoned_at_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {"tombstoned_at_unix_nanos": self.tombstoned_at_unix_nanos}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RelationTombstoneResponse":
+        return cls(m["tombstoned_at_unix_nanos"])
+
+
+@dataclass
+class TraversalStepWire:
+    """One hop in a traversal path: the relation edge crossed and its endpoints.
+    The wire keys ``from`` / ``to`` map to the ``from_`` / ``to`` attributes
+    (``from`` is a Python keyword)."""
+
+    relation_id: bytes
+    from_: bytes
+    to: bytes
+    relation_type: str
+    depth: int
+
+    def to_map(self) -> dict:
+        return {
+            "relation_id": self.relation_id,
+            "from": self.from_,
+            "to": self.to,
+            "relation_type": self.relation_type,
+            "depth": self.depth,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "TraversalStepWire":
+        return cls(m["relation_id"], m["from"], m["to"], m["relation_type"], m["depth"])
+
+
+@dataclass
+class TraversalPathWire:
+    """One path the traversal found, as an ordered list of steps."""
+
+    steps: list[TraversalStepWire]
+
+    def to_map(self) -> dict:
+        return {"steps": [s.to_map() for s in self.steps]}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "TraversalPathWire":
+        return cls([TraversalStepWire.from_map(s) for s in m["steps"]])
+
+
+@dataclass
+class RelationTraverseRequest:
+    """RELATION_TRAVERSE (``0x0156``). Multi-hop walk of the relation graph from
+    ``start_entity``. ``direction`` is outgoing/incoming/both; the bounds cap the
+    search; ``time_at_unix_nanos`` walks the graph as it stood at a record
+    time."""
+
+    start_entity: bytes
+    relation_types: list[str]
+    direction: int  # u8
+    max_depth: int
+    max_nodes: int
+    time_at_unix_nanos: int
+    include_superseded: bool
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "start_entity": self.start_entity,
+            "relation_types": list(self.relation_types),
+            "direction": self.direction,
+            "max_depth": self.max_depth,
+            "max_nodes": self.max_nodes,
+            "time_at_unix_nanos": self.time_at_unix_nanos,
+            "include_superseded": self.include_superseded,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RelationTraverseRequest":
+        return cls(
+            m["start_entity"],
+            list(m["relation_types"]),
+            m["direction"],
+            m["max_depth"],
+            m["max_nodes"],
+            m["time_at_unix_nanos"],
+            m["include_superseded"],
+            m["request_id"],
+        )
+
+
+@dataclass
+class RelationTraverseResponseFrame:
+    """RELATION_TRAVERSE_RESP (``0x01D6``), one streamed frame. ``is_final``
+    marks the last; ``truncated`` flags a bound was hit before the graph was
+    exhausted."""
+
+    paths: list[TraversalPathWire]
+    total_paths: int
+    truncated: bool
+    is_final: bool
+
+    def to_map(self) -> dict:
+        return {
+            "paths": [p.to_map() for p in self.paths],
+            "total_paths": self.total_paths,
+            "truncated": self.truncated,
+            "is_final": self.is_final,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RelationTraverseResponseFrame":
+        return cls(
+            [TraversalPathWire.from_map(p) for p in m["paths"]],
+            m["total_paths"],
+            m["truncated"],
+            m["is_final"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Query introspection — the plan (explain) and execution trace, a debug
+# surface that wraps a full QueryRequest.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class QueryExplainRequest:
+    """QUERY_EXPLAIN (``0x0161``). Ask for the plan of a query without running
+    it. Wraps a full :class:`QueryRequest`."""
+
+    query: QueryRequest
+
+    def to_map(self) -> dict:
+        return {"query": self.query.to_map()}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "QueryExplainRequest":
+        return cls(QueryRequest.from_map(m["query"]))
+
+
+@dataclass
+class QueryExplainResponse:
+    """QUERY_EXPLAIN_RESP (``0x01E1``). The plan text plus an estimated cost."""
+
+    plan_text: str
+    estimated_cost_ms: float  # f32
+
+    def to_map(self) -> dict:
+        return {
+            "plan_text": self.plan_text,
+            "estimated_cost_ms": round_f32(self.estimated_cost_ms),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "QueryExplainResponse":
+        return cls(m["plan_text"], m["estimated_cost_ms"])
+
+
+@dataclass
+class QueryTraceRequest:
+    """QUERY_TRACE (``0x0162``). Run a query and return its per-stage execution
+    trace. Wraps a full :class:`QueryRequest`."""
+
+    query: QueryRequest
+
+    def to_map(self) -> dict:
+        return {"query": self.query.to_map()}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "QueryTraceRequest":
+        return cls(QueryRequest.from_map(m["query"]))
+
+
+@dataclass
+class QueryTraceResponse:
+    """QUERY_TRACE_RESP (``0x01E2``). The trace text plus total latency."""
+
+    trace_text: str
+    total_latency_ms: float  # f64
+
+    def to_map(self) -> dict:
+        return {
+            "trace_text": self.trace_text,
+            "total_latency_ms": mark_f64(self.total_latency_ms),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "QueryTraceResponse":
+        return cls(m["trace_text"], m["total_latency_ms"])

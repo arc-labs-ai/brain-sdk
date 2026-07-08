@@ -1,0 +1,43 @@
+"""Feature: handshake + mandatory auth (integration, real server).
+
+Gated on ``BRAIN_SDK_IT_DATA`` via the ``it`` fixture; skips offline.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from brain_db_sdk import Auth, BrainClient, new_id
+
+
+def test_minted_token_resolves_session(it):
+    agent = new_id()
+    client = it.connect_as(agent)
+    try:
+        session = client.session
+        # The server derives identity from the credential: the session's agent
+        # is exactly the one the key was minted for, bound to the tenant.
+        assert session.agent_id == agent
+        assert session.namespace == it.namespace
+        assert session.chosen_version == 1
+    finally:
+        client.close()
+
+
+def test_two_agents_get_distinct_sessions(it):
+    a, a_id = it.connect_fresh()
+    b, b_id = it.connect_fresh()
+    try:
+        assert a_id != b_id
+        assert a.session.agent_id == a_id
+        assert b.session.agent_id == b_id
+        assert a.session.namespace == b.session.namespace  # same tenant
+    finally:
+        a.close()
+        b.close()
+
+
+def test_bad_token_is_refused(it):
+    # A token the server never minted must not resolve to a session.
+    with pytest.raises(Exception):
+        BrainClient.connect(it.data_host, it.data_port, Auth.token(b"brain_not-a-real-key"))

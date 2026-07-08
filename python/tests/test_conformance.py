@@ -61,8 +61,6 @@ PAYLOAD_TYPES = {
     "resp_relation_create": t.RelationCreateResponse,
     "req_schema_upload": t.SchemaUploadRequest,
     "resp_schema_upload": t.SchemaUploadResponse,
-    "req_query": t.QueryRequest,
-    "resp_query": t.QueryResponse,
     "req_materialize_procedural": t.MaterializeProceduralRequest,
     "resp_materialize_procedural": t.MaterializeProceduralResponse,
     # Read-side typed-graph responses.
@@ -83,6 +81,9 @@ PAYLOAD_TYPES = {
     # Capabilities + subscription event.
     "resp_get_capabilities": t.GetCapabilitiesResponse,
     "resp_subscribe_event": t.SubscriptionEvent,
+    # Extractor introspection (read-only; empty request).
+    "req_extractor_list": t.ExtractorListRequest,
+    "resp_extractor_list": t.ExtractorListResponseFrame,
     # Keepalive responses.
     "resp_pong": t.PongResponse,
     "resp_server_ping": t.ServerPingResponse,

@@ -11,7 +11,7 @@ expose just the knobs a caller tunes. The verbs on
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from .client import new_id
@@ -35,10 +35,13 @@ class EncodeBuilder:
     occurred_at_unix_nanos: Optional[int] = None
 
     def context(self, context_id: int) -> "EncodeBuilder":
+        """Store the memory under a specific context id instead of the default 0."""
         self.context_id = context_id
         return self
 
     def occurred_at(self, occurred_at_unix_nanos: Optional[int]) -> "EncodeBuilder":
+        """Record when the event the text describes happened (event time),
+        distinct from the server's ingest time."""
         self.occurred_at_unix_nanos = occurred_at_unix_nanos
         return self
 
@@ -72,55 +75,57 @@ class RecallBuilder:
     include_edges: bool = True
     include_graph: bool = False
     include_text: bool = True
-    agent_filter: list[bytes] = field(default_factory=list)
-    include_other_agents: bool = False
 
     def subject(self, subject_name: str) -> "RecallBuilder":
+        """Name the entity a fact lookup is about, so recall resolves the
+        subject before matching the cue."""
         self.subject_name = subject_name
         return self
 
     def limit(self, max_results: int) -> "RecallBuilder":
+        """Cap how many memories recall returns."""
         self.max_results = max_results
         return self
 
     def as_of(self, as_of_record_time_unix_nanos: Optional[int]) -> "RecallBuilder":
+        """Query the graph as it stood at a record time (bi-temporal travel)."""
         self.as_of_record_time_unix_nanos = as_of_record_time_unix_nanos
         return self
 
     def confidence(self, threshold: float) -> "RecallBuilder":
+        """Drop memories whose salience falls below this floor."""
         self.confidence_threshold = threshold
         return self
 
     def contexts(self, contexts: list[int]) -> "RecallBuilder":
+        """Restrict recall to memories in these context ids."""
         self.context_filter = list(contexts)
         return self
 
     def kinds(self, kinds: list[int]) -> "RecallBuilder":
+        """Restrict recall to these memory kinds (integer discriminants)."""
         self.kind_filter = list(kinds)
         return self
 
     def salience(self, floor: float) -> "RecallBuilder":
+        """Drop memories below this salience floor."""
         self.salience_floor = floor
         return self
 
     def edges(self, include: bool) -> "RecallBuilder":
+        """Include (or omit) each memory's outgoing edges in the response."""
         self.include_edges = include
         return self
 
     def graph(self, include: bool) -> "RecallBuilder":
+        """Include (or omit) the resolved entity/statement/relation graph
+        enrichment alongside the memories."""
         self.include_graph = include
         return self
 
     def text(self, include: bool) -> "RecallBuilder":
+        """Include (or omit) the stored memory text in the response."""
         self.include_text = include
-        return self
-
-    def agents(self, agents: list[bytes]) -> "RecallBuilder":
-        self.agent_filter = list(agents)
-        return self
-
-    def other_agents(self, include: bool) -> "RecallBuilder":
-        self.include_other_agents = include
         return self
 
     def build(self) -> RecallRequest:
@@ -140,8 +145,6 @@ class RecallBuilder:
             include_text=self.include_text,
             request_id=new_id(),
             txn_id=None,
-            agent_filter=list(self.agent_filter),
-            include_other_agents=self.include_other_agents,
         )
 
 
@@ -154,10 +157,13 @@ class ForgetBuilder:
     mode: int = ForgetMode.SOFT
 
     def hard(self) -> "ForgetBuilder":
+        """Switch to a hard forget: zero the memory immediately, no grace
+        period."""
         self.mode = ForgetMode.HARD
         return self
 
     def with_mode(self, mode: int) -> "ForgetBuilder":
+        """Set the forget mode explicitly (integer discriminant)."""
         self.mode = mode
         return self
 

@@ -186,7 +186,7 @@ describe("verbs", () => {
     expect(recall.maxResults).toBe(10);
     expect(recall.includeText).toBe(true);
     expect(recall.includeEdges).toBe(true);
-    expect(recall.includeOtherAgents).toBe(false);
+    expect(recall.txnId).toBeNull();
     expect(recall.requestId).not.toBeNull();
 
     const forget = new ForgetBuilder(7n).build();

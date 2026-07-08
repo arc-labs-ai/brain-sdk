@@ -1,5 +1,5 @@
 //! Typed-graph verb round-trips against an in-process mock server:
-//! ENTITY_CREATE, STATEMENT_CREATE, RELATION_CREATE, SCHEMA_UPLOAD, QUERY, and
+//! ENTITY_CREATE, STATEMENT_CREATE, RELATION_CREATE, SCHEMA_UPLOAD, and
 //! MATERIALIZE_PROCEDURAL. Each is a single-shot request/response; the test
 //! drives them in sequence over one connection and checks the decoded replies.
 
@@ -11,9 +11,9 @@ use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
     AgentPermissions, AuthOkPayload, AuthPayload, EntityCreateRequest, EntityCreateResponse,
-    EvidenceRefWire, HelloPayload, ItemIdWire, MaterializeProceduralRequest,
-    MaterializeProceduralResponse, QueryRequest, QueryResponse, QueryResultItem,
-    RelationCreateRequest, RelationCreateResponse, RetrieverSelectionWire, SchemaUploadRequest,
+    EvidenceRefWire, HelloPayload, MaterializeProceduralRequest,
+    MaterializeProceduralResponse,
+    RelationCreateRequest, RelationCreateResponse, SchemaUploadRequest,
     SchemaUploadResponse, ServerFeatures, StatementCreateRequest, StatementCreateResponse,
     StatementKindWire, StatementObjectWire, StatementValueWire, WelcomePayload,
 };
@@ -134,30 +134,6 @@ async fn serve_graph(mut sock: TcpStream) {
     )
     .await;
 
-    // QUERY.
-    let f = read_frame(&mut sock, &mut buf).await.expect("query");
-    assert_eq!(f.opcode, Opcode::QueryReq as u16);
-    let req: QueryRequest = from_cbor_bytes(&f.payload).expect("decode query");
-    assert_eq!(req.text, "computing pioneers");
-    write_one(
-        &mut sock,
-        Opcode::QueryResp,
-        f.stream_id,
-        &QueryResponse {
-            items: vec![QueryResultItem {
-                id: ItemIdWire {
-                    kind: 1,
-                    bytes: ENTITY_ID,
-                },
-                fused_score: 0.95,
-                contributing: vec![],
-            }],
-            total_latency_ms: 1.5,
-            retriever_outcomes: vec![],
-        },
-    )
-    .await;
-
     // MATERIALIZE_PROCEDURAL.
     let f = read_frame(&mut sock, &mut buf).await.expect("materialize");
     assert_eq!(f.opcode, Opcode::MaterializeProceduralReq as u16);
@@ -256,27 +232,6 @@ async fn typed_graph_verbs_round_trip() {
         .expect("upload_schema");
     assert_eq!(schema.namespace, "people");
     assert!(schema.backward_compatible);
-
-    let results = client
-        .query(&QueryRequest {
-            text: "computing pioneers".to_string(),
-            entity_anchor: None,
-            kind_filter: vec![],
-            predicate_filter: vec![],
-            time_filter: None,
-            as_of_record_time_unix_nanos: None,
-            confidence_min: None,
-            include_tombstoned: false,
-            include_superseded: false,
-            limit: 10,
-            retrievers: RetrieverSelectionWire::Auto,
-            fusion_config: None,
-            request_id: rid(),
-        })
-        .await
-        .expect("query");
-    assert_eq!(results.items.len(), 1);
-    assert_eq!(results.items[0].id.bytes, ENTITY_ID);
 
     let proc = client
         .materialize_procedural(&MaterializeProceduralRequest {

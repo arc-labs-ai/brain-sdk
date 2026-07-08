@@ -14,26 +14,38 @@ use std::time::Duration;
 
 use tokio::net::TcpStream;
 
-use crate::connection::HandshakeOutcome;
+use crate::mux::HandshakeOutcome;
 use crate::error::{BrainError, Result};
 use crate::mux::{MuxConnection, Subscription};
-use crate::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
+use crate::wire::cbor::{f32_slice_to_le_bytes, from_cbor_bytes, to_cbor_bytes};
 use crate::wire::opcode::Opcode;
 use crate::wire::types::{
     AgentPermissions, AnswerKindWire, AuthCredentials, AuthMethod, AuthPayload, EncodeRequest,
     EncodeResponse, EntityCreateRequest, EntityCreateResponse, EntityGetRequest, EntityGetResponse,
+    EntityMergeRequest, EntityMergeResponse, EntityRenameRequest, EntityRenameResponse,
+    EntityTombstoneRequest, EntityTombstoneResponse, EntityUnmergeRequest, EntityUnmergeResponse,
+    EntityUpdateRequest, EntityUpdateResponse,
     EntityListItem, EntityListRequest, EntityListResponseFrame, EntityResolveRequest,
-    EntityResolveResponse, ForgetRequest, ForgetResponse, GetCapabilitiesRequest,
+    EntityResolveResponse, ExtractorListRequest, ExtractorListResponseFrame, ForgetRequest,
+    ForgetResponse, GetCapabilitiesRequest,
     GetCapabilitiesResponse, HelloCapabilities, HelloPayload, InferenceStep, LinkRequest,
     LinkResponse, MaterializeProceduralRequest, MaterializeProceduralResponse, MemoryResult,
-    MtlsClaim, PlanRequest, PlanResponseFrame, PlanStep, QueryRequest, QueryResponse,
+    MtlsClaim, PlanRequest, PlanResponseFrame, PlanStep,
     ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame, RelationCreateRequest,
     RelationCreateResponse, RelationListFromRequest, RelationListFromResponseFrame,
     RelationListToRequest, RelationListToResponseFrame, RelationView, SchemaGetRequest,
+    RelationGetRequest, RelationGetResponse, RelationSupersedeRequest, RelationSupersedeResponse,
+    RelationTombstoneRequest, RelationTombstoneResponse, RelationTraverseRequest,
+    RelationTraverseResponseFrame, TraversalPathWire, QueryExplainRequest, QueryExplainResponse,
+    QueryTraceRequest, QueryTraceResponse,
+    EncodeVectorDirectRequest,
     SchemaGetResponse, SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame,
     SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse,
     ServerFeatures, StatementCreateRequest, StatementCreateResponse, StatementGetRequest,
-    StatementGetResponse, StatementListRequest, StatementListResponseFrame, StatementView,
+    StatementGetResponse, StatementHistoryRequest, StatementHistoryResponseFrame,
+    StatementListRequest, StatementListResponseFrame, StatementRetractRequest,
+    StatementRetractResponse, StatementSupersedeRequest, StatementSupersedeResponse,
+    StatementTombstoneRequest, StatementTombstoneResponse, StatementView,
     SubscribeRequest, TxnAbortRequest, TxnAbortResponse, TxnBeginRequest, TxnBeginResponse,
     TxnCommitRequest, TxnCommitResponse, UnlinkRequest, UnlinkResponse,
 };
@@ -375,6 +387,79 @@ impl BrainClient {
         .await
     }
 
+    /// Replace an entity's name, aliases, and attributes (ENTITY_UPDATE).
+    pub async fn update_entity(
+        &self,
+        request: &EntityUpdateRequest,
+    ) -> Result<EntityUpdateResponse> {
+        self.unary(
+            Opcode::EntityUpdateReq,
+            Opcode::EntityUpdateResp,
+            "ENTITY_UPDATE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Rename an entity, optionally keeping the old name as an alias
+    /// (ENTITY_RENAME).
+    pub async fn rename_entity(
+        &self,
+        request: &EntityRenameRequest,
+    ) -> Result<EntityRenameResponse> {
+        self.unary(
+            Opcode::EntityRenameReq,
+            Opcode::EntityRenameResp,
+            "ENTITY_RENAME_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Merge two entities that are the same real-world thing (ENTITY_MERGE).
+    /// Reversible within the returned grace window via [`Self::unmerge_entity`].
+    pub async fn merge_entities(
+        &self,
+        request: &EntityMergeRequest,
+    ) -> Result<EntityMergeResponse> {
+        self.unary(
+            Opcode::EntityMergeReq,
+            Opcode::EntityMergeResp,
+            "ENTITY_MERGE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Undo a merge within its grace window (ENTITY_UNMERGE).
+    pub async fn unmerge_entity(
+        &self,
+        request: &EntityUnmergeRequest,
+    ) -> Result<EntityUnmergeResponse> {
+        self.unary(
+            Opcode::EntityUnmergeReq,
+            Opcode::EntityUnmergeResp,
+            "ENTITY_UNMERGE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Retire an entity with an audit reason (ENTITY_TOMBSTONE). Soft: the row
+    /// survives but drops out of resolution and traversal.
+    pub async fn tombstone_entity(
+        &self,
+        request: &EntityTombstoneRequest,
+    ) -> Result<EntityTombstoneResponse> {
+        self.unary(
+            Opcode::EntityTombstoneReq,
+            Opcode::EntityTombstoneResp,
+            "ENTITY_TOMBSTONE_RESP",
+            request,
+        )
+        .await
+    }
+
     /// Create a statement (STATEMENT_CREATE). The response reports any
     /// auto-superseded prior statement and the supersession chain root.
     pub async fn create_statement(
@@ -420,11 +505,128 @@ impl BrainClient {
         .await
     }
 
-    /// Run a typed-graph query (QUERY). Returns fused, ranked results
-    /// with per-retriever contributions and outcome diagnostics.
-    pub async fn query(&self, request: &QueryRequest) -> Result<QueryResponse> {
-        self.unary(Opcode::QueryReq, Opcode::QueryResp, "QUERY_RESP", request)
-            .await
+    /// Fetch one relation by id (RELATION_GET). `follow_supersession` returns
+    /// the current chain head when the id has been superseded.
+    pub async fn get_relation(
+        &self,
+        request: &RelationGetRequest,
+    ) -> Result<RelationGetResponse> {
+        self.unary(
+            Opcode::RelationGetReq,
+            Opcode::RelationGetResp,
+            "RELATION_GET_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Revise a relation, keeping both on one chain (RELATION_SUPERSEDE).
+    pub async fn supersede_relation(
+        &self,
+        request: &RelationSupersedeRequest,
+    ) -> Result<RelationSupersedeResponse> {
+        self.unary(
+            Opcode::RelationSupersedeReq,
+            Opcode::RelationSupersedeResp,
+            "RELATION_SUPERSEDE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Soft-retire a relation with a reason (RELATION_TOMBSTONE).
+    pub async fn tombstone_relation(
+        &self,
+        request: &RelationTombstoneRequest,
+    ) -> Result<RelationTombstoneResponse> {
+        self.unary(
+            Opcode::RelationTombstoneReq,
+            Opcode::RelationTombstoneResp,
+            "RELATION_TOMBSTONE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Multi-hop walk of the relation graph from an entity (RELATION_TRAVERSE),
+    /// flattening every streamed frame's `paths`. For the raw frames (with
+    /// `truncated` / `total_paths`), use [`Self::traverse_relations_frames`].
+    pub async fn traverse_relations(
+        &self,
+        request: &RelationTraverseRequest,
+    ) -> Result<Vec<TraversalPathWire>> {
+        let frames = self.traverse_relations_frames(request).await?;
+        let mut paths = Vec::new();
+        for frame in frames {
+            paths.extend(frame.paths);
+        }
+        Ok(paths)
+    }
+
+    /// Traverse the relation graph, returning each decoded RELATION_TRAVERSE
+    /// frame.
+    pub async fn traverse_relations_frames(
+        &self,
+        request: &RelationTraverseRequest,
+    ) -> Result<Vec<RelationTraverseResponseFrame>> {
+        self.streamed(
+            Opcode::RelationTraverseReq,
+            Opcode::RelationTraverseResp,
+            "RELATION_TRAVERSE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Return a query's plan without running it (QUERY_EXPLAIN).
+    pub async fn query_explain(
+        &self,
+        request: &QueryExplainRequest,
+    ) -> Result<QueryExplainResponse> {
+        self.unary(
+            Opcode::QueryExplainReq,
+            Opcode::QueryExplainResp,
+            "QUERY_EXPLAIN_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Run a query and return its per-stage execution trace (QUERY_TRACE).
+    pub async fn query_trace(
+        &self,
+        request: &QueryTraceRequest,
+    ) -> Result<QueryTraceResponse> {
+        self.unary(
+            Opcode::QueryTraceReq,
+            Opcode::QueryTraceResp,
+            "QUERY_TRACE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Write a pre-computed embedding directly (ENCODE_VECTOR_DIRECT), bypassing
+    /// the server's owned embedding. The vector rides the trailing raw f32
+    /// section of the frame, not the CBOR map.
+    pub async fn encode_vector_direct(
+        &self,
+        request: &EncodeVectorDirectRequest,
+    ) -> Result<EncodeResponse> {
+        let mut payload = to_cbor_bytes(request);
+        payload.extend_from_slice(&f32_slice_to_le_bytes(&request.vector));
+        let frame = self
+            .conn
+            .request_one(Opcode::EncodeVectorDirectReq, payload)
+            .await?;
+        if frame.opcode != Opcode::EncodeVectorDirectResp as u16 {
+            return Err(BrainError::Protocol(format!(
+                "expected ENCODE_VECTOR_DIRECT_RESP ({:#06x}), got {:#06x}",
+                Opcode::EncodeVectorDirectResp as u16,
+                frame.opcode
+            )));
+        }
+        Ok(from_cbor_bytes(&frame.payload)?)
     }
 
     /// Materialize a procedural-memory system block (MATERIALIZE_PROCEDURAL).
@@ -452,6 +654,23 @@ impl BrainClient {
             Opcode::GetCapabilitiesReq,
             Opcode::GetCapabilitiesResp,
             "GET_CAPABILITIES_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// List the always-on extractors registered on the connected shard
+    /// (EXTRACTOR_LIST): id, namespace, name, kind, schema version, and
+    /// creation time. Read-only introspection — extraction is always-on and
+    /// cannot be toggled.
+    pub async fn extractor_list(
+        &self,
+        request: &ExtractorListRequest,
+    ) -> Result<ExtractorListResponseFrame> {
+        self.unary(
+            Opcode::ExtractorListReq,
+            Opcode::ExtractorListResp,
+            "EXTRACTOR_LIST_RESP",
             request,
         )
         .await
@@ -575,6 +794,81 @@ impl BrainClient {
             Opcode::StatementListReq,
             Opcode::StatementListResp,
             "STATEMENT_LIST_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Replace a statement with a revised one (STATEMENT_SUPERSEDE), keeping
+    /// both on the same chain so history is preserved.
+    pub async fn supersede_statement(
+        &self,
+        request: &StatementSupersedeRequest,
+    ) -> Result<StatementSupersedeResponse> {
+        self.unary(
+            Opcode::StatementSupersedeReq,
+            Opcode::StatementSupersedeResp,
+            "STATEMENT_SUPERSEDE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Retire a statement with a coded reason (STATEMENT_TOMBSTONE). Soft and
+    /// recoverable.
+    pub async fn tombstone_statement(
+        &self,
+        request: &StatementTombstoneRequest,
+    ) -> Result<StatementTombstoneResponse> {
+        self.unary(
+            Opcode::StatementTombstoneReq,
+            Opcode::StatementTombstoneResp,
+            "STATEMENT_TOMBSTONE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Assert a statement was wrong (STATEMENT_RETRACT). Unlike a tombstone,
+    /// retraction schedules a hard-zero so a genuine mistake gets scrubbed.
+    pub async fn retract_statement(
+        &self,
+        request: &StatementRetractRequest,
+    ) -> Result<StatementRetractResponse> {
+        self.unary(
+            Opcode::StatementRetractReq,
+            Opcode::StatementRetractResp,
+            "STATEMENT_RETRACT_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Walk a claim's full version chain (STATEMENT_HISTORY), flattening every
+    /// streamed frame's `items`. For the raw frames, use
+    /// [`Self::statement_history_frames`].
+    pub async fn statement_history(
+        &self,
+        request: &StatementHistoryRequest,
+    ) -> Result<Vec<StatementView>> {
+        let frames = self.statement_history_frames(request).await?;
+        let mut items = Vec::new();
+        for frame in frames {
+            items.extend(frame.items);
+        }
+        Ok(items)
+    }
+
+    /// Walk a claim's version chain, returning each decoded STATEMENT_HISTORY
+    /// frame (with `total_versions` / `is_final`).
+    pub async fn statement_history_frames(
+        &self,
+        request: &StatementHistoryRequest,
+    ) -> Result<Vec<StatementHistoryResponseFrame>> {
+        self.streamed(
+            Opcode::StatementHistoryReq,
+            Opcode::StatementHistoryResp,
+            "STATEMENT_HISTORY_RESP",
             request,
         )
         .await
