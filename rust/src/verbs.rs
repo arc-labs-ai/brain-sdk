@@ -9,7 +9,8 @@
 
 use crate::client::new_id;
 use crate::wire::types::{
-    EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest, WireMemoryId,
+    ActAs, EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest, WaitMode,
+    WireMemoryId, WireUuid,
 };
 
 /// Builder for an ENCODE request. Stores one text memory; `context` defaults
@@ -19,6 +20,9 @@ pub struct EncodeBuilder {
     text: String,
     context_id: u64,
     occurred_at_unix_nanos: Option<u64>,
+    act_as: Option<ActAs>,
+    wait: WaitMode,
+    allow_duplicates: bool,
 }
 
 impl EncodeBuilder {
@@ -29,7 +33,41 @@ impl EncodeBuilder {
             text: text.into(),
             context_id: 0,
             occurred_at_unix_nanos: None,
+            act_as: None,
+            wait: WaitMode::Ack,
+            allow_duplicates: false,
         }
+    }
+
+    /// Set the write-completion mode. [`WaitMode::Ack`] (the default) returns
+    /// after the durable ack; [`WaitMode::Derived`] blocks until async
+    /// derivation completes and returns a populated `trace` on the
+    /// [`EncodeResponse`].
+    #[must_use]
+    pub fn wait(mut self, wait: WaitMode) -> Self {
+        self.wait = wait;
+        self
+    }
+
+    /// Block until async derivation completes and return the full write trace
+    /// — convenience for `.wait(WaitMode::Derived)`.
+    #[must_use]
+    pub fn wait_derived(mut self) -> Self {
+        self.wait = WaitMode::Derived;
+        self
+    }
+
+    /// Run this encode on behalf of another `(namespace, agent_id)` identity.
+    /// Requires the connection principal to hold the `can_act_as` grant; set
+    /// per request, never on the client, so a pooled client can serve many
+    /// effective identities.
+    #[must_use]
+    pub fn act_as(mut self, namespace: impl Into<String>, agent_id: WireUuid) -> Self {
+        self.act_as = Some(ActAs {
+            namespace: namespace.into(),
+            agent_id,
+        });
+        self
     }
 
     /// Set the context (namespace) the memory belongs to.
@@ -47,6 +85,17 @@ impl EncodeBuilder {
         self
     }
 
+    /// Opt out of content dedup and force a distinct memory. By default Brain
+    /// dedupes byte-identical text on `(agent_id, context_id, BLAKE3(text))` and
+    /// returns the existing memory (`was_deduplicated = true`) without writing.
+    /// Call this when the same text is a genuinely distinct observation that
+    /// must coexist (e.g. the same fact re-stated at a different `occurred_at`).
+    #[must_use]
+    pub fn allow_duplicates(mut self, allow: bool) -> Self {
+        self.allow_duplicates = allow;
+        self
+    }
+
     /// Finish into a wire [`EncodeRequest`], minting a fresh `request_id`.
     #[must_use]
     pub fn build(self) -> EncodeRequest {
@@ -56,6 +105,9 @@ impl EncodeBuilder {
             request_id: new_id(),
             txn_id: None,
             occurred_at_unix_nanos: self.occurred_at_unix_nanos,
+            act_as: self.act_as,
+            wait: self.wait,
+            allow_duplicates: self.allow_duplicates,
         }
     }
 }
@@ -77,6 +129,8 @@ pub struct RecallBuilder {
     include_edges: bool,
     include_graph: bool,
     include_text: bool,
+    trace: bool,
+    act_as: Option<ActAs>,
 }
 
 impl RecallBuilder {
@@ -97,7 +151,22 @@ impl RecallBuilder {
             include_edges: true,
             include_graph: false,
             include_text: true,
+            trace: false,
+            act_as: None,
         }
+    }
+
+    /// Run this recall on behalf of another `(namespace, agent_id)` identity.
+    /// Requires the connection principal to hold the `can_act_as` grant; set
+    /// per request, never on the client, so a pooled client can serve many
+    /// effective identities.
+    #[must_use]
+    pub fn act_as(mut self, namespace: impl Into<String>, agent_id: WireUuid) -> Self {
+        self.act_as = Some(ActAs {
+            namespace: namespace.into(),
+            agent_id,
+        });
+        self
     }
 
     /// Pin the recall to a named subject (anchors fact-shaped lookups).
@@ -163,6 +232,14 @@ impl RecallBuilder {
         self
     }
 
+    /// Ask for the per-stage read-pipeline trace on the final frame
+    /// (`RecallResponseFrame::trace`). Off by default; costs nothing when off.
+    #[must_use]
+    pub fn trace(mut self, trace: bool) -> Self {
+        self.trace = trace;
+        self
+    }
+
     /// Include the stored memory text in each result.
     #[must_use]
     pub fn include_text(mut self, include: bool) -> Self {
@@ -188,6 +265,8 @@ impl RecallBuilder {
             include_text: self.include_text,
             request_id: Some(new_id()),
             txn_id: None,
+            trace: self.trace,
+            act_as: self.act_as,
         }
     }
 }
@@ -198,6 +277,7 @@ impl RecallBuilder {
 pub struct ForgetBuilder {
     memory_id: WireMemoryId,
     mode: ForgetMode,
+    act_as: Option<ActAs>,
 }
 
 impl ForgetBuilder {
@@ -207,7 +287,21 @@ impl ForgetBuilder {
         Self {
             memory_id,
             mode: ForgetMode::Soft,
+            act_as: None,
         }
+    }
+
+    /// Run this forget on behalf of another `(namespace, agent_id)` identity.
+    /// Requires the connection principal to hold the `can_act_as` grant; set
+    /// per request, never on the client, so a pooled client can serve many
+    /// effective identities.
+    #[must_use]
+    pub fn act_as(mut self, namespace: impl Into<String>, agent_id: WireUuid) -> Self {
+        self.act_as = Some(ActAs {
+            namespace: namespace.into(),
+            agent_id,
+        });
+        self
     }
 
     /// Switch to a hard forget (immediate zeroing, no grace period).
@@ -232,6 +326,7 @@ impl ForgetBuilder {
             mode: self.mode,
             request_id: new_id(),
             txn_id: None,
+            act_as: self.act_as,
         }
     }
 }

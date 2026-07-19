@@ -56,7 +56,33 @@ cargo clippy --all-targets
 The `live_server_handshake` integration test runs against a real server when
 `BRAIN_TEST_ADDR=host:port` is set, and is skipped otherwise.
 
+## HTTP tier
+
+For hosted Brain (the Arc cloud gateway) or a self-hosted `brain-edge` edge, the
+crate also ships [`BrainHttpClient`] — a JSON-over-HTTP client with the same verb
+surface, field names, and error shape as the Python and TypeScript SDKs (the
+canonical contract is [`../HTTP_CONTRACT.md`](../HTTP_CONTRACT.md)). Use it when
+you talk to Brain through an HTTP edge and authenticate with an API key; use the
+wire [`BrainClient`] above for a direct socket, streaming, transactions, and
+typed-graph management.
+
+```rust
+use brain_db_sdk::http::{BrainHttpClient, EncodeInput, RecallInput};
+
+let brain = BrainHttpClient::new("https://api.arc-labs.ai", api_key);
+let stored = brain.encode(&EncodeInput { text: "the kettle whistled".into(), ..Default::default() }).await?;
+let answer = brain.recall(&RecallInput { query: "what whistled?".into(), max_results: Some(3), ..Default::default() }).await?;
+```
+
+Run the live smoke example (reads `BRAIN_API_URL` + `BRAIN_API_KEY`):
+
+```bash
+BRAIN_API_URL=http://127.0.0.1:8080 BRAIN_API_KEY=brain_… cargo run --example http_smoke
+```
+
 License: Apache-2.0.
+
+[`BrainHttpClient`]: src/http/client.rs
 
 [`transport`]: src/transport.rs
 [`Connection`]: src/connection.rs

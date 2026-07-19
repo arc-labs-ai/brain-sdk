@@ -44,6 +44,7 @@ async fn plan_between_two_memories_round_trips() {
         .memory_id;
 
     let req = PlanRequest {
+        act_as: None,
         start: PlanState::ByMemoryId(start),
         goal: PlanState::ByMemoryId(goal),
         budget: budget(),
@@ -77,6 +78,7 @@ async fn plan_to_text_goal_with_astar_round_trips() {
     // ByText goal + an explicit A* strategy hint: exercises the alternate
     // PlanState shape and the strategy parameter.
     let req = PlanRequest {
+        act_as: None,
         start: PlanState::ByMemoryId(start),
         goal: PlanState::ByText("the project shipped".to_string()),
         budget: budget(),
@@ -105,6 +107,7 @@ async fn plan_rejects_budget_over_max_traversal_depth() {
     // A budget above the server's max_traversal_depth (10) is a validation
     // error, not a silent clamp — this test pins that documented limit.
     let over = PlanRequest {
+        act_as: None,
         start: PlanState::ByMemoryId(start),
         goal: PlanState::ByText("somewhere".to_string()),
         budget: PlanBudget {

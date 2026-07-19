@@ -53,5 +53,24 @@ src/
   client.ts     high-level BrainClient: connect, handshake, session, encode
 ```
 
+## HTTP tier
+
+For hosted Brain (the Arc cloud gateway) or a self-hosted `brain-edge` edge, the
+package also ships `BrainHttpClient` — a JSON-over-HTTP client with the same verb
+surface, field names, and error shape as the Rust and Python SDKs (the canonical
+contract is [`../HTTP_CONTRACT.md`](../HTTP_CONTRACT.md)). Use it when you talk to
+Brain through an HTTP edge and authenticate with an API key; use the wire
+`BrainClient` above for a direct socket, streaming, transactions, and typed-graph
+management. It has no third-party dependency — native `fetch`.
+
+```typescript
+import { BrainHttpClient } from "@brain-db/sdk";
+
+const brain = new BrainHttpClient({ apiKey, baseUrl: "https://api.arc-labs.ai" });
+const stored = await brain.encode({ text: "the kettle whistled" });
+const answer = await brain.recall({ query: "what whistled?", max_results: 3 });
+const who = await brain.whoami(); // namespace + agent_id + permissions
+```
+
 Dependencies: `cborg` (runtime). CRC32C is implemented in software.
 License: Apache-2.0.

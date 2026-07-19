@@ -36,7 +36,15 @@ export {
   ServerError,
   VersionMismatch,
   isRetryable,
+  isActAsDenied,
 } from "./errors.js";
+
+// HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).
+// The contract types are namespaced under `http` to avoid colliding with the
+// wire types (`PlanStep`, `Capabilities`, …) exported above.
+export { BrainHttpClient, BrainHttpError, DEFAULT_HTTP_RETRY, NO_HTTP_RETRY } from "./http/index.js";
+export type { BrainHttpClientOptions, HttpRetryPolicy } from "./http/client.js";
+export * as http from "./http/types.js";
 
 /** This SDK package's release version. */
 export const SDK_VERSION = "0.1.0";

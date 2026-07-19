@@ -84,6 +84,23 @@ class StageKind:
     EXTRACTOR = 2
 
 
+class WaitMode:
+    """Write-completion mode — how long an ENCODE blocks before it returns,
+    as its on-wire integer discriminant.
+
+      * ``ACK`` (the default) returns as soon as the write is durable; the
+        async derivation stages run in the background. Omitted from the CBOR
+        map, so the common write stays byte-identical to a keyless request.
+      * ``DERIVED`` blocks until async derivation completes and the response
+        carries the full ``EncodeTrace``. Encoded as the bare integer ``1``.
+
+    The API convention: writes carry ``wait`` (this enum), reads carry
+    ``trace`` (a bool). They are never both on one op."""
+
+    ACK = 0
+    DERIVED = 1
+
+
 class AuthMethod:
     """The credential scheme presented at AUTH, as its on-wire integer discriminant."""
 
@@ -111,6 +128,23 @@ class ErrorCategory:
     RESOURCE_EXHAUSTED = 6
     INTERNAL = 7
     UNAVAILABLE = 8
+
+
+class ErrorCode:
+    """Numeric ``code`` field of an ERROR frame (the fine-grained wire error
+    code). Only the codes the SDK reasons about are named here; the full set
+    lives in the server's ``ErrorCodeWire``. An ``ErrorResponse.code`` is a
+    plain ``int``, so these are equality constants, not an enum.
+    """
+
+    # Authorization (category 2).
+    PERMISSION_DENIED = 0x0030
+    ADMIN_PERMISSION_REQUIRED = 0x0031
+    WRONG_SHARD = 0x0032
+    # The connection principal is not entitled to run an op under a per-request
+    # ``act_as`` identity (missing ``can_act_as`` or namespace outside its
+    # allowlist).
+    ACT_AS_DENIED = 0x0033
 
 
 # ===========================================================================
@@ -254,6 +288,11 @@ class AgentPermissions:
     can_reason: bool
     can_forget: bool
     can_admin: bool
+    # Authorizes the connection to run an op *on behalf of another identity*
+    # via the per-request ``act_as`` field. Held only by a trusted service
+    # principal (an edge / gateway); a normal agent's key never carries it, and
+    # it does not widen what the connection's own agent may do.
+    can_act_as: bool = False
 
     def to_map(self) -> dict:
         return {
@@ -263,6 +302,7 @@ class AgentPermissions:
             "can_reason": self.can_reason,
             "can_forget": self.can_forget,
             "can_admin": self.can_admin,
+            "can_act_as": self.can_act_as,
         }
 
     @classmethod
@@ -274,6 +314,8 @@ class AgentPermissions:
             m["can_reason"],
             m["can_forget"],
             m["can_admin"],
+            # Tolerate older servers that don't emit the field yet.
+            m.get("can_act_as", False),
         )
 
 
@@ -448,6 +490,36 @@ class ClientPongRequest:
 
 
 # ===========================================================================
+# Per-request effective identity (``act_as``).
+# ===========================================================================
+
+
+@dataclass
+class ActAs:
+    """Per-request effective-identity selector carried on data-plane op
+    requests. When present, the op runs as this ``(namespace, agent_id)`` on
+    behalf of the authenticated connection principal; when absent (the common
+    case, omitted on the wire) the op runs as the connection's own key-bound
+    identity.
+
+    Honored server-side only when the connection principal holds
+    ``can_act_as`` and ``namespace`` lies within its granted allowlist —
+    otherwise the op is rejected with ``ActAsDenied``. This is the wire form
+    only; the trust model is enforced by the server, not this codec.
+    """
+
+    namespace: str
+    agent_id: bytes  # 16-byte byte string
+
+    def to_map(self) -> dict:
+        return {"namespace": self.namespace, "agent_id": self.agent_id}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ActAs":
+        return cls(m["namespace"], m["agent_id"])
+
+
+# ===========================================================================
 # ENCODE / ENCODE_VECTOR_DIRECT.
 # ===========================================================================
 
@@ -481,24 +553,52 @@ class EncodeRequest:
     request_id: bytes  # 16-byte byte string
     txn_id: Optional[bytes]  # 16-byte byte string or None
     occurred_at_unix_nanos: Optional[int]  # event time, or None
+    # Effective identity this encode runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+    # Write-completion mode. ``WaitMode.ACK`` (the default) is omitted from the
+    # CBOR map so the common write stays byte-identical; ``WaitMode.DERIVED``
+    # blocks for async derivation and is encoded as the bare integer ``1``,
+    # after which the ENCODE_RESP carries a populated ``trace``. Reads use
+    # ``trace`` instead — writes never carry it.
+    wait: int = WaitMode.ACK
+    # Opt out of content dedup and force a distinct memory. Default False: Brain
+    # dedupes byte-identical text on ``(agent_id, context_id, BLAKE3(text))`` and
+    # returns the existing memory (``was_deduplicated = True``) without writing.
+    # Set True when the same text is a genuinely distinct observation that must
+    # coexist (e.g. the same fact re-stated at a different ``occurred_at``).
+    # Omitted from the CBOR map when False so the default path stays
+    # byte-identical.
+    allow_duplicates: bool = False
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "text": self.text,
             "context_id": self.context_id,
             "request_id": self.request_id,
             "txn_id": self.txn_id,
             "occurred_at_unix_nanos": self.occurred_at_unix_nanos,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        if self.wait != WaitMode.ACK:
+            m["wait"] = self.wait
+        if self.allow_duplicates:
+            m["allow_duplicates"] = self.allow_duplicates
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EncodeRequest":
+        act_as = m.get("act_as")
         return cls(
             m["text"],
             m["context_id"],
             m["request_id"],
             m["txn_id"],
             m["occurred_at_unix_nanos"],
+            None if act_as is None else ActAs.from_map(act_as),
+            int(m.get("wait", WaitMode.ACK)),
+            bool(m.get("allow_duplicates", False)),
         )
 
 
@@ -565,9 +665,12 @@ class EncodeResponse:
     embedding_model_fp: bytes
     pending_stages: list[int]
     has_active_schema: bool
+    # Full synchronous write-analysis trace, present only when the request set
+    # ``trace = True``; omitted from the CBOR map otherwise.
+    trace: Optional["EncodeTrace"] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "memory_id": self.memory_id,
             "was_deduplicated": self.was_deduplicated,
             "salience": round_f32(self.salience),
@@ -582,9 +685,13 @@ class EncodeResponse:
             "pending_stages": list(self.pending_stages),
             "has_active_schema": self.has_active_schema,
         }
+        if self.trace is not None:
+            m["trace"] = self.trace.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EncodeResponse":
+        trace = m.get("trace")
         return cls(
             m["memory_id"],
             m["was_deduplicated"],
@@ -599,6 +706,439 @@ class EncodeResponse:
             m["embedding_model_fp"],
             list(m["pending_stages"]),
             m["has_active_schema"],
+            None if trace is None else EncodeTrace.from_map(trace),
+        )
+
+
+# ===========================================================================
+# ENCODE trace (opt-in synchronous write-analysis).
+# ===========================================================================
+
+
+class EncodeTraceStageStatus:
+    """Terminal status of one ENCODE-trace phase, as its on-wire integer discriminant."""
+
+    OK = 0
+    SKIPPED = 1
+    FAILED = 2
+    TIMEOUT = 3
+
+
+@dataclass
+class EncodeTraceStage:
+    """One phase in an ENCODE-trace timeline: its name, terminal status, latency (µs), and a free-form detail string."""
+
+    name: str
+    status: int
+    latency_us: int
+    detail: str
+    # The concrete data this stage produced (embed -> vector, persist ->
+    # record, extractor -> graph, ...). Present only when the caller set
+    # ``trace = True`` and the stage produced inspectable output; omitted from
+    # the CBOR map otherwise so existing traces stay byte-identical.
+    artifact: Optional["EncodeStageArtifact"] = None
+
+    def to_map(self) -> dict:
+        m = {
+            "name": self.name,
+            "status": self.status,
+            "latency_us": self.latency_us,
+            "detail": self.detail,
+        }
+        if self.artifact is not None:
+            m["artifact"] = self.artifact.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeTraceStage":
+        artifact = m.get("artifact")
+        return cls(
+            m["name"],
+            m["status"],
+            m["latency_us"],
+            m["detail"],
+            None if artifact is None else EncodeStageArtifact.from_map(artifact),
+        )
+
+
+@dataclass
+class EncodeTraceEntity:
+    """One entity artifact an ENCODE produced: its id, name, and schema type qname."""
+
+    id: bytes  # 16-byte byte string
+    name: str
+    type_qname: str
+
+    def to_map(self) -> dict:
+        return {"id": self.id, "name": self.name, "type_qname": self.type_qname}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeTraceEntity":
+        return cls(m["id"], m["name"], m["type_qname"])
+
+
+@dataclass
+class EncodeTraceStatement:
+    """One statement artifact an ENCODE produced, flattened to display strings plus its confidence."""
+
+    id: bytes  # 16-byte byte string
+    subject_name: str
+    predicate: str
+    object_name: str
+    confidence: float  # f32
+
+    def to_map(self) -> dict:
+        return {
+            "id": self.id,
+            "subject_name": self.subject_name,
+            "predicate": self.predicate,
+            "object_name": self.object_name,
+            "confidence": round_f32(self.confidence),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeTraceStatement":
+        return cls(m["id"], m["subject_name"], m["predicate"], m["object_name"], m["confidence"])
+
+
+@dataclass
+class EncodeTraceRelation:
+    """One relation artifact an ENCODE produced: the two endpoint names and the connecting predicate."""
+
+    source_name: str
+    predicate: str
+    target_name: str
+
+    def to_map(self) -> dict:
+        return {
+            "source_name": self.source_name,
+            "predicate": self.predicate,
+            "target_name": self.target_name,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeTraceRelation":
+        return cls(m["source_name"], m["predicate"], m["target_name"])
+
+
+@dataclass
+class EncodeTraceIndex:
+    """One index the write landed in, with the outcome status (an ``EncodeTraceStageStatus`` int)."""
+
+    name: str
+    status: int
+
+    def to_map(self) -> dict:
+        return {"name": self.name, "status": self.status}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeTraceIndex":
+        return cls(m["name"], m["status"])
+
+
+@dataclass
+class EncodeTraceDedup:
+    """The dedup verdict carried on an ENCODE trace: whether the write deduplicated and, if so, the matched memory id."""
+
+    was_deduplicated: bool
+    matched_memory_id: Optional[bytes]  # 16-byte byte string or None
+
+    def to_map(self) -> dict:
+        return {
+            "was_deduplicated": self.was_deduplicated,
+            "matched_memory_id": self.matched_memory_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeTraceDedup":
+        return cls(m["was_deduplicated"], m["matched_memory_id"])
+
+
+@dataclass
+class EncodeTraceArtifacts:
+    """What an ENCODE produced, resolved after the async stages drained — entities, statements, relations, indexes, and the dedup verdict."""
+
+    entities: list[EncodeTraceEntity]
+    statements: list[EncodeTraceStatement]
+    relations: list[EncodeTraceRelation]
+    indexes: list[EncodeTraceIndex]
+    dedup: EncodeTraceDedup
+
+    def to_map(self) -> dict:
+        return {
+            "entities": [e.to_map() for e in self.entities],
+            "statements": [s.to_map() for s in self.statements],
+            "relations": [r.to_map() for r in self.relations],
+            "indexes": [i.to_map() for i in self.indexes],
+            "dedup": self.dedup.to_map(),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeTraceArtifacts":
+        return cls(
+            [EncodeTraceEntity.from_map(e) for e in m["entities"]],
+            [EncodeTraceStatement.from_map(s) for s in m["statements"]],
+            [EncodeTraceRelation.from_map(r) for r in m["relations"]],
+            [EncodeTraceIndex.from_map(i) for i in m["indexes"]],
+            EncodeTraceDedup.from_map(m["dedup"]),
+        )
+
+
+@dataclass
+class EncodeTrace:
+    """Full synchronous write-analysis trace for one ENCODE (present when the request set ``trace = True``): the per-phase timeline, the produced artifacts, and total latency (µs)."""
+
+    stages: list[EncodeTraceStage]
+    artifacts: EncodeTraceArtifacts
+    total_latency_us: int
+
+    def to_map(self) -> dict:
+        return {
+            "stages": [s.to_map() for s in self.stages],
+            "artifacts": self.artifacts.to_map(),
+            "total_latency_us": self.total_latency_us,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeTrace":
+        return cls(
+            [EncodeTraceStage.from_map(s) for s in m["stages"]],
+            EncodeTraceArtifacts.from_map(m["artifacts"]),
+            m["total_latency_us"],
+        )
+
+
+# ===========================================================================
+# Per-stage write artifacts — the concrete data each ENCODE stage produced.
+#
+# Shared shape for the live ``trace = true`` per-stage ``artifact`` AND the
+# durable MEMORY_INSPECT bundle. Every ``EncodeStageArtifact`` field is
+# optional and omitted from the CBOR map when empty/absent, matching the
+# server's ``skip_serializing_if``: ``vector`` when empty, ``record`` when
+# None, ``hype_questions`` when empty, ``keyword_fields`` when empty,
+# ``graph`` when None. Field order: vector, record, hype_questions,
+# keyword_fields, graph.
+# ===========================================================================
+
+
+@dataclass
+class EncodeStageRecord:
+    """The durable metadata row a ``persist`` stage wrote."""
+
+    memory_id: bytes  # 16-byte byte string
+    kind: int  # u8
+    salience: float  # f32
+    created_at_unix_nanos: int  # u64
+    occurred_at_unix_nanos: int  # u64
+    vector_dim: int  # u32
+    text_len: int  # u32
+    lsn: int  # u64
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "kind": self.kind,
+            "salience": round_f32(self.salience),
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "occurred_at_unix_nanos": self.occurred_at_unix_nanos,
+            "vector_dim": self.vector_dim,
+            "text_len": self.text_len,
+            "lsn": self.lsn,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeStageRecord":
+        return cls(
+            m["memory_id"],
+            m["kind"],
+            m["salience"],
+            m["created_at_unix_nanos"],
+            m["occurred_at_unix_nanos"],
+            m["vector_dim"],
+            m["text_len"],
+            m["lsn"],
+        )
+
+
+@dataclass
+class EncodeStageKeywordField:
+    """One text-index field and the analyzed terms the write produced for it."""
+
+    field: str
+    terms: list[str]
+
+    def to_map(self) -> dict:
+        return {"field": self.field, "terms": list(self.terms)}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeStageKeywordField":
+        return cls(m["field"], list(m["terms"]))
+
+
+@dataclass
+class EncodeGraphNode:
+    """A node in the knowledge graph an ENCODE produced."""
+
+    id: bytes  # 16-byte byte string
+    name: str
+    kind: str
+    type_qname: str
+
+    def to_map(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "kind": self.kind,
+            "type_qname": self.type_qname,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeGraphNode":
+        return cls(m["id"], m["name"], m["kind"], m["type_qname"])
+
+
+@dataclass
+class EncodeGraphEdge:
+    """A directed edge in the knowledge graph an ENCODE produced."""
+
+    source: bytes  # 16-byte byte string
+    target: bytes  # 16-byte byte string
+    predicate: str
+    kind: str
+    confidence: float  # f32
+
+    def to_map(self) -> dict:
+        return {
+            "source": self.source,
+            "target": self.target,
+            "predicate": self.predicate,
+            "kind": self.kind,
+            "confidence": round_f32(self.confidence),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeGraphEdge":
+        return cls(m["source"], m["target"], m["predicate"], m["kind"], m["confidence"])
+
+
+@dataclass
+class EncodeStageGraph:
+    """The knowledge graph an ENCODE produced — nodes + directed edges."""
+
+    nodes: list[EncodeGraphNode]
+    edges: list[EncodeGraphEdge]
+
+    def to_map(self) -> dict:
+        return {
+            "nodes": [n.to_map() for n in self.nodes],
+            "edges": [e.to_map() for e in self.edges],
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeStageGraph":
+        return cls(
+            [EncodeGraphNode.from_map(n) for n in m["nodes"]],
+            [EncodeGraphEdge.from_map(e) for e in m["edges"]],
+        )
+
+
+@dataclass
+class EncodeStageArtifact:
+    """The concrete output one ENCODE stage produced (embed -> vector, persist
+    -> record, HyPE -> questions, text-index -> keyword terms, extractor ->
+    graph). Every field is optional and omitted from the CBOR map when
+    empty/absent (matching the server's ``skip_serializing_if``). Field order:
+    vector, record, hype_questions, keyword_fields, graph."""
+
+    vector: list[float] = field(default_factory=list)  # f32 elements
+    record: Optional[EncodeStageRecord] = None
+    hype_questions: list[str] = field(default_factory=list)
+    keyword_fields: list[EncodeStageKeywordField] = field(default_factory=list)
+    graph: Optional[EncodeStageGraph] = None
+
+    def to_map(self) -> dict:
+        m: dict = {}
+        if self.vector:
+            m["vector"] = [round_f32(x) for x in self.vector]
+        if self.record is not None:
+            m["record"] = self.record.to_map()
+        if self.hype_questions:
+            m["hype_questions"] = list(self.hype_questions)
+        if self.keyword_fields:
+            m["keyword_fields"] = [k.to_map() for k in self.keyword_fields]
+        if self.graph is not None:
+            m["graph"] = self.graph.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "EncodeStageArtifact":
+        record = m.get("record")
+        graph = m.get("graph")
+        return cls(
+            [float(x) for x in m.get("vector", [])],
+            None if record is None else EncodeStageRecord.from_map(record),
+            list(m.get("hype_questions", [])),
+            [EncodeStageKeywordField.from_map(k) for k in m.get("keyword_fields", [])],
+            None if graph is None else EncodeStageGraph.from_map(graph),
+        )
+
+
+# ===========================================================================
+# MEMORY_INSPECT — one memory's durable write-artifact bundle.
+# ===========================================================================
+
+
+@dataclass
+class MemoryInspectRequest:
+    """MEMORY_INSPECT (``0x0028``). Fetch the durable write-artifact bundle for
+    one memory. Single-shot (not paginated)."""
+
+    memory_id: bytes  # 16-byte byte string
+    # Effective identity this inspect runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m = {"memory_id": self.memory_id}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "MemoryInspectRequest":
+        act_as = m.get("act_as")
+        return cls(
+            m["memory_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class MemoryInspectResponse:
+    """MEMORY_INSPECT_RESP (``0x00A8``). The durable per-memory artifact bundle
+    plus text. ``found = False`` (with an empty ``artifact``) when no memory /
+    no bundle exists for the id under the caller's scope."""
+
+    found: bool
+    memory_id: bytes  # 16-byte byte string
+    text: str
+    artifact: EncodeStageArtifact
+
+    def to_map(self) -> dict:
+        return {
+            "found": self.found,
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "artifact": self.artifact.to_map(),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "MemoryInspectResponse":
+        return cls(
+            m["found"],
+            m["memory_id"],
+            m["text"],
+            EncodeStageArtifact.from_map(m["artifact"]),
         )
 
 
@@ -639,9 +1179,16 @@ class RecallRequest:
     include_text: bool
     request_id: Optional[bytes]
     txn_id: Optional[bytes]
+    # Opt-in per-stage read-pipeline trace. Always present on the wire
+    # (defaults to False); when True the final RECALL_RESP frame carries a
+    # populated ``trace``.
+    trace: bool = False
+    # Effective identity this recall runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "cue_text": self.cue_text,
             "subject_name": self.subject_name,
             "max_results": self.max_results,
@@ -658,10 +1205,15 @@ class RecallRequest:
             "include_text": self.include_text,
             "request_id": self.request_id,
             "txn_id": self.txn_id,
+            "trace": self.trace,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "RecallRequest":
+        act_as = m.get("act_as")
         return cls(
             m["cue_text"],
             m["subject_name"],
@@ -677,6 +1229,8 @@ class RecallRequest:
             m["include_text"],
             m["request_id"],
             m["txn_id"],
+            bool(m.get("trace", False)),
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -869,24 +1423,163 @@ class RecallResponseFrame:
     is_final: bool
     cumulative_count: int
     estimated_remaining: Optional[int]
+    # Per-stage read-pipeline trace, present only on the final frame and only
+    # when the request set ``trace = True``; omitted from the CBOR map otherwise.
+    trace: Optional["RecallTrace"] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "answer_kind": self.answer_kind,
             "memories": [r.to_map() for r in self.memories],
             "is_final": self.is_final,
             "cumulative_count": self.cumulative_count,
             "estimated_remaining": self.estimated_remaining,
         }
+        if self.trace is not None:
+            m["trace"] = self.trace.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "RecallResponseFrame":
+        trace = m.get("trace")
         return cls(
             m["answer_kind"],
             [MemoryResult.from_map(r) for r in m["memories"]],
             m["is_final"],
             m["cumulative_count"],
             m["estimated_remaining"],
+            None if trace is None else RecallTrace.from_map(trace),
+        )
+
+
+# ===========================================================================
+# RECALL trace (opt-in per-stage read-pipeline observability).
+# ===========================================================================
+
+
+class RecallTraceRetrieverStatus:
+    """Terminal status of one retriever lane in a RECALL trace, as its on-wire integer discriminant."""
+
+    SUCCESS = 0
+    SKIPPED = 1
+    TIMEOUT = 2
+    FAILURE = 3
+
+
+@dataclass
+class RecallTraceRetriever:
+    """What one retriever lane did during a traced RECALL: its name (a ``RetrieverName`` int), terminal status, a status detail string, latency (ms), and candidate count."""
+
+    name: int
+    status: int
+    status_detail: str
+    latency_ms: float  # f64
+    candidate_count: int
+
+    def to_map(self) -> dict:
+        return {
+            "name": self.name,
+            "status": self.status,
+            "status_detail": self.status_detail,
+            "latency_ms": mark_f64(self.latency_ms),
+            "candidate_count": self.candidate_count,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RecallTraceRetriever":
+        return cls(
+            m["name"],
+            m["status"],
+            m["status_detail"],
+            m["latency_ms"],
+            m["candidate_count"],
+        )
+
+
+@dataclass
+class RecallTraceFilterChain:
+    """Survivor counts after each step of the RECALL filter chain."""
+
+    before: int
+    after_type: int
+    after_temporal: int
+    after_confidence: int
+    after_tombstone: int
+    after_supersession: int
+    after_as_of: int
+    after_limit: int
+
+    def to_map(self) -> dict:
+        return {
+            "before": self.before,
+            "after_type": self.after_type,
+            "after_temporal": self.after_temporal,
+            "after_confidence": self.after_confidence,
+            "after_tombstone": self.after_tombstone,
+            "after_supersession": self.after_supersession,
+            "after_as_of": self.after_as_of,
+            "after_limit": self.after_limit,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RecallTraceFilterChain":
+        return cls(
+            m["before"],
+            m["after_type"],
+            m["after_temporal"],
+            m["after_confidence"],
+            m["after_tombstone"],
+            m["after_supersession"],
+            m["after_as_of"],
+            m["after_limit"],
+        )
+
+
+@dataclass
+class RecallTraceRerank:
+    """Outcome of the cross-encoder rerank stage in a RECALL trace: whether it applied, how many candidates it scored, and its latency (ms)."""
+
+    applied: bool
+    candidates: int
+    latency_ms: float  # f64
+
+    def to_map(self) -> dict:
+        return {
+            "applied": self.applied,
+            "candidates": self.candidates,
+            "latency_ms": mark_f64(self.latency_ms),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RecallTraceRerank":
+        return cls(m["applied"], m["candidates"], m["latency_ms"])
+
+
+@dataclass
+class RecallTrace:
+    """Per-stage observability for one RECALL (surfaced on the final frame when the request set ``trace = True``): the retriever lanes, the filter chain, the rerank outcome, and total latency (ms)."""
+
+    retrievers: list[RecallTraceRetriever]
+    filter_chain: RecallTraceFilterChain
+    rerank: Optional[RecallTraceRerank]
+    total_latency_ms: float  # f64
+
+    def to_map(self) -> dict:
+        return {
+            "retrievers": [r.to_map() for r in self.retrievers],
+            "filter_chain": self.filter_chain.to_map(),
+            "rerank": None if self.rerank is None else self.rerank.to_map(),
+            "total_latency_ms": mark_f64(self.total_latency_ms),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RecallTrace":
+        rerank = m["rerank"]
+        return cls(
+            [RecallTraceRetriever.from_map(r) for r in m["retrievers"]],
+            RecallTraceFilterChain.from_map(m["filter_chain"]),
+            None if rerank is None else RecallTraceRerank.from_map(rerank),
+            m["total_latency_ms"],
         )
 
 
@@ -922,18 +1615,31 @@ class ForgetRequest:
     mode: int
     request_id: bytes
     txn_id: Optional[bytes]
+    # Effective identity this forget runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "memory_id": self.memory_id,
             "mode": self.mode,
             "request_id": self.request_id,
             "txn_id": self.txn_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "ForgetRequest":
-        return cls(m["memory_id"], m["mode"], m["request_id"], m["txn_id"])
+        act_as = m.get("act_as")
+        return cls(
+            m["memory_id"],
+            m["mode"],
+            m["request_id"],
+            m["txn_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -954,6 +1660,310 @@ class ForgetResponse:
     @classmethod
     def from_map(cls, m: dict) -> "ForgetResponse":
         return cls(m["memory_id"], m["was_already_forgotten"], m["edges_removed"])
+
+
+# ===========================================================================
+# MEMORY_LIST.
+# ===========================================================================
+
+
+class MemoryListSort:
+    """Sort axis for MEMORY_LIST, as its on-wire integer discriminant. v1
+    supports only ``CREATED`` end-to-end; the others are reserved wire values."""
+
+    CREATED = 0
+    SALIENCE = 1
+    OCCURRED = 2
+    LAST_ACCESSED = 3
+
+
+class MemoryListDir:
+    """Sort direction for MEMORY_LIST, as its on-wire integer discriminant."""
+
+    ASC = 0
+    DESC = 1
+
+
+class MemoryListTimeAxis:
+    """Which time field a MEMORY_LIST ``from``/``to`` range filters on, as its
+    on-wire integer discriminant. v1 supports only ``CREATED``."""
+
+    CREATED = 0
+    OCCURRED = 1
+
+
+@dataclass
+class MemoryListRequest:
+    """MEMORY_LIST (``0x0027``). A paginated enumeration of the caller's
+    ``(namespace, agent)`` memories — no query, no ranking. It walks the tenant
+    timeline in a stable order and returns a page plus an opaque keyset cursor.
+    Empty/zero fields mean "no filter". ``cursor`` / ``next_cursor`` are opaque
+    byte blobs (CBOR arrays of ints on the wire, not byte strings)."""
+
+    sort: int
+    dir: int
+    limit: int  # u32, validated server-side to 1..=100
+    cursor: bytes  # empty on first page; opaque continuation token otherwise
+    kinds: list[int]  # empty = all kinds
+    include_tombstoned: bool
+    time_axis: int
+    from_unix_nanos: int  # 0 = no lower bound
+    to_unix_nanos: int  # 0 = no upper bound
+    salience_min: float  # f32
+    salience_max: float  # f32
+    text_contains: str  # empty = no filter
+    # Effective identity this list runs as. Omitted from the CBOR map when None
+    # so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m = {
+            "sort": self.sort,
+            "dir": self.dir,
+            "limit": self.limit,
+            "cursor": list(self.cursor),
+            "kinds": list(self.kinds),
+            "include_tombstoned": self.include_tombstoned,
+            "time_axis": self.time_axis,
+            "from_unix_nanos": self.from_unix_nanos,
+            "to_unix_nanos": self.to_unix_nanos,
+            "salience_min": round_f32(self.salience_min),
+            "salience_max": round_f32(self.salience_max),
+            "text_contains": self.text_contains,
+        }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "MemoryListRequest":
+        act_as = m.get("act_as")
+        return cls(
+            m["sort"],
+            m["dir"],
+            m["limit"],
+            bytes(m["cursor"]),
+            list(m["kinds"]),
+            m["include_tombstoned"],
+            m["time_axis"],
+            m["from_unix_nanos"],
+            m["to_unix_nanos"],
+            m["salience_min"],
+            m["salience_max"],
+            m["text_contains"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class MemoryListItem:
+    """One memory in a MEMORY_LIST response batch: the enumeration-relevant
+    fields plus relationship-handle counts."""
+
+    memory_id: bytes  # 16-byte byte string
+    text: str
+    kind: int  # raw memory-kind byte
+    state: int  # lifecycle state byte (0 = active, 1 = tombstoned)
+    created_at_unix_nanos: int
+    occurred_at_unix_nanos: int  # 0 when the memory has no event time
+    last_accessed_at_unix_nanos: int
+    salience: float  # f32, point-in-time snapshot
+    access_count: int
+    source_request_id: bytes  # 16-byte byte string
+    statement_count: int
+    entity_count: int
+    relation_count: int
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "kind": self.kind,
+            "state": self.state,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "occurred_at_unix_nanos": self.occurred_at_unix_nanos,
+            "last_accessed_at_unix_nanos": self.last_accessed_at_unix_nanos,
+            "salience": round_f32(self.salience),
+            "access_count": self.access_count,
+            "source_request_id": self.source_request_id,
+            "statement_count": self.statement_count,
+            "entity_count": self.entity_count,
+            "relation_count": self.relation_count,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "MemoryListItem":
+        return cls(
+            m["memory_id"],
+            m["text"],
+            m["kind"],
+            m["state"],
+            m["created_at_unix_nanos"],
+            m["occurred_at_unix_nanos"],
+            m["last_accessed_at_unix_nanos"],
+            m["salience"],
+            m["access_count"],
+            m["source_request_id"],
+            m["statement_count"],
+            m["entity_count"],
+            m["relation_count"],
+        )
+
+
+@dataclass
+class MemoryListResponseFrame:
+    """MEMORY_LIST_RESP (``0x00A7``), one streamed frame. The last frame carries
+    ``is_final = True``. Empty ``next_cursor`` on the final frame means
+    "exhausted"; non-empty means "more pages available, resume with this"."""
+
+    items: list[MemoryListItem]
+    next_cursor: bytes  # opaque continuation token (CBOR array of ints)
+    cumulative_count: int
+    is_final: bool
+
+    def to_map(self) -> dict:
+        return {
+            "items": [i.to_map() for i in self.items],
+            "next_cursor": list(self.next_cursor),
+            "cumulative_count": self.cumulative_count,
+            "is_final": self.is_final,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "MemoryListResponseFrame":
+        return cls(
+            [MemoryListItem.from_map(i) for i in m["items"]],
+            bytes(m["next_cursor"]),
+            m["cumulative_count"],
+            m["is_final"],
+        )
+
+
+# ===========================================================================
+# GRAPH_FETCH — full-agent typed-graph export.
+# ===========================================================================
+
+
+@dataclass
+class GraphNode:
+    """One graph node in a GRAPH_FETCH export. ``id`` is the 16-byte entity /
+    statement / memory id (a CBOR byte string); ``kind`` says which id-space it
+    is (0 = Entity, 1 = Statement, 2 = Memory). ``type_qname`` is the entity
+    type qname (e.g. ``brain:Person``), empty for non-entity nodes."""
+
+    id: bytes  # 16-byte byte string
+    kind: int  # 0 = Entity, 1 = Statement, 2 = Memory
+    label: str
+    type_qname: str  # empty for non-entity nodes
+
+    def to_map(self) -> dict:
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "label": self.label,
+            "type_qname": self.type_qname,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "GraphNode":
+        return cls(m["id"], m["kind"], m["label"], m["type_qname"])
+
+
+@dataclass
+class GraphEdge:
+    """One graph edge in a GRAPH_FETCH export. ``from_id`` / ``to_id`` are
+    16-byte byte-string ids; ``kind`` is the edge kind (0 = Relation, 1 = Fact,
+    2 = HasStatement, 3 = Mentions). ``label`` is the predicate / relation-type
+    label, empty for ``Mentions``."""
+
+    from_id: bytes  # 16-byte byte string
+    to_id: bytes  # 16-byte byte string
+    kind: int  # 0 = Relation, 1 = Fact, 2 = HasStatement, 3 = Mentions
+    label: str  # empty for Mentions
+
+    def to_map(self) -> dict:
+        return {
+            "from_id": self.from_id,
+            "to_id": self.to_id,
+            "kind": self.kind,
+            "label": self.label,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "GraphEdge":
+        return cls(m["from_id"], m["to_id"], m["kind"], m["label"])
+
+
+@dataclass
+class GraphFetchRequest:
+    """GRAPH_FETCH (``0x0163``). A paginated export of the caller's whole
+    ``(namespace, agent)`` typed graph as a node/edge set. The default layer is
+    the concept map (entity nodes + Relation/Fact edges); ``include_statements``
+    adds value-object statement nodes, ``include_memories`` adds source-memory
+    nodes. ``cursor`` / ``next_cursor`` are opaque byte blobs (CBOR arrays of
+    ints on the wire, not byte strings)."""
+
+    limit: int  # u32, validated server-side to 1..=500
+    cursor: bytes  # empty on first page; opaque continuation token otherwise
+    include_statements: bool
+    include_memories: bool
+    include_tombstoned: bool
+    # Effective identity this export runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m = {
+            "limit": self.limit,
+            "cursor": list(self.cursor),
+            "include_statements": self.include_statements,
+            "include_memories": self.include_memories,
+            "include_tombstoned": self.include_tombstoned,
+        }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "GraphFetchRequest":
+        act_as = m.get("act_as")
+        return cls(
+            m["limit"],
+            bytes(m["cursor"]),
+            m["include_statements"],
+            m["include_memories"],
+            m["include_tombstoned"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class GraphFetchResponseFrame:
+    """GRAPH_FETCH_RESP (``0x01E3``), one streamed frame. Nodes/edges may repeat
+    across pages (completeness, not disjointness) — dedup by id. Empty
+    ``next_cursor`` means exhausted (CBOR array of ints on the wire)."""
+
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    next_cursor: bytes  # opaque continuation token (CBOR array of ints)
+    is_final: bool
+
+    def to_map(self) -> dict:
+        return {
+            "nodes": [n.to_map() for n in self.nodes],
+            "edges": [e.to_map() for e in self.edges],
+            "next_cursor": list(self.next_cursor),
+            "is_final": self.is_final,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "GraphFetchResponseFrame":
+        return cls(
+            [GraphNode.from_map(n) for n in m["nodes"]],
+            [GraphEdge.from_map(e) for e in m["edges"]],
+            bytes(m["next_cursor"]),
+            m["is_final"],
+        )
 
 
 # ===========================================================================
@@ -1152,24 +2162,32 @@ class EntityCreateRequest:
     aliases: list[str]
     attributes_blob: list[int]  # Vec<u8> -> CBOR array of ints
     request_id: bytes
+    # Effective identity this entity-create runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "entity_type_id": self.entity_type_id,
             "canonical_name": self.canonical_name,
             "aliases": list(self.aliases),
             "attributes_blob": list(self.attributes_blob),
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EntityCreateRequest":
+        act_as = m.get("act_as")
         return cls(
             m["entity_type_id"],
             m["canonical_name"],
             list(m["aliases"]),
             list(m["attributes_blob"]),
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -1203,9 +2221,12 @@ class StatementCreateRequest:
     event_at_unix_nanos: int
     schema_version: int
     request_id: bytes
+    # Effective identity this statement-create runs as. Omitted from the CBOR
+    # map when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "kind": self.kind,
             "subject": self.subject,
             "predicate": self.predicate,
@@ -1219,9 +2240,13 @@ class StatementCreateRequest:
             "schema_version": self.schema_version,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "StatementCreateRequest":
+        act_as = m.get("act_as")
         return cls(
             m["kind"],
             m["subject"],
@@ -1235,6 +2260,7 @@ class StatementCreateRequest:
             m["event_at_unix_nanos"],
             m["schema_version"],
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -1272,9 +2298,12 @@ class RelationCreateRequest:
     valid_from_unix_nanos: int
     valid_to_unix_nanos: int
     request_id: bytes
+    # Effective identity this relation-create runs as. Omitted from the CBOR
+    # map when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "relation_type": self.relation_type,
             "from_entity": self.from_entity,
             "to_entity": self.to_entity,
@@ -1286,9 +2315,13 @@ class RelationCreateRequest:
             "valid_to_unix_nanos": self.valid_to_unix_nanos,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "RelationCreateRequest":
+        act_as = m.get("act_as")
         return cls(
             m["relation_type"],
             m["from_entity"],
@@ -1300,6 +2333,7 @@ class RelationCreateRequest:
             m["valid_from_unix_nanos"],
             m["valid_to_unix_nanos"],
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -1592,9 +2626,12 @@ class LinkRequest:
     weight: float  # f32
     request_id: bytes
     txn_id: Optional[bytes]
+    # Effective identity this link runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "source": self.source,
             "target": self.target,
             "kind": self.kind,
@@ -1602,10 +2639,22 @@ class LinkRequest:
             "request_id": self.request_id,
             "txn_id": self.txn_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "LinkRequest":
-        return cls(m["source"], m["target"], m["kind"], m["weight"], m["request_id"], m["txn_id"])
+        act_as = m.get("act_as")
+        return cls(
+            m["source"],
+            m["target"],
+            m["kind"],
+            m["weight"],
+            m["request_id"],
+            m["txn_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -1650,19 +2699,33 @@ class UnlinkRequest:
     kind: int
     request_id: bytes
     txn_id: Optional[bytes]
+    # Effective identity this unlink runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "source": self.source,
             "target": self.target,
             "kind": self.kind,
             "request_id": self.request_id,
             "txn_id": self.txn_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "UnlinkRequest":
-        return cls(m["source"], m["target"], m["kind"], m["request_id"], m["txn_id"])
+        act_as = m.get("act_as")
+        return cls(
+            m["source"],
+            m["target"],
+            m["kind"],
+            m["request_id"],
+            m["txn_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -1800,9 +2863,12 @@ class PlanRequest:
     context_filter: Optional[list[int]]
     request_id: Optional[bytes]
     txn_id: Optional[bytes]
+    # Effective identity this plan runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "start": self.start.to_cbor_value(),
             "goal": self.goal.to_cbor_value(),
             "budget": self.budget.to_map(),
@@ -1813,9 +2879,13 @@ class PlanRequest:
             "request_id": self.request_id,
             "txn_id": self.txn_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "PlanRequest":
+        act_as = m.get("act_as")
         return cls(
             PlanState.from_cbor_value(m["start"]),
             PlanState.from_cbor_value(m["goal"]),
@@ -1824,6 +2894,7 @@ class PlanRequest:
             None if m["context_filter"] is None else list(m["context_filter"]),
             m["request_id"],
             m["txn_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -1961,9 +3032,12 @@ class ReasonRequest:
     budget_wall_time_ms: int
     request_id: Optional[bytes]
     txn_id: Optional[bytes]
+    # Effective identity this reason runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "observation": self.observation.to_cbor_value(),
             "depth": self.depth,
             "confidence_threshold": round_f32(self.confidence_threshold),
@@ -1975,9 +3049,13 @@ class ReasonRequest:
             "request_id": self.request_id,
             "txn_id": self.txn_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "ReasonRequest":
+        act_as = m.get("act_as")
         return cls(
             ObservationInput.from_cbor_value(m["observation"]),
             m["depth"],
@@ -1987,6 +3065,7 @@ class ReasonRequest:
             m["budget_wall_time_ms"],
             m["request_id"],
             m["txn_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -3016,13 +4095,23 @@ class EntityGetRequest:
     """ENTITY_GET (``0x0131``). Fetch one entity by id."""
 
     entity_id: bytes
+    # Effective identity this get runs as. Omitted from the CBOR map when None so
+    # the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {"entity_id": self.entity_id}
+        m = {"entity_id": self.entity_id}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EntityGetRequest":
-        return cls(m["entity_id"])
+        act_as = m.get("act_as")
+        return cls(
+            m["entity_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -3050,9 +4139,12 @@ class EntityListRequest:
     include_merged: bool
     limit: int  # 1..=1000
     cursor: list[int]  # Vec<u8> -> array of ints
+    # Effective identity this list runs as. Omitted from the CBOR map when None
+    # so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "entity_type_id": self.entity_type_id,
             "name_prefix": self.name_prefix,
             "mention_count_min": self.mention_count_min,
@@ -3061,9 +4153,13 @@ class EntityListRequest:
             "limit": self.limit,
             "cursor": list(self.cursor),
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EntityListRequest":
+        act_as = m.get("act_as")
         return cls(
             m["entity_type_id"],
             m["name_prefix"],
@@ -3072,6 +4168,7 @@ class EntityListRequest:
             m["include_merged"],
             m["limit"],
             list(m["cursor"]),
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -3139,24 +4236,32 @@ class EntityResolveRequest:
     entity_type_hint: int  # 0 = no hint
     allow_create: bool
     request_id: bytes
+    # Effective identity this resolve runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "candidate_name": self.candidate_name,
             "context": self.context,
             "entity_type_hint": self.entity_type_hint,
             "allow_create": self.allow_create,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EntityResolveRequest":
+        act_as = m.get("act_as")
         return cls(
             m["candidate_name"],
             m["context"],
             m["entity_type_hint"],
             m["allow_create"],
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -3288,16 +4393,27 @@ class StatementGetRequest:
 
     statement_id: bytes
     follow_supersession: bool
+    # Effective identity this get runs as. Omitted from the CBOR map when None so
+    # the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "statement_id": self.statement_id,
             "follow_supersession": self.follow_supersession,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "StatementGetRequest":
-        return cls(m["statement_id"], m["follow_supersession"])
+        act_as = m.get("act_as")
+        return cls(
+            m["statement_id"],
+            m["follow_supersession"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -3332,9 +4448,12 @@ class StatementListRequest:
     include_tombstoned: bool
     limit: int
     cursor: list[int]  # Vec<u8> -> array of ints
+    # Effective identity this list runs as. Omitted from the CBOR map when None
+    # so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "subject": self.subject,
             "predicate": self.predicate,
             "kind": self.kind,
@@ -3346,9 +4465,13 @@ class StatementListRequest:
             "limit": self.limit,
             "cursor": list(self.cursor),
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "StatementListRequest":
+        act_as = m.get("act_as")
         return cls(
             m["subject"],
             m["predicate"],
@@ -3360,6 +4483,7 @@ class StatementListRequest:
             m["include_tombstoned"],
             m["limit"],
             list(m["cursor"]),
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -3476,9 +4600,12 @@ class RelationListFromRequest:
     include_tombstoned: bool
     limit: int
     cursor: list[int]  # Vec<u8> -> array of ints
+    # Effective identity this list runs as. Omitted from the CBOR map when None
+    # so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "from_entity": self.from_entity,
             "relation_type_filter": self.relation_type_filter,
             "time_range_start_unix_nanos": self.time_range_start_unix_nanos,
@@ -3488,9 +4615,13 @@ class RelationListFromRequest:
             "limit": self.limit,
             "cursor": list(self.cursor),
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "RelationListFromRequest":
+        act_as = m.get("act_as")
         return cls(
             m["from_entity"],
             m["relation_type_filter"],
@@ -3500,6 +4631,7 @@ class RelationListFromRequest:
             m["include_tombstoned"],
             m["limit"],
             list(m["cursor"]),
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -3542,9 +4674,12 @@ class RelationListToRequest:
     include_tombstoned: bool
     limit: int
     cursor: list[int]  # Vec<u8> -> array of ints
+    # Effective identity this list runs as. Omitted from the CBOR map when None
+    # so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "to_entity": self.to_entity,
             "relation_type_filter": self.relation_type_filter,
             "time_range_start_unix_nanos": self.time_range_start_unix_nanos,
@@ -3554,9 +4689,13 @@ class RelationListToRequest:
             "limit": self.limit,
             "cursor": list(self.cursor),
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "RelationListToRequest":
+        act_as = m.get("act_as")
         return cls(
             m["to_entity"],
             m["relation_type_filter"],
@@ -3566,6 +4705,7 @@ class RelationListToRequest:
             m["include_tombstoned"],
             m["limit"],
             list(m["cursor"]),
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -4170,16 +5310,27 @@ class RelationGetRequest:
 
     relation_id: bytes
     follow_supersession: bool
+    # Effective identity this get runs as. Omitted from the CBOR map when None so
+    # the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "relation_id": self.relation_id,
             "follow_supersession": self.follow_supersession,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "RelationGetRequest":
-        return cls(m["relation_id"], m["follow_supersession"])
+        act_as = m.get("act_as")
+        return cls(
+            m["relation_id"],
+            m["follow_supersession"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -4332,9 +5483,12 @@ class RelationTraverseRequest:
     time_at_unix_nanos: int
     include_superseded: bool
     request_id: bytes
+    # Effective identity this traversal runs as. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "start_entity": self.start_entity,
             "relation_types": list(self.relation_types),
             "direction": self.direction,
@@ -4344,9 +5498,13 @@ class RelationTraverseRequest:
             "include_superseded": self.include_superseded,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "RelationTraverseRequest":
+        act_as = m.get("act_as")
         return cls(
             m["start_entity"],
             list(m["relation_types"]),
@@ -4356,6 +5514,7 @@ class RelationTraverseRequest:
             m["time_at_unix_nanos"],
             m["include_superseded"],
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 

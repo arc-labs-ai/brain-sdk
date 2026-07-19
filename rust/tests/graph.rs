@@ -56,6 +56,7 @@ async fn serve_graph(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -174,6 +175,7 @@ async fn typed_graph_verbs_round_trip() {
 
     let entity = client
         .create_entity(&EntityCreateRequest {
+            act_as: None,
             entity_type_id: 1,
             canonical_name: "Ada Lovelace".to_string(),
             aliases: vec!["Ada".to_string()],
@@ -186,6 +188,7 @@ async fn typed_graph_verbs_round_trip() {
 
     let statement = client
         .create_statement(&StatementCreateRequest {
+            act_as: None,
             kind: StatementKindWire::Fact,
             subject: entity.entity_id,
             predicate: "born_in".to_string(),
@@ -206,6 +209,7 @@ async fn typed_graph_verbs_round_trip() {
 
     let relation = client
         .create_relation(&RelationCreateRequest {
+            act_as: None,
             relation_type: "collaborated_with".to_string(),
             from_entity: entity.entity_id,
             to_entity: ENTITY_ID,
@@ -369,7 +373,10 @@ fn read_side_types_round_trip() {
         },
     });
 
-    round_trip(&EntityGetRequest { entity_id: id(2) });
+    round_trip(&EntityGetRequest {
+        entity_id: id(2),
+        act_as: None,
+    });
     round_trip(&EntityGetResponse {
         entity: sample_entity_view(),
     });
@@ -381,6 +388,7 @@ fn read_side_types_round_trip() {
         include_merged: false,
         limit: 50,
         cursor: Vec::new(),
+        act_as: None,
     });
     round_trip(&EntityListResponseFrame {
         items: vec![EntityListItem {
@@ -397,6 +405,7 @@ fn read_side_types_round_trip() {
         entity_type_hint: 1,
         allow_create: true,
         request_id: id(30),
+        act_as: None,
     });
     round_trip(&EntityResolveResponse {
         outcome: ResolutionOutcomeWire::Resolved,
@@ -418,6 +427,7 @@ fn read_side_types_round_trip() {
     round_trip(&StatementGetRequest {
         statement_id: id(20),
         follow_supersession: true,
+        act_as: None,
     });
     round_trip(&StatementGetResponse {
         statement: sample_statement_view(),
@@ -434,6 +444,7 @@ fn read_side_types_round_trip() {
         include_tombstoned: false,
         limit: 100,
         cursor: vec![1, 2, 3],
+        act_as: None,
     });
     round_trip(&StatementListResponseFrame {
         items: vec![sample_statement_view()],
@@ -451,6 +462,7 @@ fn read_side_types_round_trip() {
         include_tombstoned: false,
         limit: 100,
         cursor: Vec::new(),
+        act_as: None,
     });
     round_trip(&RelationListFromResponseFrame {
         items: vec![sample_relation_view()],
@@ -467,6 +479,7 @@ fn read_side_types_round_trip() {
         include_tombstoned: false,
         limit: 100,
         cursor: Vec::new(),
+        act_as: None,
     });
     round_trip(&RelationListToResponseFrame {
         items: vec![sample_relation_view()],
@@ -547,6 +560,7 @@ async fn serve_read(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -790,7 +804,10 @@ async fn read_side_verbs_over_connection() {
     assert!(caps.capabilities.rerank);
 
     let entity = client
-        .get_entity(&EntityGetRequest { entity_id: id(7) })
+        .get_entity(&EntityGetRequest {
+            entity_id: id(7),
+            act_as: None,
+        })
         .await
         .expect("get_entity");
     assert_eq!(entity.entity.canonical_name, "Alice");
@@ -802,6 +819,7 @@ async fn read_side_verbs_over_connection() {
             entity_type_hint: 1,
             allow_create: false,
             request_id: id(30),
+            act_as: None,
         })
         .await
         .expect("resolve_entity");
@@ -812,6 +830,7 @@ async fn read_side_verbs_over_connection() {
         .get_statement(&StatementGetRequest {
             statement_id: id(3),
             follow_supersession: false,
+            act_as: None,
         })
         .await
         .expect("get_statement");
@@ -844,6 +863,7 @@ async fn read_side_verbs_over_connection() {
             include_merged: false,
             limit: 100,
             cursor: Vec::new(),
+            act_as: None,
         })
         .await
         .expect("list_entities");
@@ -861,6 +881,7 @@ async fn read_side_verbs_over_connection() {
             include_tombstoned: false,
             limit: 100,
             cursor: Vec::new(),
+            act_as: None,
         })
         .await
         .expect("list_statements");
@@ -876,6 +897,7 @@ async fn read_side_verbs_over_connection() {
             include_tombstoned: false,
             limit: 100,
             cursor: Vec::new(),
+            act_as: None,
         })
         .await
         .expect("list_relations_from");
@@ -891,6 +913,7 @@ async fn read_side_verbs_over_connection() {
             include_tombstoned: false,
             limit: 100,
             cursor: Vec::new(),
+            act_as: None,
         })
         .await
         .expect("list_relations_to");
@@ -932,6 +955,7 @@ const TARGET_MEMORY: u128 = 0x8888_7777_6666_5555_4444_3333_2222_1111;
 #[test]
 fn edge_cognitive_types_round_trip() {
     round_trip(&LinkRequest {
+        act_as: None,
         source: SOURCE_MEMORY,
         target: TARGET_MEMORY,
         kind: EdgeKindWire::Supports,
@@ -948,6 +972,7 @@ fn edge_cognitive_types_round_trip() {
         already_existed: false,
     });
     round_trip(&UnlinkRequest {
+        act_as: None,
         source: SOURCE_MEMORY,
         target: TARGET_MEMORY,
         kind: EdgeKindWire::Contradicts,
@@ -962,6 +987,7 @@ fn edge_cognitive_types_round_trip() {
     });
 
     round_trip(&PlanRequest {
+        act_as: None,
         start: PlanState::ByMemoryId(SOURCE_MEMORY),
         goal: PlanState::ByText("arrive at the goal".to_string()),
         budget: PlanBudget {
@@ -975,6 +1001,7 @@ fn edge_cognitive_types_round_trip() {
         txn_id: None,
     });
     round_trip(&PlanRequest {
+        act_as: None,
         start: PlanState::ByVector {
             offset: 0,
             dim: 384,
@@ -1012,6 +1039,7 @@ fn edge_cognitive_types_round_trip() {
     });
 
     round_trip(&ReasonRequest {
+        act_as: None,
         observation: ObservationInput::ByText("the lights are off".to_string()),
         depth: 4,
         confidence_threshold: 0.6,
@@ -1022,6 +1050,7 @@ fn edge_cognitive_types_round_trip() {
         txn_id: None,
     });
     round_trip(&ReasonRequest {
+        act_as: None,
         observation: ObservationInput::ByMemoryId(SOURCE_MEMORY),
         depth: 0,
         confidence_threshold: 0.0,
@@ -1079,6 +1108,7 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -1222,6 +1252,7 @@ async fn edge_cognitive_verbs_over_connection() {
 
     let linked = client
         .link(&LinkRequest {
+            act_as: None,
             source: SOURCE_MEMORY,
             target: TARGET_MEMORY,
             kind: EdgeKindWire::Supports,
@@ -1236,6 +1267,7 @@ async fn edge_cognitive_verbs_over_connection() {
 
     let unlinked = client
         .unlink(&UnlinkRequest {
+            act_as: None,
             source: SOURCE_MEMORY,
             target: TARGET_MEMORY,
             kind: EdgeKindWire::Contradicts,
@@ -1248,6 +1280,7 @@ async fn edge_cognitive_verbs_over_connection() {
 
     // PLAN: flattened (steps across both frames) + frames pair.
     let plan_req = PlanRequest {
+        act_as: None,
         start: PlanState::ByMemoryId(SOURCE_MEMORY),
         goal: PlanState::ByMemoryId(TARGET_MEMORY),
         budget: PlanBudget {
@@ -1268,6 +1301,7 @@ async fn edge_cognitive_verbs_over_connection() {
     // REASON: flattened (inferences in the single frame).
     let inferences = client
         .reason(&ReasonRequest {
+            act_as: None,
             observation: ObservationInput::ByText("the lights are off".to_string()),
             depth: 4,
             confidence_threshold: 0.6,
@@ -1352,6 +1386,7 @@ async fn serve_txn(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,

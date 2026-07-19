@@ -46,6 +46,15 @@ import {
   type LinkResponse,
   type MaterializeProceduralRequest,
   type MaterializeProceduralResponse,
+  type MemoryInspectRequest,
+  type MemoryInspectResponse,
+  type MemoryListItem,
+  type MemoryListRequest,
+  type MemoryListResponseFrame,
+  type GraphNode,
+  type GraphEdge,
+  type GraphFetchRequest,
+  type GraphFetchResponseFrame,
   type PlanRequest,
   type PlanResponseFrame,
   type PlanStep,
@@ -97,6 +106,9 @@ import {
   decodeGetCapabilitiesResponse,
   decodeLinkResponse,
   decodeMaterializeProceduralResponse,
+  decodeMemoryInspectResponse,
+  decodeMemoryListResponse,
+  decodeGraphFetchResponse,
   decodePlanResponse,
   decodeReasonResponse,
   decodeRecallResponse,
@@ -181,6 +193,9 @@ import {
   encodeGetCapabilities,
   encodeLink,
   encodeMaterializeProcedural,
+  encodeMemoryInspect,
+  encodeMemoryList,
+  encodeGraphFetch,
   encodePlan,
   encodeReason,
   encodeRecall,
@@ -414,6 +429,75 @@ export class BrainClient {
       }
       return decodeRecallResponse(frame.payload);
     });
+  }
+
+  /**
+   * List memories (MEMORY_LIST), flattening every streamed frame's `items` into
+   * one ordered list. A pure paginated enumeration of the caller's
+   * `(namespace, agent)` memories — no query, no ranking. For the raw streamed
+   * frames (cursors, cumulative counts, `isFinal`), use {@link memoryListFrames}.
+   */
+  async memoryList(request: MemoryListRequest): Promise<MemoryListItem[]> {
+    const frames = await this.memoryListFrames(request);
+    return frames.flatMap((f) => f.items);
+  }
+
+  /**
+   * List memories, returning each decoded MEMORY_LIST_RESP frame as streamed
+   * (preserving `nextCursor` / `cumulativeCount` / `isFinal`).
+   */
+  async memoryListFrames(request: MemoryListRequest): Promise<MemoryListResponseFrame[]> {
+    return this.streamed(
+      Opcode.MemoryListReq,
+      Opcode.MemoryListResp,
+      "MEMORY_LIST_RESP",
+      encodeMemoryList(request),
+      decodeMemoryListResponse,
+    );
+  }
+
+  /**
+   * Inspect one memory's durable write-artifact bundle (MEMORY_INSPECT):
+   * the embedding vector, redb record, analyzed keyword terms, write-time HyPE
+   * questions, and the extracted knowledge graph. Single-shot — the reply
+   * carries the whole bundle. `found = false` (with an empty `artifact`) when no
+   * memory / no bundle exists for the id.
+   */
+  async memoryInspect(request: MemoryInspectRequest): Promise<MemoryInspectResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.MemoryInspectReq,
+      encodeMemoryInspect(request),
+    );
+    this.expect(frame.opcode, Opcode.MemoryInspectResp, "MEMORY_INSPECT_RESP");
+    return decodeMemoryInspectResponse(frame.payload);
+  }
+
+  /**
+   * Export the caller's typed graph (GRAPH_FETCH), flattening every streamed
+   * frame's nodes + edges into two ordered lists. Nodes/edges may repeat across
+   * pages (completeness, not disjointness) — dedup by id if needed. For the raw
+   * streamed frames (cursors, `isFinal`), use {@link graphFetchFrames}.
+   */
+  async graphFetch(request: GraphFetchRequest): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
+    const frames = await this.graphFetchFrames(request);
+    return {
+      nodes: frames.flatMap((f) => f.nodes),
+      edges: frames.flatMap((f) => f.edges),
+    };
+  }
+
+  /**
+   * Export the typed graph, returning each decoded GRAPH_FETCH_RESP frame as
+   * streamed (preserving `nextCursor` / `isFinal`).
+   */
+  async graphFetchFrames(request: GraphFetchRequest): Promise<GraphFetchResponseFrame[]> {
+    return this.streamed(
+      Opcode.GraphFetchReq,
+      Opcode.GraphFetchResp,
+      "GRAPH_FETCH_RESP",
+      encodeGraphFetch(request),
+      decodeGraphFetchResponse,
+    );
   }
 
   /** Forget a memory (soft tombstone or hard zeroing, per the request). */

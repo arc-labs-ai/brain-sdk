@@ -48,6 +48,7 @@ async fn serve_recall_forget(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -73,6 +74,7 @@ async fn serve_recall_forget(mut sock: TcpStream) {
         is_final: false,
         cumulative_count: 1,
         estimated_remaining: Some(1),
+        trace: None,
     };
     write_streamed(&mut sock, Opcode::RecallResp, sid, &first, false).await;
 
@@ -82,6 +84,7 @@ async fn serve_recall_forget(mut sock: TcpStream) {
         is_final: true,
         cumulative_count: 2,
         estimated_remaining: Some(0),
+        trace: None,
     };
     write_streamed(&mut sock, Opcode::RecallResp, sid, &second, true).await;
 

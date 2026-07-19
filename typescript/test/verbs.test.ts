@@ -94,6 +94,7 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
       canReason: true,
       canForget: true,
       canAdmin: false,
+      canActAs: false,
     },
     namespace: "",
     serverTimeUnixNanos: 1n,

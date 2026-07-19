@@ -18,6 +18,7 @@ use brain_db_sdk::wire::types::{
 async fn subject_entity(client: &brain_db_sdk::BrainClient) -> WireUuid {
     client
         .create_entity(&EntityCreateRequest {
+            act_as: None,
             entity_type_id: 1,
             canonical_name: "Ada".to_string(),
             aliases: vec![],
@@ -31,6 +32,7 @@ async fn subject_entity(client: &brain_db_sdk::BrainClient) -> WireUuid {
 
 fn fact(subject: WireUuid, object: &str) -> StatementCreateRequest {
     StatementCreateRequest {
+        act_as: None,
         kind: StatementKindWire::Fact,
         subject,
         predicate: "org:works_on".to_string(),

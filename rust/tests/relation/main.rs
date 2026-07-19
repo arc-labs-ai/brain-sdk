@@ -16,6 +16,7 @@ use brain_db_sdk::{new_id, BrainClient};
 async fn entity(client: &BrainClient, name: &str) -> WireUuid {
     client
         .create_entity(&EntityCreateRequest {
+            act_as: None,
             entity_type_id: 1,
             canonical_name: name.to_string(),
             aliases: vec![],
@@ -29,6 +30,7 @@ async fn entity(client: &BrainClient, name: &str) -> WireUuid {
 
 fn relation(from: WireUuid, to: WireUuid) -> RelationCreateRequest {
     RelationCreateRequest {
+        act_as: None,
         relation_type: "org:collaborated_with".to_string(),
         from_entity: from,
         to_entity: to,
@@ -58,6 +60,7 @@ async fn get_supersede_tombstone() {
         .get_relation(&RelationGetRequest {
             relation_id: rel.relation_id,
             follow_supersession: false,
+            act_as: None,
         })
         .await
         .expect("get relation");
@@ -108,6 +111,7 @@ async fn traverse_from_entity() {
             time_at_unix_nanos: 0,
             include_superseded: false,
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("traverse");

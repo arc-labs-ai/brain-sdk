@@ -16,10 +16,12 @@ from typing import Optional
 
 from .client import new_id
 from .wire.types import (
+    ActAs,
     EncodeRequest,
     ForgetMode,
     ForgetRequest,
     RecallRequest,
+    WaitMode,
 )
 
 
@@ -33,6 +35,9 @@ class EncodeBuilder:
     text: str
     context_id: int = 0
     occurred_at_unix_nanos: Optional[int] = None
+    act_as_identity: Optional[ActAs] = None
+    wait_mode: int = WaitMode.ACK
+    allow_dups: bool = False
 
     def context(self, context_id: int) -> "EncodeBuilder":
         """Store the memory under a specific context id instead of the default 0."""
@@ -45,6 +50,39 @@ class EncodeBuilder:
         self.occurred_at_unix_nanos = occurred_at_unix_nanos
         return self
 
+    def wait(self, mode: int = WaitMode.ACK) -> "EncodeBuilder":
+        """Set the write-completion mode. ``WaitMode.ACK`` (the default)
+        returns as soon as the write is durable and the async derivation
+        stages run in the background; ``WaitMode.DERIVED`` blocks until they
+        complete and the :class:`EncodeResponse` carries a populated ``trace``
+        describing the write timeline and the artifacts it produced."""
+        self.wait_mode = mode
+        return self
+
+    def derived(self) -> "EncodeBuilder":
+        """Convenience for ``wait(WaitMode.DERIVED)``: block until async
+        derivation completes and return the full synchronous write trace."""
+        self.wait_mode = WaitMode.DERIVED
+        return self
+
+    def act_as(self, namespace: str, agent_id: bytes) -> "EncodeBuilder":
+        """Run this encode as the effective identity ``(namespace, agent_id)``
+        on behalf of the connection principal. Requires the connection's key to
+        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
+        Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
+        return self
+
+    def allow_duplicates(self, allow: bool = True) -> "EncodeBuilder":
+        """Opt out of content dedup and force a distinct memory. By default
+        Brain dedupes byte-identical text on ``(agent_id, context_id,
+        BLAKE3(text))`` and returns the existing memory (``was_deduplicated =
+        True``) without writing. Call this when the same text is a genuinely
+        distinct observation that must coexist (e.g. the same fact re-stated at
+        a different ``occurred_at``)."""
+        self.allow_dups = allow
+        return self
+
     def build(self) -> EncodeRequest:
         """Finish into a wire :class:`EncodeRequest`, minting a fresh id."""
         return EncodeRequest(
@@ -53,6 +91,9 @@ class EncodeBuilder:
             request_id=new_id(),
             txn_id=None,
             occurred_at_unix_nanos=self.occurred_at_unix_nanos,
+            act_as=self.act_as_identity,
+            wait=self.wait_mode,
+            allow_duplicates=self.allow_dups,
         )
 
 
@@ -75,6 +116,8 @@ class RecallBuilder:
     include_edges: bool = True
     include_graph: bool = False
     include_text: bool = True
+    trace_enabled: bool = False
+    act_as_identity: Optional[ActAs] = None
 
     def subject(self, subject_name: str) -> "RecallBuilder":
         """Name the entity a fact lookup is about, so recall resolves the
@@ -128,6 +171,21 @@ class RecallBuilder:
         self.include_text = include
         return self
 
+    def trace(self, trace: bool = True) -> "RecallBuilder":
+        """Ask for the per-stage read-pipeline trace on the final frame
+        (``RecallResponseFrame.trace``). Off by default; costs nothing when
+        off."""
+        self.trace_enabled = trace
+        return self
+
+    def act_as(self, namespace: str, agent_id: bytes) -> "RecallBuilder":
+        """Run this recall as the effective identity ``(namespace, agent_id)``
+        on behalf of the connection principal. Requires the connection's key to
+        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
+        Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
+        return self
+
     def build(self) -> RecallRequest:
         """Finish into a wire :class:`RecallRequest`, minting a fresh id."""
         return RecallRequest(
@@ -145,6 +203,8 @@ class RecallBuilder:
             include_text=self.include_text,
             request_id=new_id(),
             txn_id=None,
+            trace=self.trace_enabled,
+            act_as=self.act_as_identity,
         )
 
 
@@ -155,6 +215,7 @@ class ForgetBuilder:
 
     memory_id: int
     mode: int = ForgetMode.SOFT
+    act_as_identity: Optional[ActAs] = None
 
     def hard(self) -> "ForgetBuilder":
         """Switch to a hard forget: zero the memory immediately, no grace
@@ -167,6 +228,14 @@ class ForgetBuilder:
         self.mode = mode
         return self
 
+    def act_as(self, namespace: str, agent_id: bytes) -> "ForgetBuilder":
+        """Run this forget as the effective identity ``(namespace, agent_id)``
+        on behalf of the connection principal. Requires the connection's key to
+        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
+        Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
+        return self
+
     def build(self) -> ForgetRequest:
         """Finish into a wire :class:`ForgetRequest`, minting a fresh id."""
         return ForgetRequest(
@@ -174,6 +243,7 @@ class ForgetBuilder:
             mode=self.mode,
             request_id=new_id(),
             txn_id=None,
+            act_as=self.act_as_identity,
         )
 
 

@@ -137,10 +137,32 @@ fn payload_cases_round_trip() {
 
     // v1 verbs.
     check_payload::<EncodeRequest>("req_encode");
+    check_payload::<EncodeRequest>("req_encode_trace");
+    check_payload::<EncodeRequest>("req_encode_allow_duplicates");
     check_payload::<RecallRequest>("req_recall");
     check_payload::<ForgetRequest>("req_forget");
+
+    // Per-request `act_as` effective identity on the data-plane ops. The
+    // non-act_as goldens above prove the field is omitted from the wire when
+    // absent; these prove it round-trips byte-exact when present.
+    check_payload::<EncodeRequest>("req_encode_act_as");
+    check_payload::<RecallRequest>("req_recall_act_as");
+    check_payload::<ForgetRequest>("req_forget_act_as");
+    check_payload::<PlanRequest>("req_plan_act_as");
+    check_payload::<ReasonRequest>("req_reason_act_as");
+    check_payload::<EntityCreateRequest>("req_entity_create_act_as");
+    check_payload::<AuthOkPayload>("resp_auth_ok_act_as");
+    check_payload::<ErrorResponse>("resp_error_act_as_denied");
     check_payload::<EncodeResponse>("resp_encode");
+    check_payload::<EncodeResponse>("resp_encode_trace");
     check_payload::<RecallResponseFrame>("resp_recall");
+    check_payload::<RecallResponseFrame>("resp_recall_trace");
+    check_payload::<MemoryListRequest>("req_memory_list");
+    check_payload::<MemoryListResponseFrame>("resp_memory_list");
+    check_payload::<MemoryInspectRequest>("req_memory_inspect");
+    check_payload::<MemoryInspectResponse>("resp_memory_inspect");
+    check_payload::<GraphFetchRequest>("req_graph_fetch");
+    check_payload::<GraphFetchResponseFrame>("resp_graph_fetch");
     check_payload::<ForgetResponse>("resp_forget");
 
     // Typed-graph ops in the corpus.

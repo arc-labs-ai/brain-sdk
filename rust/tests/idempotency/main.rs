@@ -39,6 +39,7 @@ async fn repeated_create_entity_is_idempotent() {
     let (client, _agent) = it.connect_fresh().await;
 
     let req = EntityCreateRequest {
+        act_as: None,
         entity_type_id: 1,
         canonical_name: "Idempotent Ada".to_string(),
         aliases: vec![],

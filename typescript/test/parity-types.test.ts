@@ -182,6 +182,7 @@ describe("LINK / UNLINK round-trip", () => {
       weight: 0.5,
       requestId: ID16(0xaa),
       txnId: null,
+      actAs: null,
     });
     rt(encodeLinkResponse, decodeLinkResponse, {
       source: 1n,
@@ -200,6 +201,7 @@ describe("LINK / UNLINK round-trip", () => {
       kind: EdgeKindWire.Contradicts,
       requestId: ID16(0xbb),
       txnId: ID16(0xcc),
+      actAs: null,
     });
     rt(encodeUnlinkResponse, decodeUnlinkResponse, {
       source: 3n,
@@ -220,6 +222,7 @@ describe("PLAN round-trip", () => {
       contextFilter: [1n, 2n],
       requestId: ID16(0x01),
       txnId: null,
+      actAs: null,
     });
     rt(encodePlan, decodePlan, {
       start: { kind: "ByText", text: "start" },
@@ -229,6 +232,7 @@ describe("PLAN round-trip", () => {
       contextFilter: null,
       requestId: null,
       txnId: null,
+      actAs: null,
     });
   });
 
@@ -269,6 +273,7 @@ describe("REASON round-trip", () => {
       budgetWallTimeMs: 2000,
       requestId: ID16(0x02),
       txnId: null,
+      actAs: null,
     });
     rt(encodeReasonResponse, decodeReasonResponse, {
       inferences: [
@@ -343,6 +348,7 @@ describe("ENTITY read-side round-trip", () => {
       includeMerged: false,
       limit: 100,
       cursor: new Uint8Array(0),
+      actAs: null,
     });
     rt(encodeEntityListResponse, decodeEntityListResponse, {
       items: [{ entity: ENTITY_VIEW }],
@@ -359,6 +365,7 @@ describe("ENTITY read-side round-trip", () => {
       entityTypeHint: 1,
       allowCreate: true,
       requestId: ID16(0x30),
+      actAs: null,
     });
     rt(encodeEntityResolveResponse, decodeEntityResolveResponse, {
       outcome: ResolutionOutcomeWire.Resolved,
@@ -384,6 +391,7 @@ describe("STATEMENT read-side round-trip", () => {
     rt(encodeStatementGet, decodeStatementGet, {
       statementId: ID16(0x22),
       followSupersession: true,
+      actAs: null,
     });
     rt(encodeStatementGetResponse, decodeStatementGetResponse, {
       statement: STATEMENT_VIEW,
@@ -400,6 +408,7 @@ describe("STATEMENT read-side round-trip", () => {
       includeTombstoned: false,
       limit: 50,
       cursor: new Uint8Array(0),
+      actAs: null,
     });
     rt(encodeStatementListResponse, decodeStatementListResponse, {
       items: [STATEMENT_VIEW],
@@ -421,6 +430,7 @@ describe("RELATION read-side round-trip", () => {
       includeTombstoned: false,
       limit: 25,
       cursor: new Uint8Array(0),
+      actAs: null,
     });
     rt(encodeRelationListFromResponse, decodeRelationListFromResponse, {
       items: [RELATION_VIEW],
@@ -437,6 +447,7 @@ describe("RELATION read-side round-trip", () => {
       includeTombstoned: true,
       limit: 25,
       cursor: new Uint8Array([7]),
+      actAs: null,
     });
   });
 });

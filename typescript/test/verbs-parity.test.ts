@@ -84,6 +84,7 @@ async function handshake(chan: FrameChannel): Promise<Uint8Array> {
       canReason: true,
       canForget: true,
       canAdmin: true,
+      canActAs: false,
     },
     namespace: "",
     serverTimeUnixNanos: 1n,
@@ -339,7 +340,7 @@ describe("parity verbs over a mock server", () => {
       expect(caps.capabilities.vectorDim).toBe(384);
       expect(caps.capabilities.rerank).toBe(true);
 
-      const entity = await client.getEntity({ entityId: ENTITY_ID });
+      const entity = await client.getEntity({ entityId: ENTITY_ID, actAs: null });
       expect(entity.entity.canonicalName).toBe("Ada Lovelace");
 
       const resolved = await client.resolveEntity({
@@ -348,6 +349,7 @@ describe("parity verbs over a mock server", () => {
         entityTypeHint: 1,
         allowCreate: false,
         requestId: new Uint8Array(16),
+        actAs: null,
       });
       expect(resolved.outcome).toBe(ResolutionOutcomeWire.Resolved);
       expect([...resolved.resolvedEntity]).toEqual([...ENTITY_ID]);
@@ -359,6 +361,7 @@ describe("parity verbs over a mock server", () => {
         weight: 0.5,
         requestId: new Uint8Array(16),
         txnId: null,
+        actAs: null,
       });
       expect(link.alreadyExisted).toBe(false);
 
@@ -375,6 +378,7 @@ describe("parity verbs over a mock server", () => {
         includeMerged: false,
         limit: 100,
         cursor: new Uint8Array(0),
+        actAs: null,
       });
       expect(entities.length).toBe(2);
       expect(entities[0]!.entity.canonicalName).toBe("e1");
@@ -388,6 +392,7 @@ describe("parity verbs over a mock server", () => {
         contextFilter: null,
         requestId: null,
         txnId: null,
+        actAs: null,
       });
       expect(steps.length).toBe(2);
       expect(steps[1]!.text).toBe("goal");

@@ -28,8 +28,11 @@ use crate::wire::types::{
     EntityListItem, EntityListRequest, EntityListResponseFrame, EntityResolveRequest,
     EntityResolveResponse, ExtractorListRequest, ExtractorListResponseFrame, ForgetRequest,
     ForgetResponse, GetCapabilitiesRequest,
-    GetCapabilitiesResponse, HelloCapabilities, HelloPayload, InferenceStep, LinkRequest,
+    GetCapabilitiesResponse, GraphEdge, GraphFetchRequest, GraphFetchResponseFrame, GraphNode,
+    HelloCapabilities, HelloPayload, InferenceStep, LinkRequest,
     LinkResponse, MaterializeProceduralRequest, MaterializeProceduralResponse, MemoryResult,
+    MemoryInspectRequest, MemoryInspectResponse, MemoryListItem, MemoryListRequest,
+    MemoryListResponseFrame,
     MtlsClaim, PlanRequest, PlanResponseFrame, PlanStep,
     ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame, RelationCreateRequest,
     RelationCreateResponse, RelationListFromRequest, RelationListFromResponseFrame,
@@ -687,6 +690,25 @@ impl BrainClient {
         .await
     }
 
+    /// Inspect one memory's durable write-artifact bundle (MEMORY_INSPECT):
+    /// its text plus the per-stage record of what the write built — the
+    /// embedding vector, the stored record, the analyzed keyword terms, the
+    /// write-time HyPE questions, and the extracted knowledge graph. Returns
+    /// `found = false` (with an empty `artifact`) for an id that doesn't exist
+    /// under the caller's scope.
+    pub async fn memory_inspect(
+        &self,
+        request: &MemoryInspectRequest,
+    ) -> Result<MemoryInspectResponse> {
+        self.unary(
+            Opcode::MemoryInspectReq,
+            Opcode::MemoryInspectResp,
+            "MEMORY_INSPECT_RESP",
+            request,
+        )
+        .await
+    }
+
     /// Resolve a candidate name to an entity (ENTITY_RESOLVE). The server
     /// currently requires `entity_type_hint != 0` and resolves by exact
     /// canonical name; `allow_create` lets it mint a new entity on a miss.
@@ -766,6 +788,69 @@ impl BrainClient {
             Opcode::EntityListReq,
             Opcode::EntityListResp,
             "ENTITY_LIST_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// List memories (MEMORY_LIST), flattening every streamed frame's `items`
+    /// into one ordered list. This is a pure paginated enumeration of the
+    /// caller's `(namespace, agent)` memories — no query, no ranking. For the
+    /// raw streamed frames (cursors, cumulative counts, `is_final`), use
+    /// [`Self::memory_list_frames`].
+    pub async fn memory_list(&self, request: &MemoryListRequest) -> Result<Vec<MemoryListItem>> {
+        let frames = self.memory_list_frames(request).await?;
+        let mut items = Vec::new();
+        for frame in frames {
+            items.extend(frame.items);
+        }
+        Ok(items)
+    }
+
+    /// List memories, returning each decoded MEMORY_LIST_RESP frame as streamed
+    /// (preserving `next_cursor`, `cumulative_count`, `is_final`).
+    pub async fn memory_list_frames(
+        &self,
+        request: &MemoryListRequest,
+    ) -> Result<Vec<MemoryListResponseFrame>> {
+        self.streamed(
+            Opcode::MemoryListReq,
+            Opcode::MemoryListResp,
+            "MEMORY_LIST_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Export the caller's typed graph (GRAPH_FETCH), flattening every streamed
+    /// frame's nodes + edges into two ordered lists. Nodes/edges may repeat
+    /// across pages (completeness, not disjointness) — dedup by id if needed.
+    /// For the raw streamed frames (cursors, `is_final`), use
+    /// [`Self::graph_fetch_frames`].
+    pub async fn graph_fetch(
+        &self,
+        request: &GraphFetchRequest,
+    ) -> Result<(Vec<GraphNode>, Vec<GraphEdge>)> {
+        let frames = self.graph_fetch_frames(request).await?;
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        for frame in frames {
+            nodes.extend(frame.nodes);
+            edges.extend(frame.edges);
+        }
+        Ok((nodes, edges))
+    }
+
+    /// Export the typed graph, returning each decoded GRAPH_FETCH_RESP frame as
+    /// streamed (preserving `next_cursor`, `is_final`).
+    pub async fn graph_fetch_frames(
+        &self,
+        request: &GraphFetchRequest,
+    ) -> Result<Vec<GraphFetchResponseFrame>> {
+        self.streamed(
+            Opcode::GraphFetchReq,
+            Opcode::GraphFetchResp,
+            "GRAPH_FETCH_RESP",
             request,
         )
         .await

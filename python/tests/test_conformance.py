@@ -47,11 +47,30 @@ PAYLOAD_TYPES = {
     "resp_auth_ok": t.AuthOkPayload,
     # v1 verbs.
     "req_encode": t.EncodeRequest,
+    "req_encode_trace": t.EncodeRequest,
+    "req_encode_allow_duplicates": t.EncodeRequest,
     "req_recall": t.RecallRequest,
     "req_forget": t.ForgetRequest,
     "resp_encode": t.EncodeResponse,
+    "resp_encode_trace": t.EncodeResponse,
     "resp_recall": t.RecallResponseFrame,
+    "resp_recall_trace": t.RecallResponseFrame,
+    "req_memory_list": t.MemoryListRequest,
+    "resp_memory_list": t.MemoryListResponseFrame,
+    "req_memory_inspect": t.MemoryInspectRequest,
+    "resp_memory_inspect": t.MemoryInspectResponse,
+    "req_graph_fetch": t.GraphFetchRequest,
+    "resp_graph_fetch": t.GraphFetchResponseFrame,
     "resp_forget": t.ForgetResponse,
+    # Per-request effective identity (act_as) variants.
+    "req_encode_act_as": t.EncodeRequest,
+    "req_recall_act_as": t.RecallRequest,
+    "req_forget_act_as": t.ForgetRequest,
+    "req_plan_act_as": t.PlanRequest,
+    "req_reason_act_as": t.ReasonRequest,
+    "req_entity_create_act_as": t.EntityCreateRequest,
+    "resp_auth_ok_act_as": t.AuthOkPayload,
+    "resp_error_act_as_denied": t.ErrorResponse,
     # Typed-graph ops.
     "req_entity_create": t.EntityCreateRequest,
     "resp_entity_create": t.EntityCreateResponse,
@@ -227,10 +246,10 @@ def test_frame_round_trip(name):
     assert rebuilt == bin_, f"{name}: re-encoded frame != .bin"
 
 
-def test_all_38_cases_present():
-    """The corpus has 54 .bin/.json pairs; every one must be covered."""
+def test_all_cases_present():
+    """The corpus has 72 .bin/.json pairs; every one must be covered."""
     index = _load_index()
-    assert len(index) == 54, f"expected 54 corpus cases, index has {len(index)}"
+    assert len(index) == 72, f"expected 72 corpus cases, index has {len(index)}"
     covered = set(PAYLOAD_TYPES) | set(FRAME_PAYLOAD_TYPES)
     names = {c["name"] for c in index}
     missing = names - covered

@@ -15,6 +15,7 @@ use brain_db_sdk::wire::types::{
 
 fn create(name: &str) -> EntityCreateRequest {
     EntityCreateRequest {
+        act_as: None,
         entity_type_id: 1,
         canonical_name: name.to_string(),
         aliases: vec![],
@@ -64,7 +65,10 @@ async fn update_then_rename_then_tombstone() {
     // Deep check: re-read from the server to prove the rename actually persisted
     // — not merely echoed back in the mutation response.
     let fetched = client
-        .get_entity(&EntityGetRequest { entity_id: id })
+        .get_entity(&EntityGetRequest {
+            entity_id: id,
+            act_as: None,
+        })
         .await
         .expect("get after rename")
         .entity;
@@ -86,7 +90,10 @@ async fn update_then_rename_then_tombstone() {
     // still fetchable by id; it's resolution/traversal that exclude it. So a
     // direct get must still succeed and return the same entity.
     let after = client
-        .get_entity(&EntityGetRequest { entity_id: id })
+        .get_entity(&EntityGetRequest {
+            entity_id: id,
+            act_as: None,
+        })
         .await
         .expect("tombstoned entity is still fetchable by id (soft)")
         .entity;

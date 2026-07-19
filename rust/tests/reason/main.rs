@@ -21,6 +21,7 @@ async fn reason_from_text_observation_round_trips() {
     let (client, _agent) = it.connect_fresh().await;
 
     let req = ReasonRequest {
+        act_as: None,
         observation: ObservationInput::ByText("the lights are off".to_string()),
         depth: 4,
         confidence_threshold: 0.6,
@@ -58,6 +59,7 @@ async fn reason_from_memory_observation_round_trips() {
         .memory_id;
 
     let req = ReasonRequest {
+        act_as: None,
         observation: ObservationInput::ByMemoryId(obs),
         depth: 2,
         confidence_threshold: 0.0,

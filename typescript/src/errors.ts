@@ -10,7 +10,7 @@
  * future retry policy can branch on it.
  */
 
-import { ErrorCategoryWire, type ErrorResponse } from "./wire/types.js";
+import { ErrorCategoryWire, WireErrorCode, type ErrorResponse } from "./wire/types.js";
 
 /** Base class for every client-side failure. */
 export class BrainError extends Error {
@@ -96,4 +96,15 @@ export function isRetryable(err: unknown): boolean {
     );
   }
   return false;
+}
+
+/**
+ * Whether the failure is an `act_as` authorization denial (`ActAsDenied`,
+ * `0x0033`): the connection principal lacks the `canActAs` grant, or the
+ * requested `act_as` namespace is outside its allowlist. Never retryable —
+ * the fix is a differently-scoped credential, not a repeat. Lets a pooled
+ * multi-tenant caller distinguish this from an ordinary permission denial.
+ */
+export function isActAsDenied(err: unknown): boolean {
+  return err instanceof ServerError && err.code === WireErrorCode.ActAsDenied;
 }

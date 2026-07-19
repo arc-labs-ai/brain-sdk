@@ -12,7 +12,7 @@ policy can branch on it.
 
 from __future__ import annotations
 
-from .wire.types import ErrorResponse
+from .wire.types import ErrorCode, ErrorResponse
 
 # Error categories that a retry could plausibly clear (mirrors the wire
 # ``ErrorCategory`` discriminants: ResourceExhausted = 6, Unavailable = 8).
@@ -55,7 +55,12 @@ class VersionMismatch(BrainError):
 
 class ServerError(BrainError):
     """The server returned a structured ERROR frame. The full payload is
-    preserved for code/category branching and ``retry_after_ms``."""
+    preserved for code/category branching and ``retry_after_ms``.
+
+    Construct via :meth:`from_response` to get the most specific subclass for
+    the wire ``code`` (e.g. :class:`ActAsDenied`); calling ``ServerError(...)``
+    directly always yields the base class.
+    """
 
     def __init__(self, response: ErrorResponse) -> None:
         super().__init__(
@@ -67,6 +72,26 @@ class ServerError(BrainError):
         self.message = response.message
         self.retry_after_ms = response.retry_after_ms
         self.response = response
+
+    @staticmethod
+    def from_response(response: ErrorResponse) -> "ServerError":
+        """Build the most specific :class:`ServerError` subclass for the wire
+        ``code``, falling back to the base class for unmapped codes."""
+        subclass = _CODE_TO_ERROR.get(response.code, ServerError)
+        return subclass(response)
+
+
+class ActAsDenied(ServerError):
+    """The connection principal is not entitled to run the op under the
+    per-request ``act_as`` identity — it lacks ``can_act_as`` or the requested
+    namespace is outside its allowlist (wire code ``0x0033``)."""
+
+
+# Wire error code -> ServerError subclass. Codes not listed here surface as the
+# base ``ServerError``.
+_CODE_TO_ERROR: dict[int, type[ServerError]] = {
+    ErrorCode.ACT_AS_DENIED: ActAsDenied,
+}
 
 
 def is_retryable(exc: BaseException) -> bool:
@@ -89,5 +114,6 @@ __all__ = [
     "BrainTimeout",
     "VersionMismatch",
     "ServerError",
+    "ActAsDenied",
     "is_retryable",
 ]

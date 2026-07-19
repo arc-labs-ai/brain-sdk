@@ -24,6 +24,7 @@ import {
   type AuthOkPayload,
   type EncodeResponse,
   type EncodeRequest,
+  WaitMode,
   MemoryKindWire,
   StageKind,
   type WelcomePayload,
@@ -94,6 +95,7 @@ async function serveOne(sock: net.Socket): Promise<void> {
       canReason: true,
       canForget: true,
       canAdmin: false,
+      canActAs: false,
     },
     namespace: "acme",
     serverTimeUnixNanos: 1_700_000_000_000_000_000n,
@@ -143,6 +145,8 @@ function sampleEncodeRequest(): EncodeRequest {
     requestId: newId(),
     txnId: null,
     occurredAtUnixNanos: null,
+    actAs: null,
+    wait: WaitMode.Ack,
   };
 }
 

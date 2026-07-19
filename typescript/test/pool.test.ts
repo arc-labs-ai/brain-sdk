@@ -19,6 +19,7 @@ import { Opcode } from "../src/wire/opcode.js";
 import {
   type AuthOkPayload,
   type EncodeRequest,
+  WaitMode,
   type EncodeResponse,
   MemoryKindWire,
   type WelcomePayload,
@@ -62,6 +63,7 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
       canReason: true,
       canForget: true,
       canAdmin: false,
+      canActAs: false,
     },
     namespace: "",
     serverTimeUnixNanos: 1n,
@@ -109,6 +111,8 @@ function request(): EncodeRequest {
     requestId: newId(),
     txnId: null,
     occurredAtUnixNanos: null,
+    actAs: null,
+    wait: WaitMode.Ack,
   };
 }
 

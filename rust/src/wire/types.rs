@@ -116,6 +116,11 @@ pub struct AgentPermissions {
     pub can_reason: bool,
     pub can_forget: bool,
     pub can_admin: bool,
+    /// Authorizes the connection to run an op *on behalf of another identity*
+    /// via the per-request `act_as` field. Held only by a trusted service
+    /// principal (an edge / gateway); a normal agent's key never carries it,
+    /// and it does not widen what the connection's own agent may do.
+    pub can_act_as: bool,
 }
 
 /// Server-declared parameters carried in WELCOME.
@@ -173,6 +178,29 @@ pub struct AuthOkPayload {
 }
 
 // ===========================================================================
+// Per-request effective identity (`act_as`).
+// ===========================================================================
+
+/// Per-request effective-identity selector carried on data-plane op requests.
+/// When present, the op runs as this `(namespace, agent_id)` on behalf of the
+/// authenticated connection principal; when the field is absent (the common
+/// case, omitted on the wire) the op runs as the connection's own key-bound
+/// identity.
+///
+/// Honored server-side only when the connection principal holds `can_act_as`
+/// and `namespace` lies within its granted allowlist — otherwise the op is
+/// rejected with [`ErrorCodeWire::ActAsDenied`]. This is the wire form only;
+/// the trust model is enforced by the server, not this codec.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActAs {
+    /// Effective namespace. Must be within the principal's allowlist.
+    pub namespace: String,
+    /// 16-byte effective agent id — a CBOR byte string on the wire.
+    #[serde(with = "serde_bytes")]
+    pub agent_id: WireUuid,
+}
+
+// ===========================================================================
 // ENCODE / ENCODE_VECTOR_DIRECT.
 // ===========================================================================
 
@@ -182,6 +210,35 @@ pub struct EdgeRequest {
     pub target: WireMemoryId,
     pub kind: EdgeKindWire,
     pub weight: f32,
+}
+
+/// Write-completion mode — how long a write op blocks before it returns.
+///
+/// API convention: writes take `wait` (this enum); reads take `trace: bool`.
+/// They are never both on one op. On a write, waiting and the trace payload are
+/// one decision — the only reason to wait for async derivation is to observe it —
+/// so a single `wait` knob controls both. On a read there is no async to wait
+/// for, so `trace` is a pure observability toggle with no timing effect.
+#[derive(
+    Clone, Copy, Debug, Default, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum WaitMode {
+    /// Return after the durable sync ack; async derivation runs in the
+    /// background. The fast default (omitted from the wire map).
+    #[default]
+    Ack = 0,
+    /// Block until async derivation completes, then return the full trace.
+    Derived = 1,
+}
+
+impl WaitMode {
+    /// `true` for the default [`WaitMode::Ack`] — used to omit the field from
+    /// the wire map in the common case.
+    #[must_use]
+    pub fn is_ack(&self) -> bool {
+        matches!(self, WaitMode::Ack)
+    }
 }
 
 /// ENCODE (`0x0020`).
@@ -194,6 +251,36 @@ pub struct EncodeRequest {
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
     pub occurred_at_unix_nanos: Option<u64>,
+    /// Effective identity this encode runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+    /// How long the write blocks before replying. This is the single completion
+    /// knob for writes (reads use `trace` instead — see [`WaitMode`]).
+    ///
+    /// - [`WaitMode::Ack`] (the default, omitted on the wire): return as soon as
+    ///   the WAL record is durable; async derivation runs in the background and
+    ///   the response's `trace` is `None`.
+    /// - [`WaitMode::Derived`]: block until async derivation completes, then
+    ///   return a populated `trace: EncodeTrace`.
+    #[serde(default, skip_serializing_if = "WaitMode::is_ack")]
+    pub wait: WaitMode,
+    /// Opt out of content dedup and force a distinct memory. Default `false`:
+    /// Brain dedupes text ENCODE on `(agent_id, context_id, BLAKE3(text))` — a
+    /// repeat of byte-identical text returns the existing MemoryId
+    /// (`was_deduplicated = true`) and writes nothing new. Set `true` when the
+    /// same text is a genuinely distinct observation that must coexist (e.g. the
+    /// same fact re-stated at a different `occurred_at`). Omitted on the wire in
+    /// the default (dedup-on) case.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_duplicates: bool,
+}
+
+/// `skip_serializing_if` predicate — omit `false` from the CBOR map so the
+/// default (dedup-on) encode stays byte-minimal and wire-compatible.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// ENCODE_VECTOR_DIRECT (`0x002A`). The embedding rides the trailing raw
@@ -236,6 +323,202 @@ pub struct EncodeResponse {
     pub embedding_model_fp: [u8; 16],
     pub pending_stages: Vec<StageKind>,
     pub has_active_schema: bool,
+    /// Full synchronous write-analysis trace, present only when the request
+    /// set `trace = true`; `None` otherwise (and absent from the wire map).
+    /// The same async stages are also observable on SUBSCRIBE keyed by `lsn`
+    /// + `pending_stages`; this field is the one-response alternative.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trace: Option<EncodeTrace>,
+}
+
+/// Full synchronous write-analysis trace for one ENCODE, present when the
+/// request opted in with `trace = true`. The ENCODE analog of `RecallTrace`:
+/// `stages` is the per-phase timeline (synchronous phases plus async
+/// derivation stages), and `artifacts` is what the write produced.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeTrace {
+    pub stages: Vec<EncodeTraceStage>,
+    pub artifacts: EncodeTraceArtifacts,
+    pub total_latency_us: u64,
+}
+
+/// One phase in an `EncodeTrace` timeline.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeTraceStage {
+    pub name: String,
+    pub status: EncodeTraceStageStatus,
+    pub latency_us: u64,
+    pub detail: String,
+    /// The concrete data this stage produced (embed → vector, persist →
+    /// record, extractor → graph, …). Present only when the caller set
+    /// `trace = true` and the stage produced inspectable output; absent from
+    /// the wire map otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<EncodeStageArtifact>,
+}
+
+/// Terminal status of an `EncodeTrace` phase.
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum EncodeTraceStageStatus {
+    Ok = 0,
+    Skipped = 1,
+    Failed = 2,
+    Timeout = 3,
+}
+
+/// What an ENCODE produced, resolved after the async stages drained.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeTraceArtifacts {
+    pub entities: Vec<EncodeTraceEntity>,
+    pub statements: Vec<EncodeTraceStatement>,
+    pub relations: Vec<EncodeTraceRelation>,
+    pub indexes: Vec<EncodeTraceIndex>,
+    pub dedup: EncodeTraceDedup,
+}
+
+/// One entity artifact in an `EncodeTrace`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeTraceEntity {
+    #[serde(with = "serde_bytes")]
+    pub id: [u8; 16],
+    pub name: String,
+    pub type_qname: String,
+}
+
+/// One statement artifact in an `EncodeTrace`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeTraceStatement {
+    #[serde(with = "serde_bytes")]
+    pub id: [u8; 16],
+    pub subject_name: String,
+    pub predicate: String,
+    pub object_name: String,
+    pub confidence: f32,
+}
+
+/// One relation artifact in an `EncodeTrace`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeTraceRelation {
+    pub source_name: String,
+    pub predicate: String,
+    pub target_name: String,
+}
+
+/// One index the write landed in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeTraceIndex {
+    pub name: String,
+    pub status: EncodeTraceStageStatus,
+}
+
+/// The dedup verdict carried on an `EncodeTrace`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncodeTraceDedup {
+    pub was_deduplicated: bool,
+    #[serde(with = "crate::wire::cbor::opt_byte_array16")]
+    pub matched_memory_id: Option<[u8; 16]>,
+}
+
+// ===========================================================================
+// Per-stage write artifacts — the concrete data each ENCODE stage produced.
+// Shared shape for the live `trace = true` per-stage `artifact` AND the
+// durable `MEMORY_INSPECT` bundle. Every field is optional and omitted from
+// the wire map when empty/absent (matches the server's `skip_serializing_if`).
+// ===========================================================================
+
+/// The concrete output one ENCODE stage produced (embed → vector, persist →
+/// record, HyPE → questions, text-index → keyword terms, extractor → graph).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct EncodeStageArtifact {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vector: Vec<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<EncodeStageRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hype_questions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keyword_fields: Vec<EncodeStageKeywordField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<EncodeStageGraph>,
+}
+
+/// The durable metadata row a `persist` stage wrote.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeStageRecord {
+    #[serde(with = "serde_bytes")]
+    pub memory_id: [u8; 16],
+    pub kind: u8,
+    pub salience: f32,
+    pub created_at_unix_nanos: u64,
+    pub occurred_at_unix_nanos: u64,
+    pub vector_dim: u32,
+    pub text_len: u32,
+    pub lsn: u64,
+}
+
+/// One text-index field and the analyzed terms the write produced for it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeStageKeywordField {
+    pub field: String,
+    pub terms: Vec<String>,
+}
+
+/// A node in the knowledge graph an ENCODE produced.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeGraphNode {
+    #[serde(with = "serde_bytes")]
+    pub id: [u8; 16],
+    pub name: String,
+    pub kind: String,
+    pub type_qname: String,
+}
+
+/// A directed edge in the knowledge graph an ENCODE produced.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EncodeGraphEdge {
+    #[serde(with = "serde_bytes")]
+    pub source: [u8; 16],
+    #[serde(with = "serde_bytes")]
+    pub target: [u8; 16],
+    pub predicate: String,
+    pub kind: String,
+    pub confidence: f32,
+}
+
+/// The knowledge graph an ENCODE produced — nodes + directed edges.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct EncodeStageGraph {
+    pub nodes: Vec<EncodeGraphNode>,
+    pub edges: Vec<EncodeGraphEdge>,
+}
+
+// ===========================================================================
+// MEMORY_INSPECT — one memory's durable write-artifact bundle.
+// ===========================================================================
+
+/// `MEMORY_INSPECT_REQ` — fetch the durable write-artifact bundle for one
+/// memory. Single-shot (not paginated).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryInspectRequest {
+    #[serde(with = "serde_bytes")]
+    pub memory_id: [u8; 16],
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// `MEMORY_INSPECT_RESP` — the durable per-memory artifact bundle plus text.
+/// `found = false` (with an empty `artifact`) when no memory / no bundle
+/// exists for the id under the caller's scope.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryInspectResponse {
+    pub found: bool,
+    #[serde(with = "serde_bytes")]
+    pub memory_id: [u8; 16],
+    pub text: String,
+    pub artifact: EncodeStageArtifact,
 }
 
 // ===========================================================================
@@ -270,6 +553,15 @@ pub struct RecallRequest {
     pub request_id: Option<WireUuid>,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
+    /// Opt-in per-stage observability. When `true`, the final response frame
+    /// carries a populated `trace: RecallTrace`; when `false` (the default)
+    /// the field is absent and the read pays nothing.
+    #[serde(default)]
+    pub trace: bool,
+    /// Effective identity this recall runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One streaming RECALL_RESP frame (`0x00A1`).
@@ -280,6 +572,64 @@ pub struct RecallResponseFrame {
     pub is_final: bool,
     pub cumulative_count: u32,
     pub estimated_remaining: Option<u32>,
+    /// Per-stage read-pipeline trace, present only on the final frame and only
+    /// when the request set `trace = true`; `None` otherwise.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trace: Option<RecallTrace>,
+}
+
+/// Per-stage observability for one RECALL, surfaced on the final frame when
+/// the request opted in with `trace = true`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallTrace {
+    pub retrievers: Vec<RecallTraceRetriever>,
+    pub filter_chain: RecallTraceFilterChain,
+    pub rerank: Option<RecallTraceRerank>,
+    pub total_latency_ms: f64,
+}
+
+/// What one retriever lane did during a traced RECALL.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallTraceRetriever {
+    pub name: RetrieverNameWire,
+    pub status: RecallTraceRetrieverStatus,
+    /// Skip reason for `Skipped`, error message for `Failure`; empty otherwise.
+    pub status_detail: String,
+    pub latency_ms: f64,
+    pub candidate_count: u32,
+}
+
+/// Terminal status of a retriever lane in a RECALL trace.
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum RecallTraceRetrieverStatus {
+    Success = 0,
+    Skipped = 1,
+    Timeout = 2,
+    Failure = 3,
+}
+
+/// Filter-chain survivor counts after each step.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecallTraceFilterChain {
+    pub before: u32,
+    pub after_type: u32,
+    pub after_temporal: u32,
+    pub after_confidence: u32,
+    pub after_tombstone: u32,
+    pub after_supersession: u32,
+    pub after_as_of: u32,
+    pub after_limit: u32,
+}
+
+/// Outcome of the cross-encoder rerank stage in a RECALL trace.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallTraceRerank {
+    pub applied: bool,
+    pub candidates: u32,
+    pub latency_ms: f64,
 }
 
 /// A single recalled memory.
@@ -375,7 +725,7 @@ pub struct EnrichedRelation {
 // ===========================================================================
 
 /// FORGET (`0x0024`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForgetRequest {
     pub memory_id: WireMemoryId,
     pub mode: ForgetMode,
@@ -383,6 +733,10 @@ pub struct ForgetRequest {
     pub request_id: WireUuid,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
+    /// Effective identity this forget runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// FORGET_RESP (`0x00A4`).
@@ -398,7 +752,7 @@ pub struct ForgetResponse {
 // ===========================================================================
 
 /// LINK (`0x0025`). Creates (or reweights) an edge between two memories.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LinkRequest {
     pub source: WireMemoryId,
     pub target: WireMemoryId,
@@ -409,6 +763,10 @@ pub struct LinkRequest {
     pub request_id: WireUuid,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
+    /// Effective identity this link runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// LINK_RESP (`0x00A5`).
@@ -426,7 +784,7 @@ pub struct LinkResponse {
 
 /// UNLINK (`0x0026`). Removes the edge identified by the
 /// `(source, kind, target)` triple.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UnlinkRequest {
     pub source: WireMemoryId,
     pub target: WireMemoryId,
@@ -435,6 +793,10 @@ pub struct UnlinkRequest {
     pub request_id: WireUuid,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
+    /// Effective identity this unlink runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// UNLINK_RESP (`0x00A6`).
@@ -446,6 +808,181 @@ pub struct UnlinkResponse {
     /// `true` if the edge existed and was removed; `false` if it didn't
     /// exist (UNLINK is idempotent — non-existent = no-op).
     pub removed: bool,
+}
+
+// ===========================================================================
+// MEMORY_LIST.
+// ===========================================================================
+
+/// Sort axis for MEMORY_LIST. Integer discriminant on the wire. v1 supports
+/// only `Created` end-to-end; the others are reserved wire values.
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum MemoryListSortWire {
+    Created = 0,
+    Salience = 1,
+    Occurred = 2,
+    LastAccessed = 3,
+}
+
+/// Sort direction for MEMORY_LIST. Integer discriminant on the wire.
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum MemoryListDirWire {
+    Asc = 0,
+    Desc = 1,
+}
+
+/// Which time field a MEMORY_LIST `from`/`to` range filters on. Integer
+/// discriminant on the wire. v1 supports only `Created`.
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum MemoryListTimeAxisWire {
+    Created = 0,
+    Occurred = 1,
+}
+
+/// MEMORY_LIST (`0x0027`) — a paginated enumeration of the caller's
+/// `(namespace, agent)` memories. This is not RECALL: no query, no ranking.
+/// It walks the tenant timeline in a stable order and returns a page plus an
+/// opaque keyset cursor. Empty/zero fields mean "no filter". v1 supports
+/// `sort = Created` (Asc/Desc); other sorts, the text filter, and the
+/// occurred axis are rejected with InvalidRequest.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryListRequest {
+    pub sort: MemoryListSortWire,
+    pub dir: MemoryListDirWire,
+    /// Page size, validated server-side to `1..=100`.
+    pub limit: u32,
+    /// Empty on first page; opaque continuation token otherwise.
+    pub cursor: Vec<u8>,
+    /// Empty = all kinds; otherwise only these memory kinds are returned.
+    pub kinds: Vec<MemoryKindWire>,
+    /// When false, tombstoned memories are excluded; when true, both active
+    /// and tombstoned rows are enumerated.
+    pub include_tombstoned: bool,
+    /// Which time field the `from`/`to` bounds apply to.
+    pub time_axis: MemoryListTimeAxisWire,
+    /// Inclusive lower time bound in unix-nanos; `0` = no lower bound.
+    pub from_unix_nanos: u64,
+    /// Inclusive upper time bound in unix-nanos; `0` = no upper bound.
+    pub to_unix_nanos: u64,
+    /// Inclusive salience floor in `[0, 1]`.
+    pub salience_min: f32,
+    /// Inclusive salience ceiling in `[0, 1]`.
+    pub salience_max: f32,
+    /// Substring/token filter over memory text; empty = no filter.
+    pub text_contains: String,
+    /// Effective identity this list runs as. `None` (omitted on the wire) means
+    /// the op runs as the connection's own key-bound identity. Honored only when
+    /// the connection principal holds the `ACT_AS` grant and the target
+    /// namespace is in its `may_act` allowlist.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// One memory in a MEMORY_LIST response batch. Carries the
+/// enumeration-relevant fields plus relationship-handle counts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryListItem {
+    #[serde(with = "serde_bytes")]
+    pub memory_id: [u8; 16],
+    pub text: String,
+    /// Raw memory-kind byte (0 = Episodic, 1 = Semantic, 2 = Consolidated).
+    pub kind: u8,
+    /// Lifecycle state byte (0 = active, 1 = tombstoned).
+    pub state: u8,
+    pub created_at_unix_nanos: u64,
+    /// Client-supplied event time; `0` when the memory has none.
+    pub occurred_at_unix_nanos: u64,
+    pub last_accessed_at_unix_nanos: u64,
+    /// Point-in-time salience snapshot (it decays).
+    pub salience: f32,
+    pub access_count: u32,
+    #[serde(with = "serde_bytes")]
+    pub source_request_id: [u8; 16],
+    pub statement_count: u32,
+    pub entity_count: u32,
+    pub relation_count: u32,
+}
+
+/// One streaming MEMORY_LIST_RESP frame (`0x00A7`). The last frame carries
+/// `is_final = true`. Empty `next_cursor` on the final frame means "exhausted";
+/// non-empty means "more pages available, resume with this".
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryListResponseFrame {
+    pub items: Vec<MemoryListItem>,
+    pub next_cursor: Vec<u8>,
+    pub cumulative_count: u32,
+    pub is_final: bool,
+}
+
+// ===========================================================================
+// GRAPH_FETCH — full-agent typed-graph export.
+// ===========================================================================
+
+/// One graph node. `id` is the 16-byte entity / statement / memory id; `kind`
+/// says which id-space it is (0 = Entity, 1 = Statement, 2 = Memory).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GraphNode {
+    #[serde(with = "serde_bytes")]
+    pub id: [u8; 16],
+    pub kind: u8,
+    pub label: String,
+    /// Entity type qname (e.g. `brain:Person`); empty for non-entity nodes.
+    pub type_qname: String,
+}
+
+/// One graph edge. `kind`: 0 = Relation, 1 = Fact, 2 = HasStatement, 3 = Mentions.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GraphEdge {
+    #[serde(with = "serde_bytes")]
+    pub from_id: [u8; 16],
+    #[serde(with = "serde_bytes")]
+    pub to_id: [u8; 16],
+    pub kind: u8,
+    /// Predicate / relation-type label; empty for `Mentions`.
+    pub label: String,
+}
+
+/// GRAPH_FETCH (`0x0163`) — a paginated export of the caller's whole
+/// `(namespace, agent)` typed graph as a node/edge set. Default layer is the
+/// concept map (entity nodes + Relation/Fact edges); `include_statements` adds
+/// value-object statement nodes, `include_memories` adds source-memory nodes.
+/// The cursor is opaque, signed over the layer toggles.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GraphFetchRequest {
+    /// Page size, validated server-side to `1..=500`.
+    pub limit: u32,
+    /// Empty on first page; opaque continuation token otherwise.
+    pub cursor: Vec<u8>,
+    /// Emit value-object statement nodes + their `HasStatement` edges.
+    pub include_statements: bool,
+    /// Emit source memory nodes + their `Mentions` edges.
+    pub include_memories: bool,
+    /// Include tombstoned statements/relations. Default false.
+    pub include_tombstoned: bool,
+    /// Effective identity this export runs as. `None` (omitted on the wire)
+    /// runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// One streaming GRAPH_FETCH_RESP frame (`0x01E3`). Nodes/edges may repeat
+/// across pages (completeness, not disjointness) — dedup by id. Empty
+/// `next_cursor` means exhausted.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GraphFetchResponseFrame {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    pub next_cursor: Vec<u8>,
+    pub is_final: bool,
 }
 
 // ===========================================================================
@@ -493,6 +1030,10 @@ pub struct PlanRequest {
     pub request_id: Option<WireUuid>,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
+    /// Effective identity this plan runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// Plan terminal status, set on the final frame only. Integer discriminant.
@@ -562,6 +1103,10 @@ pub struct ReasonRequest {
     pub request_id: Option<WireUuid>,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
+    /// Effective identity this reason runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// Reason terminal status, set on the final frame only. Integer discriminant.
@@ -657,6 +1202,7 @@ pub enum ErrorCodeWire {
     PermissionDenied = 0x0030,
     AdminPermissionRequired = 0x0031,
     WrongShard = 0x0032,
+    ActAsDenied = 0x0033,
     // Validation.
     InvalidArgument = 0x0040,
     MissingRequiredField = 0x0041,
@@ -829,6 +1375,10 @@ pub struct EntityCreateRequest {
     pub attributes_blob: Vec<u8>,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this entity-create runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// ENTITY_UPDATE (`0x0132`). Replace an entity's name, aliases, and
@@ -956,6 +1506,10 @@ pub struct StatementCreateRequest {
     pub schema_version: u32,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this statement-create runs as. `None` (omitted on
+    /// the wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// STATEMENT_CREATE_RESP (`0x01C0`). All ids encode as CBOR byte strings
@@ -1069,6 +1623,10 @@ pub struct RelationCreateRequest {
     pub valid_to_unix_nanos: u64,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this relation-create runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// RELATION_CREATE_RESP (`0x01D0`).
@@ -1692,10 +2250,16 @@ pub struct EntityView {
 }
 
 /// ENTITY_GET (`0x0131`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntityGetRequest {
     #[serde(with = "serde_bytes")]
     pub entity_id: WireUuid,
+    /// Effective identity this get runs as. `None` (omitted on the wire) means
+    /// the op runs as the connection's own key-bound identity. Honored only when
+    /// the connection principal holds the `ACT_AS` grant and the target
+    /// namespace is in its `may_act` allowlist.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// ENTITY_GET_RESP (`0x01B1`).
@@ -1718,6 +2282,12 @@ pub struct EntityListRequest {
     pub limit: u32,
     /// Empty on first page; opaque continuation token otherwise.
     pub cursor: Vec<u8>,
+    /// Effective identity this list runs as. `None` (omitted on the wire) means
+    /// the op runs as the connection's own key-bound identity. Honored only when
+    /// the connection principal holds the `ACT_AS` grant and the target
+    /// namespace is in its `may_act` allowlist.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One entity in an ENTITY_LIST response batch.
@@ -1754,6 +2324,12 @@ pub struct EntityResolveRequest {
     pub allow_create: bool,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this resolve runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity. Honored
+    /// only when the connection principal holds the `ACT_AS` grant and the
+    /// target namespace is in its `may_act` allowlist.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// Resolution outcome. Integer discriminant on the wire (`1`-based, mirroring
@@ -1830,13 +2406,19 @@ pub struct StatementView {
 }
 
 /// STATEMENT_GET (`0x0141`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatementGetRequest {
     #[serde(with = "serde_bytes")]
     pub statement_id: WireUuid,
     /// If `true` and the row is superseded, the server returns the current
     /// statement in the chain (with `returned_via_supersession = true`).
     pub follow_supersession: bool,
+    /// Effective identity this get runs as. `None` (omitted on the wire) means
+    /// the op runs as the connection's own key-bound identity. Honored only when
+    /// the connection principal holds the `ACT_AS` grant and the target
+    /// namespace is in its `may_act` allowlist.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// STATEMENT_GET_RESP (`0x01C1`).
@@ -1863,6 +2445,12 @@ pub struct StatementListRequest {
     pub include_tombstoned: bool,
     pub limit: u32,
     pub cursor: Vec<u8>,
+    /// Effective identity this list runs as. `None` (omitted on the wire) means
+    /// the op runs as the connection's own key-bound identity. Honored only when
+    /// the connection principal holds the `ACT_AS` grant and the target
+    /// namespace is in its `may_act` allowlist.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One streaming STATEMENT_LIST_RESP frame (`0x01C6`).
@@ -1921,6 +2509,10 @@ pub struct RelationListFromRequest {
     pub include_tombstoned: bool,
     pub limit: u32,
     pub cursor: Vec<u8>,
+    /// Effective identity this list runs as. `None` (omitted on the wire) means
+    /// the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One streaming RELATION_LIST_FROM_RESP frame (`0x01D4`).
@@ -1945,6 +2537,10 @@ pub struct RelationListToRequest {
     pub include_tombstoned: bool,
     pub limit: u32,
     pub cursor: Vec<u8>,
+    /// Effective identity this list runs as. `None` (omitted on the wire) means
+    /// the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One streaming RELATION_LIST_TO_RESP frame (`0x01D5`).
@@ -2073,6 +2669,10 @@ pub struct RelationGetRequest {
     #[serde(with = "serde_bytes")]
     pub relation_id: WireUuid,
     pub follow_supersession: bool,
+    /// Effective identity this get runs as. `None` (omitted on the wire) means
+    /// the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// RELATION_GET_RESP (`0x01D1`). `returned_via_supersession` flags that the
@@ -2151,6 +2751,12 @@ pub struct RelationTraverseRequest {
     pub include_superseded: bool,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this traversal runs as. `None` (omitted on the wire)
+    /// means the op runs as the connection's own key-bound identity. Honored
+    /// only when the connection principal holds the `ACT_AS` grant and the
+    /// target namespace is in its `may_act` allowlist.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// RELATION_TRAVERSE_RESP (`0x01D6`), one streamed frame. `is_final` marks the

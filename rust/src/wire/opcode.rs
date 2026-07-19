@@ -45,6 +45,10 @@ pub enum Opcode {
     LinkResp = 0x00A5,
     UnlinkReq = 0x0026,
     UnlinkResp = 0x00A6,
+    MemoryListReq = 0x0027,
+    MemoryListResp = 0x00A7,
+    MemoryInspectReq = 0x0028,
+    MemoryInspectResp = 0x00A8,
     EncodeVectorDirectReq = 0x002A,
     EncodeVectorDirectResp = 0x00AA,
 
@@ -138,6 +142,8 @@ pub enum Opcode {
     QueryExplainResp = 0x01E1,
     QueryTraceReq = 0x0162,
     QueryTraceResp = 0x01E2,
+    GraphFetchReq = 0x0163,
+    GraphFetchResp = 0x01E3,
     MaterializeProceduralReq = 0x0164,
     MaterializeProceduralResp = 0x01E4,
 }
@@ -180,6 +186,8 @@ mod tests {
         assert_eq!(Opcode::LinkResp.as_u16(), 0x00A5);
         assert_eq!(Opcode::UnlinkReq.as_u16(), 0x0026);
         assert_eq!(Opcode::UnlinkResp.as_u16(), 0x00A6);
+        assert_eq!(Opcode::MemoryListReq.as_u16(), 0x0027);
+        assert_eq!(Opcode::MemoryListResp.as_u16(), 0x00A7);
         assert_eq!(Opcode::EncodeVectorDirectReq.as_u16(), 0x002A);
         assert_eq!(Opcode::Error.as_u16(), 0x00FF);
         assert_eq!(Opcode::MaterializeProceduralReq.as_u16(), 0x0164);

@@ -45,6 +45,7 @@ async fn serve_forget_then_recover(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -159,6 +160,7 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
             agent_id: SERVER_AGENT,
             bound_shard_id: 0,
             permissions: AgentPermissions {
+                can_act_as: false,
                 can_encode: true,
                 can_recall: true,
                 can_plan: true,

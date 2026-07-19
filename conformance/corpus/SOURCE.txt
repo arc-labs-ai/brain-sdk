@@ -1,11 +1,11 @@
 Vendored wire-protocol conformance corpus
 ==========================================
 
-Source: brain  (https://github.com/brain-db-io/brain-db)
+Source: brain  (https://github.com/arc-labs-ai/brain-db)
 Path:   crates/brain-protocol/tests/conformance/corpus/
-Files:  54 (*.bin, *.json) pairs + index.json
+Files:  72 (*.bin, *.json) pairs + index.json
 
-Vendored: 2026-06-15
+Vendored: 2026-07-19
 
 PROVENANCE — reproducible pin.
 This corpus is a verbatim copy of brain's conformance corpus on branch
@@ -13,12 +13,18 @@ This corpus is a verbatim copy of brain's conformance corpus on branch
 
     dae9c9b   (feat(entity): cross-type ENTITY_RESOLVE when no type hint given)
 
+plus uncommitted brain work not yet on a commit — the content-dedup opt-out
+(`allow_duplicates` on ENCODE, skip-when-false, pinned by the dedicated
+`req_encode_allow_duplicates` case), the `MEMORY_INSPECT` req/resp pair, and
+the ENCODE-trace graph artifact (which grew `resp_encode_trace` to 1624 bytes).
+Update the hash above to the committing revision once that work lands.
+
 The read/write wire reshape it captures (RECALL answer-shape: answer_kind +
 values + RecallValue; RECALL request subject_name/mode/max_results/as_of;
-ENCODE request occurred_at, kind/salience/edges/dedup dropped to the admin
-EncodeVectorDirect path; QUERY as_of; six-kind StatementKindWire) lands with
-that branch and is pending a final brain commit — update the hash above to
-the committing revision once it merges.
+ENCODE request occurred_at + allow_duplicates, kind/salience/edges/dedup
+dropped to the admin EncodeVectorDirect path; QUERY as_of; six-kind
+StatementKindWire) lands with that branch and is pending a final brain commit
+— update the hash above to the committing revision once it merges.
 
 Verified reproducible: running brain's generator with
 `BRAIN_CONFORMANCE_BLESS=1 cargo test -p brain-protocol --test conformance`

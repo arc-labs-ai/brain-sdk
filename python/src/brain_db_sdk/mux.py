@@ -124,7 +124,7 @@ class MuxConnection:
             while True:
                 frame = self._next(q)
                 if frame.opcode == Opcode.ERROR:
-                    raise ServerError(decode_payload(ErrorResponse, frame.payload))
+                    raise ServerError.from_response(decode_payload(ErrorResponse, frame.payload))
                 frames.append(frame)
                 if frame.flags & FLAG_EOS:
                     return frames
@@ -241,7 +241,7 @@ class MuxConnection:
     def _expect(self, q: queue.Queue, expected: Opcode) -> Frame:
         frame = self._next(q)
         if frame.opcode == Opcode.ERROR:
-            raise ServerError(decode_payload(ErrorResponse, frame.payload))
+            raise ServerError.from_response(decode_payload(ErrorResponse, frame.payload))
         if frame.opcode != int(expected):
             raise ProtocolError(
                 f"expected {expected.name} ({int(expected):#06x}), got {frame.opcode:#06x}"
@@ -309,7 +309,7 @@ class Subscription:
         if frame.opcode == Opcode.ERROR:
             self._ended = True
             self._conn._deregister(self._stream_id)  # noqa: SLF001
-            raise ServerError(decode_payload(ErrorResponse, frame.payload))
+            raise ServerError.from_response(decode_payload(ErrorResponse, frame.payload))
         if frame.flags & FLAG_EOS:
             # Last frame on the stream; mark ended and drop the route.
             self._ended = True

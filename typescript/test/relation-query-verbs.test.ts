@@ -118,6 +118,7 @@ async function handshake(chan: FrameChannel): Promise<void> {
       canReason: true,
       canForget: true,
       canAdmin: true,
+      canActAs: false,
     },
     namespace: "",
     serverTimeUnixNanos: 1n,
@@ -250,7 +251,11 @@ describe("relation lifecycle + query variant verbs", () => {
       });
       expect(enc.memoryId).toBe(7n);
 
-      const got = await client.getRelation({ relationId: RELATION_ID, followSupersession: true });
+      const got = await client.getRelation({
+        relationId: RELATION_ID,
+        followSupersession: true,
+        actAs: null,
+      });
       expect(got.returnedViaSupersession).toBe(true);
       expect([...got.relation.relationId]).toEqual([...RELATION_ID]);
 
@@ -267,6 +272,7 @@ describe("relation lifecycle + query variant verbs", () => {
           validFromUnixNanos: 0n,
           validToUnixNanos: 0xffffffffffffffffn,
           requestId: newId(),
+          actAs: null,
         },
         requestId: newId(),
       });
@@ -289,6 +295,7 @@ describe("relation lifecycle + query variant verbs", () => {
         timeAtUnixNanos: 0n,
         includeSuperseded: false,
         requestId: newId(),
+        actAs: null,
       });
       expect(paths.length).toBe(1);
       expect(paths[0]!.steps[0]!.relationType).toBe("collaborated_with");

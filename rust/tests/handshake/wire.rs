@@ -20,7 +20,7 @@ use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
     AgentPermissions, AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload,
-    MemoryKindWire, ServerFeatures, StageKind, WelcomePayload,
+    MemoryKindWire, ServerFeatures, StageKind, WaitMode, WelcomePayload,
 };
 use brain_db_sdk::{new_id, Auth, BrainClient, BrainError, ClientConfig};
 
@@ -63,6 +63,7 @@ async fn serve_one(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 3,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -94,6 +95,7 @@ async fn serve_one(mut sock: TcpStream) {
         embedding_model_fp: [0x22; 16],
         pending_stages: vec![StageKind::AutoEdge, StageKind::Extractor],
         has_active_schema: true,
+        trace: None,
     };
     write_payload_stream(&mut sock, Opcode::EncodeResp, enc_frame.stream_id, &resp).await;
 
@@ -123,11 +125,14 @@ async fn write_payload_stream<T: serde::Serialize>(
 
 fn sample_encode_request() -> EncodeRequest {
     EncodeRequest {
+        act_as: None,
         text: "the user prefers dark mode".to_string(),
         context_id: 9,
         request_id: new_id(),
         txn_id: None,
         occurred_at_unix_nanos: None,
+        wait: WaitMode::Ack,
+        allow_duplicates: false,
     }
 }
 

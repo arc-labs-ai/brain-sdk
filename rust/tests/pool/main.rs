@@ -14,7 +14,7 @@ use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
     AgentPermissions, AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload,
-    MemoryKindWire, ServerFeatures, WelcomePayload,
+    MemoryKindWire, ServerFeatures, WaitMode, WelcomePayload,
 };
 use brain_db_sdk::{new_id, Auth, Pool};
 
@@ -54,6 +54,7 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -93,6 +94,7 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
             embedding_model_fp: [0; 16],
             pending_stages: vec![],
             has_active_schema: true,
+            trace: None,
         };
         write_one(&mut sock, Opcode::EncodeResp, frame.stream_id, &resp).await;
     }
@@ -100,11 +102,14 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
 
 fn request() -> EncodeRequest {
     EncodeRequest {
+        act_as: None,
         text: "pooled".to_string(),
         context_id: 1,
         request_id: new_id(),
         txn_id: None,
         occurred_at_unix_nanos: None,
+        wait: WaitMode::Ack,
+        allow_duplicates: false,
     }
 }
 

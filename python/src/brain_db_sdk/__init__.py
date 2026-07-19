@@ -25,8 +25,9 @@ from .mux import HandshakeOutcome, MuxConnection, Subscription
 from .pool import Pool
 from .retry import RetryPolicy, with_retry
 from .verbs import EncodeBuilder, ForgetBuilder, RecallBuilder
-from .wire.types import AnswerKind, RecallAnswer
+from .wire.types import AnswerKind, RecallAnswer, WaitMode
 from .errors import (
+    ActAsDenied,
     BrainError,
     BrainTimeout,
     ConnectionClosed,
@@ -35,6 +36,10 @@ from .errors import (
     VersionMismatch,
     is_retryable,
 )
+
+# HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).
+from . import http  # noqa: F401
+from .http import BrainHttpClient, BrainHttpError
 
 __all__ = [
     "wire",
@@ -52,6 +57,7 @@ __all__ = [
     "ForgetBuilder",
     "RecallAnswer",
     "AnswerKind",
+    "WaitMode",
     "RetryPolicy",
     "with_retry",
     "BrainError",
@@ -60,5 +66,6 @@ __all__ = [
     "BrainTimeout",
     "VersionMismatch",
     "ServerError",
+    "ActAsDenied",
     "is_retryable",
 ]

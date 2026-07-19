@@ -20,6 +20,7 @@ async function createEntity(client: BrainClient, name: string): Promise<Uint8Arr
     aliases: [],
     attributesBlob: new Uint8Array(),
     requestId: newId(),
+    actAs: null,
   });
   return r.entityId;
 }

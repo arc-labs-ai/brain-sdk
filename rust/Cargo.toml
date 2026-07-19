@@ -33,6 +33,11 @@ tokio = { version = "1", features = ["net", "io-util", "rt", "time", "macros", "
 # request_id / agent_id minting: time-ordered UUIDv7, taken as 16 raw bytes.
 uuid = { version = "1", features = ["v7"] }
 
+# HTTP tier (`http` module): the BrainHttpClient talks JSON to the Brain HTTP
+# edge. reqwest with rustls (no OpenSSL); serde_json for the JSON bodies.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = "1"
+
 [dev-dependencies]
 # `arbitrary_precision` lets serde_json's Value hold the packed u128
 # MemoryId without overflow, so the corpus .json mirrors compare cleanly.

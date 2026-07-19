@@ -172,6 +172,20 @@ export enum ErrorCategoryWire {
   Unavailable = 8,
 }
 
+/**
+ * Named wire error codes (the numeric `code` on an ERROR frame) the client
+ * branches on. The Authorization family (`0x0030`–`0x0033`); notably
+ * `ActAsDenied` (`0x0033`), returned when a connection principal without the
+ * `canActAs` grant — or one targeting a namespace outside its allowlist —
+ * sends a request carrying an `act_as` selector.
+ */
+export enum WireErrorCode {
+  PermissionDenied = 0x0030,
+  AdminPermissionRequired = 0x0031,
+  WrongShard = 0x0032,
+  ActAsDenied = 0x0033,
+}
+
 // ---------------------------------------------------------------------------
 // Handshake.
 // ---------------------------------------------------------------------------
@@ -361,7 +375,7 @@ export function decodeAuth(bytes: Uint8Array): AuthPayload {
   };
 }
 
-/** The capability grants the server resolved from the credential (encode/recall/plan/reason/forget/admin). */
+/** The capability grants the server resolved from the credential (encode/recall/plan/reason/forget/admin/act-as). */
 export interface AgentPermissions {
   canEncode: boolean;
   canRecall: boolean;
@@ -369,6 +383,10 @@ export interface AgentPermissions {
   canReason: boolean;
   canForget: boolean;
   canAdmin: boolean;
+  /** Authorizes running an op on behalf of another identity via the
+   * per-request `act_as` field. Held only by a trusted service principal
+   * (an edge/gateway); a normal agent's key never carries it. */
+  canActAs: boolean;
 }
 
 /** AUTH_OK (`0x0082`): the server's post-auth grant — assigned agent id, bound shard, permissions, resolved namespace, and server clock. */
@@ -399,6 +417,7 @@ export function encodeAuthOk(p: AuthOkPayload): Uint8Array {
           ["can_reason", perm.canReason],
           ["can_forget", perm.canForget],
           ["can_admin", perm.canAdmin],
+          ["can_act_as", perm.canActAs],
         ]),
       ],
       ["namespace", p.namespace],
@@ -421,6 +440,8 @@ export function decodeAuthOk(bytes: Uint8Array): AuthOkPayload {
       canReason: asBool(field(perm, "can_reason")),
       canForget: asBool(field(perm, "can_forget")),
       canAdmin: asBool(field(perm, "can_admin")),
+      // Tolerate older servers that predate the act-as grant bit.
+      canActAs: perm.has("can_act_as") ? asBool(field(perm, "can_act_as")) : false,
     },
     // Tolerate older servers that don't emit the field yet.
     namespace: m.has("namespace") ? asStr(field(m, "namespace")) : "",
@@ -518,6 +539,65 @@ export function decodeClientPong(bytes: Uint8Array): ClientPongRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Per-request effective identity (`act_as`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-request effective-identity selector carried on data-plane op requests.
+ * When present, the op runs as this `(namespace, agentId)` on behalf of the
+ * authenticated connection principal; when absent the op runs as the
+ * connection's own key-bound identity.
+ *
+ * Honored server-side only when the connection principal holds `canActAs` and
+ * `namespace` lies within its granted allowlist — otherwise the op is rejected
+ * with `ActAsDenied`. This is the wire form only; the trust model is enforced
+ * by the server, not by this codec. On the wire the map is
+ * `{ namespace: <text>, agent_id: <16-byte string> }`, and the whole field is
+ * CBOR-omitted when absent so requests without an effective identity stay
+ * byte-identical to the pre-`act_as` goldens.
+ */
+export interface ActAs {
+  namespace: string;
+  /** 16-byte effective agent id (CBOR byte string, key `agent_id`). */
+  agentId: WireUuid;
+}
+
+function encodeActAs(a: ActAs): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["namespace", a.namespace],
+    ["agent_id", a.agentId],
+  ]);
+}
+
+function decodeActAs(value: unknown): ActAs {
+  const m = asMap(value);
+  return {
+    namespace: asStr(field(m, "namespace")),
+    agentId: asBytes(field(m, "agent_id")),
+  };
+}
+
+/**
+ * Build a request CBOR map from its ordered field entries, appending the
+ * optional `act_as` selector last (matching the server's field order). When
+ * `actAs` is null the key is omitted entirely, so the encoded bytes match the
+ * pre-`act_as` goldens exactly.
+ */
+function requestMapWithActAs(
+  entries: [string, unknown][],
+  actAs: ActAs | null,
+): Map<string, unknown> {
+  const map = new Map<string, unknown>(entries);
+  if (actAs !== null) map.set("act_as", encodeActAs(actAs));
+  return map;
+}
+
+/** Read the optional `act_as` selector from a decoded request map. */
+function decodeOptActAs(m: Map<string, unknown>): ActAs | null {
+  return m.has("act_as") ? decodeActAs(m.get("act_as")) : null;
+}
+
+// ---------------------------------------------------------------------------
 // ENCODE / ENCODE_VECTOR_DIRECT.
 // ---------------------------------------------------------------------------
 
@@ -545,6 +625,19 @@ function decodeEdge(value: unknown): EdgeRequest {
   };
 }
 
+/**
+ * Write-completion mode — how long a write op blocks before it returns.
+ * `Ack` returns after the durable sync ack (the fast default); `Derived`
+ * blocks until async derivation completes and the ENCODE response carries a
+ * populated `trace: EncodeTrace`. Integer discriminant on the wire, OMITTED
+ * from the CBOR map when `Ack` (the server defaults to `Ack`). Writes use
+ * `wait`; reads keep `trace`.
+ */
+export enum WaitMode {
+  Ack = 0,
+  Derived = 1,
+}
+
 /** ENCODE (`0x0020`): store a memory from text, with context, edges, and an optional occurred-at stamp. */
 export interface EncodeRequest {
   text: string;
@@ -552,19 +645,41 @@ export interface EncodeRequest {
   requestId: WireUuid;
   txnId: WireUuid | null;
   occurredAtUnixNanos: bigint | null;
+  /** Effective identity this encode runs as, on behalf of the connection
+   * principal. `null` (the common case, CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
+  /** Write-completion mode (default {@link WaitMode.Ack}). `Derived` blocks
+   * until async derivation completes and the ENCODE response carries a
+   * populated `trace: EncodeTrace`. Omitted from the CBOR map when `Ack` /
+   * undefined (the server defaults to `Ack`). */
+  wait?: WaitMode;
+  /** Opt out of content dedup and force a distinct memory. Default `false`:
+   * Brain dedupes byte-identical text on `(agentId, contextId, BLAKE3(text))`
+   * and returns the existing memory (`wasDeduplicated = true`) without writing.
+   * Set `true` when the same text is a genuinely distinct observation that must
+   * coexist (e.g. the same fact re-stated at a different `occurredAt`). Omitted
+   * from the CBOR map when `false` / undefined so the default path stays
+   * byte-identical. */
+  allowDuplicates?: boolean;
 }
 
-/** Encode an ENCODE (`0x0020`) request. */
+/** Encode an ENCODE (`0x0020`) request. `wait` follows `act_as`, and is
+ * omitted from the map when `Ack` / undefined. */
 export function encodeEncode(p: EncodeRequest): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
+  const map = requestMapWithActAs(
+    [
       ["text", p.text],
       ["context_id", p.contextId],
       ["request_id", p.requestId],
       ["txn_id", p.txnId],
       ["occurred_at_unix_nanos", p.occurredAtUnixNanos],
-    ]),
+    ],
+    p.actAs,
   );
+  if (p.wait != null && p.wait !== WaitMode.Ack) map.set("wait", p.wait as number);
+  if (p.allowDuplicates) map.set("allow_duplicates", true);
+  return toCbor(map);
 }
 
 /** Decode an ENCODE (`0x0020`) request payload. */
@@ -576,6 +691,9 @@ export function decodeEncode(bytes: Uint8Array): EncodeRequest {
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
     occurredAtUnixNanos: asOpt(field(m, "occurred_at_unix_nanos"), asBig),
+    actAs: decodeOptActAs(m),
+    wait: m.has("wait") ? (asNum(field(m, "wait")) as WaitMode) : WaitMode.Ack,
+    allowDuplicates: m.has("allow_duplicates") ? asBool(field(m, "allow_duplicates")) : false,
   };
 }
 
@@ -650,33 +768,36 @@ export interface EncodeResponse {
   embeddingModelFp: Uint8Array;
   pendingStages: StageKind[];
   hasActiveSchema: boolean;
+  /** Full synchronous write-analysis trace, present only when the request set
+   * `trace = true`; absent (CBOR-omitted) otherwise. */
+  trace?: EncodeTrace;
 }
 
 /** Encode an ENCODE_RESP (`0x00A0`) payload (also the ENCODE_VECTOR_DIRECT reply). */
 export function encodeEncodeResponse(p: EncodeResponse): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
-      ["memory_id", p.memoryId],
-      ["was_deduplicated", p.wasDeduplicated],
-      ["salience", f32(p.salience)],
-      ["auto_edges_added", p.autoEdgesAdded],
-      ["lsn", p.lsn],
-      ["agent_id", p.agentId],
-      ["context_id", p.contextId],
-      ["kind", p.kind as number],
-      ["created_at_unix_nanos", p.createdAtUnixNanos],
-      ["edges_out_count", p.edgesOutCount],
-      ["embedding_model_fp", p.embeddingModelFp],
-      ["pending_stages", p.pendingStages.map((s) => s as number)],
-      ["has_active_schema", p.hasActiveSchema],
-    ]),
-  );
+  const map = new Map<string, unknown>([
+    ["memory_id", p.memoryId],
+    ["was_deduplicated", p.wasDeduplicated],
+    ["salience", f32(p.salience)],
+    ["auto_edges_added", p.autoEdgesAdded],
+    ["lsn", p.lsn],
+    ["agent_id", p.agentId],
+    ["context_id", p.contextId],
+    ["kind", p.kind as number],
+    ["created_at_unix_nanos", p.createdAtUnixNanos],
+    ["edges_out_count", p.edgesOutCount],
+    ["embedding_model_fp", p.embeddingModelFp],
+    ["pending_stages", p.pendingStages.map((s) => s as number)],
+    ["has_active_schema", p.hasActiveSchema],
+  ]);
+  if (p.trace != null) map.set("trace", encodeEncodeTrace(p.trace));
+  return toCbor(map);
 }
 
 /** Decode an ENCODE_RESP (`0x00A0`) payload. */
 export function decodeEncodeResponse(bytes: Uint8Array): EncodeResponse {
   const m = asMap(fromCbor(bytes));
-  return {
+  const out: EncodeResponse = {
     memoryId: asBig(field(m, "memory_id")),
     wasDeduplicated: asBool(field(m, "was_deduplicated")),
     salience: asNum(field(m, "salience")),
@@ -690,6 +811,502 @@ export function decodeEncodeResponse(bytes: Uint8Array): EncodeResponse {
     embeddingModelFp: asBytes(field(m, "embedding_model_fp")),
     pendingStages: asArray(field(m, "pending_stages")).map((v) => asNum(v) as StageKind),
     hasActiveSchema: asBool(field(m, "has_active_schema")),
+  };
+  if (m.has("trace")) out.trace = decodeEncodeTrace(field(m, "trace"));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// ENCODE trace.
+// ---------------------------------------------------------------------------
+
+/** Terminal status of an `EncodeTrace` phase or index. Integer discriminant. */
+export enum EncodeTraceStageStatus {
+  Ok = 0,
+  Skipped = 1,
+  Failed = 2,
+  Timeout = 3,
+}
+
+/** One phase in an `EncodeTrace` timeline. */
+export interface EncodeTraceStage {
+  name: string;
+  status: EncodeTraceStageStatus;
+  latencyUs: bigint;
+  detail: string;
+  /** The concrete data this stage produced (embedding vector, redb record,
+   * HyPE questions, analyzed keyword terms, or the extracted graph). Present
+   * only when the caller set `trace = true` and the stage produced inspectable
+   * output; absent (CBOR-omitted) otherwise. */
+  artifact?: EncodeStageArtifact;
+}
+
+/** One entity artifact produced by a traced ENCODE. */
+export interface EncodeTraceEntity {
+  id: Uint8Array;
+  name: string;
+  typeQname: string;
+}
+
+/** One statement artifact produced by a traced ENCODE. */
+export interface EncodeTraceStatement {
+  id: Uint8Array;
+  subjectName: string;
+  predicate: string;
+  objectName: string;
+  confidence: number;
+}
+
+/** One relation artifact produced by a traced ENCODE. */
+export interface EncodeTraceRelation {
+  sourceName: string;
+  predicate: string;
+  targetName: string;
+}
+
+/** One index the write landed in, plus its status. */
+export interface EncodeTraceIndex {
+  name: string;
+  status: EncodeTraceStageStatus;
+}
+
+/** The dedup verdict carried on an `EncodeTrace`. */
+export interface EncodeTraceDedup {
+  wasDeduplicated: boolean;
+  /** The memory a dedup collapsed into, or `null` when the write was new. */
+  matchedMemoryId: Uint8Array | null;
+}
+
+/** What a traced ENCODE produced, resolved after the async stages drained. */
+export interface EncodeTraceArtifacts {
+  entities: EncodeTraceEntity[];
+  statements: EncodeTraceStatement[];
+  relations: EncodeTraceRelation[];
+  indexes: EncodeTraceIndex[];
+  dedup: EncodeTraceDedup;
+}
+
+/** Full synchronous write-analysis trace for one ENCODE. */
+export interface EncodeTrace {
+  stages: EncodeTraceStage[];
+  artifacts: EncodeTraceArtifacts;
+  totalLatencyUs: bigint;
+}
+
+function encodeEncodeTrace(t: EncodeTrace): Map<string, unknown> {
+  return new Map<string, unknown>([
+    [
+      "stages",
+      t.stages.map((s) => {
+        const stage = new Map<string, unknown>([
+          ["name", s.name],
+          ["status", s.status as number],
+          ["latency_us", s.latencyUs],
+          ["detail", s.detail],
+        ]);
+        if (s.artifact != null) stage.set("artifact", encodeStageArtifact(s.artifact));
+        return stage;
+      }),
+    ],
+    ["artifacts", encodeEncodeTraceArtifacts(t.artifacts)],
+    ["total_latency_us", t.totalLatencyUs],
+  ]);
+}
+
+function encodeEncodeTraceArtifacts(a: EncodeTraceArtifacts): Map<string, unknown> {
+  return new Map<string, unknown>([
+    [
+      "entities",
+      a.entities.map(
+        (e) =>
+          new Map<string, unknown>([
+            ["id", e.id],
+            ["name", e.name],
+            ["type_qname", e.typeQname],
+          ]),
+      ),
+    ],
+    [
+      "statements",
+      a.statements.map(
+        (s) =>
+          new Map<string, unknown>([
+            ["id", s.id],
+            ["subject_name", s.subjectName],
+            ["predicate", s.predicate],
+            ["object_name", s.objectName],
+            ["confidence", f32(s.confidence)],
+          ]),
+      ),
+    ],
+    [
+      "relations",
+      a.relations.map(
+        (r) =>
+          new Map<string, unknown>([
+            ["source_name", r.sourceName],
+            ["predicate", r.predicate],
+            ["target_name", r.targetName],
+          ]),
+      ),
+    ],
+    [
+      "indexes",
+      a.indexes.map(
+        (i) =>
+          new Map<string, unknown>([
+            ["name", i.name],
+            ["status", i.status as number],
+          ]),
+      ),
+    ],
+    [
+      "dedup",
+      new Map<string, unknown>([
+        ["was_deduplicated", a.dedup.wasDeduplicated],
+        ["matched_memory_id", a.dedup.matchedMemoryId],
+      ]),
+    ],
+  ]);
+}
+
+function decodeEncodeTrace(value: unknown): EncodeTrace {
+  const m = asMap(value);
+  return {
+    stages: asArray(field(m, "stages")).map((v) => {
+      const s = asMap(v);
+      const stage: EncodeTraceStage = {
+        name: asStr(field(s, "name")),
+        status: asNum(field(s, "status")) as EncodeTraceStageStatus,
+        latencyUs: asBig(field(s, "latency_us")),
+        detail: asStr(field(s, "detail")),
+      };
+      if (s.has("artifact")) stage.artifact = decodeStageArtifact(field(s, "artifact"));
+      return stage;
+    }),
+    artifacts: decodeEncodeTraceArtifacts(field(m, "artifacts")),
+    totalLatencyUs: asBig(field(m, "total_latency_us")),
+  };
+}
+
+function decodeEncodeTraceArtifacts(value: unknown): EncodeTraceArtifacts {
+  const m = asMap(value);
+  return {
+    entities: asArray(field(m, "entities")).map((v) => {
+      const e = asMap(v);
+      return {
+        id: asBytes(field(e, "id")),
+        name: asStr(field(e, "name")),
+        typeQname: asStr(field(e, "type_qname")),
+      };
+    }),
+    statements: asArray(field(m, "statements")).map((v) => {
+      const s = asMap(v);
+      return {
+        id: asBytes(field(s, "id")),
+        subjectName: asStr(field(s, "subject_name")),
+        predicate: asStr(field(s, "predicate")),
+        objectName: asStr(field(s, "object_name")),
+        confidence: asNum(field(s, "confidence")),
+      };
+    }),
+    relations: asArray(field(m, "relations")).map((v) => {
+      const r = asMap(v);
+      return {
+        sourceName: asStr(field(r, "source_name")),
+        predicate: asStr(field(r, "predicate")),
+        targetName: asStr(field(r, "target_name")),
+      };
+    }),
+    indexes: asArray(field(m, "indexes")).map((v) => {
+      const i = asMap(v);
+      return {
+        name: asStr(field(i, "name")),
+        status: asNum(field(i, "status")) as EncodeTraceStageStatus,
+      };
+    }),
+    dedup: (() => {
+      const d = asMap(field(m, "dedup"));
+      return {
+        wasDeduplicated: asBool(field(d, "was_deduplicated")),
+        matchedMemoryId: asOptBytes(field(d, "matched_memory_id")),
+      };
+    })(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ENCODE stage artifacts (shared: live ENCODE trace + stored MEMORY_INSPECT).
+//
+// Every field of `EncodeStageArtifact` is optional and OMITTED from the CBOR
+// map when empty/absent — mirroring the server's `skip_serializing_if`. Field
+// order is fixed: vector, record, hype_questions, keyword_fields, graph.
+// ---------------------------------------------------------------------------
+
+/** The redb metadata row a `persist` stage committed — the durable record fields. */
+export interface EncodeStageRecord {
+  memoryId: Uint8Array;
+  /** Memory-kind discriminant (as stored). */
+  kind: number;
+  /** Salience the write assigned. */
+  salience: number;
+  createdAtUnixNanos: bigint;
+  /** Event time when the caller supplied `occurred_at`; `0` otherwise. */
+  occurredAtUnixNanos: bigint;
+  /** Stored embedding dimension. */
+  vectorDim: number;
+  /** Byte length of the stored memory text. */
+  textLen: number;
+  /** WAL log-sequence number the write landed at. */
+  lsn: bigint;
+}
+
+function encodeStageRecord(r: EncodeStageRecord): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", r.memoryId],
+    ["kind", r.kind],
+    ["salience", f32(r.salience)],
+    ["created_at_unix_nanos", r.createdAtUnixNanos],
+    ["occurred_at_unix_nanos", r.occurredAtUnixNanos],
+    ["vector_dim", r.vectorDim],
+    ["text_len", r.textLen],
+    ["lsn", r.lsn],
+  ]);
+}
+
+function decodeStageRecord(value: unknown): EncodeStageRecord {
+  const m = asMap(value);
+  return {
+    memoryId: asBytes(field(m, "memory_id")),
+    kind: asNum(field(m, "kind")),
+    salience: asNum(field(m, "salience")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    occurredAtUnixNanos: asBig(field(m, "occurred_at_unix_nanos")),
+    vectorDim: asNum(field(m, "vector_dim")),
+    textLen: asNum(field(m, "text_len")),
+    lsn: asBig(field(m, "lsn")),
+  };
+}
+
+/** One text-index field and the analyzed terms the write produced for it. */
+export interface EncodeStageKeywordField {
+  /** Index field name — e.g. `memory_text`, `statement_text`. */
+  field: string;
+  /** The analyzed tokens (post-tokenizer) the field will match on. */
+  terms: string[];
+}
+
+function encodeStageKeywordField(k: EncodeStageKeywordField): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["field", k.field],
+    ["terms", k.terms],
+  ]);
+}
+
+function decodeStageKeywordField(value: unknown): EncodeStageKeywordField {
+  const m = asMap(value);
+  return {
+    field: asStr(field(m, "field")),
+    terms: asArray(field(m, "terms")).map(asStr),
+  };
+}
+
+/** A node in the knowledge graph an ENCODE produced — an entity, the memory
+ * itself, or a literal object value. */
+export interface EncodeGraphNode {
+  /** Stable node id: entity id, memory id, or a synthetic literal-value id. */
+  id: Uint8Array;
+  /** Display name / value. */
+  name: string;
+  /** `"entity"`, `"memory"`, or `"literal"`. */
+  kind: string;
+  /** For entity nodes, the `"namespace:typename"` (empty otherwise). */
+  typeQname: string;
+}
+
+function encodeStageGraphNode(n: EncodeGraphNode): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["id", n.id],
+    ["name", n.name],
+    ["kind", n.kind],
+    ["type_qname", n.typeQname],
+  ]);
+}
+
+function decodeStageGraphNode(value: unknown): EncodeGraphNode {
+  const m = asMap(value);
+  return {
+    id: asBytes(field(m, "id")),
+    name: asStr(field(m, "name")),
+    kind: asStr(field(m, "kind")),
+    typeQname: asStr(field(m, "type_qname")),
+  };
+}
+
+/** A directed edge in the knowledge graph an ENCODE produced. */
+export interface EncodeGraphEdge {
+  /** Source node id (subject). */
+  source: Uint8Array;
+  /** Target node id (object / relation target). */
+  target: Uint8Array;
+  /** Predicate qname. */
+  predicate: string;
+  /** `"statement"` or `"relation"`. */
+  kind: string;
+  /** Extraction confidence, when applicable. */
+  confidence: number;
+}
+
+function encodeStageGraphEdge(e: EncodeGraphEdge): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["source", e.source],
+    ["target", e.target],
+    ["predicate", e.predicate],
+    ["kind", e.kind],
+    ["confidence", f32(e.confidence)],
+  ]);
+}
+
+function decodeStageGraphEdge(value: unknown): EncodeGraphEdge {
+  const m = asMap(value);
+  return {
+    source: asBytes(field(m, "source")),
+    target: asBytes(field(m, "target")),
+    predicate: asStr(field(m, "predicate")),
+    kind: asStr(field(m, "kind")),
+    confidence: asNum(field(m, "confidence")),
+  };
+}
+
+/** The knowledge graph an ENCODE produced — nodes and the directed edges
+ * (statements, relations) between them. */
+export interface EncodeStageGraph {
+  nodes: EncodeGraphNode[];
+  edges: EncodeGraphEdge[];
+}
+
+function encodeStageGraph(g: EncodeStageGraph): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["nodes", g.nodes.map(encodeStageGraphNode)],
+    ["edges", g.edges.map(encodeStageGraphEdge)],
+  ]);
+}
+
+function decodeStageGraph(value: unknown): EncodeStageGraph {
+  const m = asMap(value);
+  return {
+    nodes: asArray(field(m, "nodes")).map(decodeStageGraphNode),
+    edges: asArray(field(m, "edges")).map(decodeStageGraphEdge),
+  };
+}
+
+/**
+ * The concrete output one ENCODE stage produced behind the scenes. A per-stage
+ * output bag: every field is optional and each stage populates only the subset
+ * it generated (`embed` → `vector`, `persist` → `record`, HyPE →
+ * `hypeQuestions`, a text-index stage → `keywordFields`, the extractor →
+ * `graph`). Empty/absent fields are omitted from the wire map. Reused as the
+ * MEMORY_INSPECT bundle shape so the live trace and the stored view are one type.
+ */
+export interface EncodeStageArtifact {
+  /** The embedding vector the `embed` stage produced (full width). Rides the
+   * CBOR map as a shortest-float array; empty when the stage produced none. */
+  vector: number[];
+  /** The metadata row the `persist` stage committed to redb; `null` when absent. */
+  record: EncodeStageRecord | null;
+  /** Hypothetical questions the write-time HyPE step generated. */
+  hypeQuestions: string[];
+  /** The analyzed keyword terms a text-index stage derived, per index field. */
+  keywordFields: EncodeStageKeywordField[];
+  /** The knowledge-graph fragment this stage produced; `null` when absent. */
+  graph: EncodeStageGraph | null;
+}
+
+function encodeStageArtifact(a: EncodeStageArtifact): Map<string, unknown> {
+  const map = new Map<string, unknown>();
+  if (a.vector.length > 0) map.set("vector", a.vector.map(f32));
+  if (a.record !== null) map.set("record", encodeStageRecord(a.record));
+  if (a.hypeQuestions.length > 0) map.set("hype_questions", a.hypeQuestions);
+  if (a.keywordFields.length > 0) {
+    map.set("keyword_fields", a.keywordFields.map(encodeStageKeywordField));
+  }
+  if (a.graph !== null) map.set("graph", encodeStageGraph(a.graph));
+  return map;
+}
+
+function decodeStageArtifact(value: unknown): EncodeStageArtifact {
+  const m = asMap(value);
+  return {
+    vector: m.has("vector") ? asArray(field(m, "vector")).map(asNum) : [],
+    record: m.has("record") ? decodeStageRecord(field(m, "record")) : null,
+    hypeQuestions: m.has("hype_questions")
+      ? asArray(field(m, "hype_questions")).map(asStr)
+      : [],
+    keywordFields: m.has("keyword_fields")
+      ? asArray(field(m, "keyword_fields")).map(decodeStageKeywordField)
+      : [],
+    graph: m.has("graph") ? decodeStageGraph(field(m, "graph")) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MEMORY_INSPECT.
+// ---------------------------------------------------------------------------
+
+/** MEMORY_INSPECT (`0x0028`): fetch the durable write-artifact bundle for one
+ * memory. Single-shot — the reply carries the whole bundle. */
+export interface MemoryInspectRequest {
+  memoryId: Uint8Array;
+  /** Effective identity this read runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a MEMORY_INSPECT (`0x0028`) request. `act_as` trails when present. */
+export function encodeMemoryInspect(p: MemoryInspectRequest): Uint8Array {
+  return toCbor(requestMapWithActAs([["memory_id", p.memoryId]], p.actAs));
+}
+
+/** Decode a MEMORY_INSPECT (`0x0028`) request payload. */
+export function decodeMemoryInspect(bytes: Uint8Array): MemoryInspectRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    memoryId: asBytes(field(m, "memory_id")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** MEMORY_INSPECT_RESP (`0x00A8`): the durable per-memory artifact bundle —
+ * what each write stage produced (embedding vector, redb record, keyword terms,
+ * HyPE questions, extracted graph) plus the memory text. `found = false` (with
+ * an empty `artifact`) when no memory / no bundle exists for the id. */
+export interface MemoryInspectResponse {
+  found: boolean;
+  memoryId: Uint8Array;
+  text: string;
+  artifact: EncodeStageArtifact;
+}
+
+/** Encode a MEMORY_INSPECT_RESP (`0x00A8`) payload. */
+export function encodeMemoryInspectResponse(p: MemoryInspectResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["found", p.found],
+      ["memory_id", p.memoryId],
+      ["text", p.text],
+      ["artifact", encodeStageArtifact(p.artifact)],
+    ]),
+  );
+}
+
+/** Decode a MEMORY_INSPECT_RESP (`0x00A8`) payload. */
+export function decodeMemoryInspectResponse(bytes: Uint8Array): MemoryInspectResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    found: asBool(field(m, "found")),
+    memoryId: asBytes(field(m, "memory_id")),
+    text: asStr(field(m, "text")),
+    artifact: decodeStageArtifact(field(m, "artifact")),
   };
 }
 
@@ -720,27 +1337,39 @@ export interface RecallRequest {
   includeText: boolean;
   requestId: WireUuid | null;
   txnId: WireUuid | null;
+  /** Opt-in per-stage read-pipeline trace. When `true`, the final RECALL_RESP
+   * frame carries a populated `trace: RecallTrace`; when `false` (the default)
+   * the response field is absent and the read pays nothing. Always present on
+   * the wire (the server tolerates its absence, defaulting to `false`). */
+  trace: boolean;
+  /** Effective identity this recall runs as. `null` (CBOR-omitted) runs as
+   * the connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
-/** Encode a RECALL (`0x0021`) request. */
+/** Encode a RECALL (`0x0021`) request. `trace` precedes `act_as`. */
 export function encodeRecall(p: RecallRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["cue_text", p.cueText],
-      ["subject_name", p.subjectName],
-      ["max_results", p.maxResults],
-      ["confidence_threshold", f32(p.confidenceThreshold)],
-      ["context_filter", p.contextFilter === null ? null : p.contextFilter],
-      ["age_bound_unix_nanos", p.ageBoundUnixNanos],
-      ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
-      ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k as number)],
-      ["salience_floor", f32(p.salienceFloor)],
-      ["include_edges", p.includeEdges],
-      ["include_graph", p.includeGraph],
-      ["include_text", p.includeText],
-      ["request_id", p.requestId],
-      ["txn_id", p.txnId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["cue_text", p.cueText],
+        ["subject_name", p.subjectName],
+        ["max_results", p.maxResults],
+        ["confidence_threshold", f32(p.confidenceThreshold)],
+        ["context_filter", p.contextFilter === null ? null : p.contextFilter],
+        ["age_bound_unix_nanos", p.ageBoundUnixNanos],
+        ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
+        ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k as number)],
+        ["salience_floor", f32(p.salienceFloor)],
+        ["include_edges", p.includeEdges],
+        ["include_graph", p.includeGraph],
+        ["include_text", p.includeText],
+        ["request_id", p.requestId],
+        ["txn_id", p.txnId],
+        ["trace", p.trace],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -764,6 +1393,8 @@ export function decodeRecall(bytes: Uint8Array): RecallRequest {
     includeText: asBool(field(m, "include_text")),
     requestId: asOptBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
+    trace: m.has("trace") ? asBool(field(m, "trace")) : false,
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -996,30 +1627,163 @@ export interface RecallResponseFrame {
   isFinal: boolean;
   cumulativeCount: number;
   estimatedRemaining: number | null;
+  /** Per-stage read-pipeline trace, present only on the final frame and only
+   * when the request set `trace = true`; absent (CBOR-omitted) otherwise. */
+  trace?: RecallTrace;
 }
 
 /** Encode one RECALL_RESP (`0x00A1`) streamed frame. */
 export function encodeRecallResponse(p: RecallResponseFrame): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
-      ["answer_kind", p.answerKind],
-      ["memories", p.memories.map(encodeMemoryResult)],
-      ["is_final", p.isFinal],
-      ["cumulative_count", p.cumulativeCount],
-      ["estimated_remaining", p.estimatedRemaining],
-    ]),
-  );
+  const map = new Map<string, unknown>([
+    ["answer_kind", p.answerKind],
+    ["memories", p.memories.map(encodeMemoryResult)],
+    ["is_final", p.isFinal],
+    ["cumulative_count", p.cumulativeCount],
+    ["estimated_remaining", p.estimatedRemaining],
+  ]);
+  if (p.trace != null) map.set("trace", encodeRecallTrace(p.trace));
+  return toCbor(map);
 }
 
 /** Decode one RECALL_RESP (`0x00A1`) streamed frame. */
 export function decodeRecallResponse(bytes: Uint8Array): RecallResponseFrame {
   const m = asMap(fromCbor(bytes));
-  return {
+  const out: RecallResponseFrame = {
     answerKind: asStr(field(m, "answer_kind")) as AnswerKind,
     memories: asArray(field(m, "memories")).map(decodeMemoryResult),
     isFinal: asBool(field(m, "is_final")),
     cumulativeCount: asNum(field(m, "cumulative_count")),
     estimatedRemaining: asOpt(field(m, "estimated_remaining"), asNum),
+  };
+  if (m.has("trace")) out.trace = decodeRecallTrace(field(m, "trace"));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// RECALL trace.
+// ---------------------------------------------------------------------------
+
+/** Terminal status of a retriever lane in a RECALL trace. Integer discriminant. */
+export enum RecallTraceRetrieverStatus {
+  Success = 0,
+  Skipped = 1,
+  Timeout = 2,
+  Failure = 3,
+}
+
+/** What one retriever lane did during a traced RECALL. */
+export interface RecallTraceRetriever {
+  name: RetrieverNameWire;
+  status: RecallTraceRetrieverStatus;
+  /** Skip reason for `Skipped`, error message for `Failure`; empty otherwise. */
+  statusDetail: string;
+  latencyMs: number;
+  candidateCount: number;
+}
+
+/** Filter-chain survivor counts after each step of a traced RECALL. */
+export interface RecallTraceFilterChain {
+  before: number;
+  afterType: number;
+  afterTemporal: number;
+  afterConfidence: number;
+  afterTombstone: number;
+  afterSupersession: number;
+  afterAsOf: number;
+  afterLimit: number;
+}
+
+/** Outcome of the cross-encoder rerank stage in a RECALL trace. */
+export interface RecallTraceRerank {
+  applied: boolean;
+  candidates: number;
+  latencyMs: number;
+}
+
+/** Per-stage observability for one traced RECALL. */
+export interface RecallTrace {
+  retrievers: RecallTraceRetriever[];
+  filterChain: RecallTraceFilterChain;
+  /** Rerank outcome, or `null` when the rerank stage did not run. */
+  rerank: RecallTraceRerank | null;
+  totalLatencyMs: number;
+}
+
+function encodeRecallTrace(t: RecallTrace): Map<string, unknown> {
+  return new Map<string, unknown>([
+    [
+      "retrievers",
+      t.retrievers.map(
+        (r) =>
+          new Map<string, unknown>([
+            ["name", r.name as number],
+            ["status", r.status as number],
+            ["status_detail", r.statusDetail],
+            ["latency_ms", f64(r.latencyMs)],
+            ["candidate_count", r.candidateCount],
+          ]),
+      ),
+    ],
+    [
+      "filter_chain",
+      new Map<string, unknown>([
+        ["before", t.filterChain.before],
+        ["after_type", t.filterChain.afterType],
+        ["after_temporal", t.filterChain.afterTemporal],
+        ["after_confidence", t.filterChain.afterConfidence],
+        ["after_tombstone", t.filterChain.afterTombstone],
+        ["after_supersession", t.filterChain.afterSupersession],
+        ["after_as_of", t.filterChain.afterAsOf],
+        ["after_limit", t.filterChain.afterLimit],
+      ]),
+    ],
+    [
+      "rerank",
+      t.rerank === null
+        ? null
+        : new Map<string, unknown>([
+            ["applied", t.rerank.applied],
+            ["candidates", t.rerank.candidates],
+            ["latency_ms", f64(t.rerank.latencyMs)],
+          ]),
+    ],
+    ["total_latency_ms", f64(t.totalLatencyMs)],
+  ]);
+}
+
+function decodeRecallTrace(value: unknown): RecallTrace {
+  const m = asMap(value);
+  const fc = asMap(field(m, "filter_chain"));
+  return {
+    retrievers: asArray(field(m, "retrievers")).map((v) => {
+      const r = asMap(v);
+      return {
+        name: asNum(field(r, "name")) as RetrieverNameWire,
+        status: asNum(field(r, "status")) as RecallTraceRetrieverStatus,
+        statusDetail: asStr(field(r, "status_detail")),
+        latencyMs: asNum(field(r, "latency_ms")),
+        candidateCount: asNum(field(r, "candidate_count")),
+      };
+    }),
+    filterChain: {
+      before: asNum(field(fc, "before")),
+      afterType: asNum(field(fc, "after_type")),
+      afterTemporal: asNum(field(fc, "after_temporal")),
+      afterConfidence: asNum(field(fc, "after_confidence")),
+      afterTombstone: asNum(field(fc, "after_tombstone")),
+      afterSupersession: asNum(field(fc, "after_supersession")),
+      afterAsOf: asNum(field(fc, "after_as_of")),
+      afterLimit: asNum(field(fc, "after_limit")),
+    },
+    rerank: asOpt(field(m, "rerank"), (v) => {
+      const rr = asMap(v);
+      return {
+        applied: asBool(field(rr, "applied")),
+        candidates: asNum(field(rr, "candidates")),
+        latencyMs: asNum(field(rr, "latency_ms")),
+      };
+    }),
+    totalLatencyMs: asNum(field(m, "total_latency_ms")),
   };
 }
 
@@ -1033,17 +1797,23 @@ export interface ForgetRequest {
   mode: ForgetMode;
   requestId: WireUuid;
   txnId: WireUuid | null;
+  /** Effective identity this forget runs as. `null` (CBOR-omitted) runs as
+   * the connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a FORGET (`0x0024`) request. */
 export function encodeForget(p: ForgetRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["memory_id", p.memoryId],
-      ["mode", p.mode as number],
-      ["request_id", p.requestId],
-      ["txn_id", p.txnId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["memory_id", p.memoryId],
+        ["mode", p.mode as number],
+        ["request_id", p.requestId],
+        ["txn_id", p.txnId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -1055,6 +1825,7 @@ export function decodeForget(bytes: Uint8Array): ForgetRequest {
     mode: asNum(field(m, "mode")) as ForgetMode,
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -1287,18 +2058,24 @@ export interface EntityCreateRequest {
   aliases: string[];
   attributesBlob: Uint8Array;
   requestId: WireUuid;
+  /** Effective identity this entity create runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode an ENTITY_CREATE (`0x0130`) request. */
 export function encodeEntityCreate(p: EntityCreateRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["entity_type_id", p.entityTypeId],
-      ["canonical_name", p.canonicalName],
-      ["aliases", p.aliases],
-      ["attributes_blob", Array.from(p.attributesBlob)],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["entity_type_id", p.entityTypeId],
+        ["canonical_name", p.canonicalName],
+        ["aliases", p.aliases],
+        ["attributes_blob", Array.from(p.attributesBlob)],
+        ["request_id", p.requestId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -1311,6 +2088,7 @@ export function decodeEntityCreate(bytes: Uint8Array): EntityCreateRequest {
     aliases: asArray(field(m, "aliases")).map(asStr),
     attributesBlob: Uint8Array.from(asArray(field(m, "attributes_blob")).map(asNum)),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -1344,26 +2122,32 @@ export interface StatementCreateRequest {
   eventAtUnixNanos: bigint;
   schemaVersion: number;
   requestId: WireUuid;
+  /** Effective identity this statement create runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** The CBOR map for a STATEMENT_CREATE payload — shared so STATEMENT_SUPERSEDE
  * can nest one without a lossy re-encode round-trip (which would demote the
  * f32 confidence to f64). */
 function statementCreateMap(p: StatementCreateRequest): Map<string, unknown> {
-  return new Map<string, unknown>([
-    ["kind", encodeStatementKind(p.kind)],
-    ["subject", p.subject],
-    ["predicate", p.predicate],
-    ["object", encodeStatementObject(p.object)],
-    ["confidence", f32(p.confidence)],
-    ["evidence", encodeEvidence(p.evidence)],
-    ["extractor_id", p.extractorId],
-    ["valid_from_unix_nanos", p.validFromUnixNanos],
-    ["valid_to_unix_nanos", p.validToUnixNanos],
-    ["event_at_unix_nanos", p.eventAtUnixNanos],
-    ["schema_version", p.schemaVersion],
-    ["request_id", p.requestId],
-  ]);
+  return requestMapWithActAs(
+    [
+      ["kind", encodeStatementKind(p.kind)],
+      ["subject", p.subject],
+      ["predicate", p.predicate],
+      ["object", encodeStatementObject(p.object)],
+      ["confidence", f32(p.confidence)],
+      ["evidence", encodeEvidence(p.evidence)],
+      ["extractor_id", p.extractorId],
+      ["valid_from_unix_nanos", p.validFromUnixNanos],
+      ["valid_to_unix_nanos", p.validToUnixNanos],
+      ["event_at_unix_nanos", p.eventAtUnixNanos],
+      ["schema_version", p.schemaVersion],
+      ["request_id", p.requestId],
+    ],
+    p.actAs,
+  );
 }
 
 /** Encode a STATEMENT_CREATE (`0x0140`) request. */
@@ -1387,6 +2171,7 @@ export function decodeStatementCreate(bytes: Uint8Array): StatementCreateRequest
     eventAtUnixNanos: asBig(field(m, "event_at_unix_nanos")),
     schemaVersion: asNum(field(m, "schema_version")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -1430,24 +2215,30 @@ export interface RelationCreateRequest {
   validFromUnixNanos: bigint;
   validToUnixNanos: bigint;
   requestId: WireUuid;
+  /** Effective identity this relation create runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** The CBOR map for a RELATION_CREATE payload — shared so RELATION_SUPERSEDE
  * can nest one without a lossy re-encode round-trip (which would demote the
  * f32 confidence to f64). */
 function relationCreateMap(p: RelationCreateRequest): Map<string, unknown> {
-  return new Map<string, unknown>([
-    ["relation_type", p.relationType],
-    ["from_entity", p.fromEntity],
-    ["to_entity", p.toEntity],
-    ["properties_blob", Array.from(p.propertiesBlob)],
-    ["evidence", encodeEvidence(p.evidence)],
-    ["extractor_id", p.extractorId],
-    ["confidence", f32(p.confidence)],
-    ["valid_from_unix_nanos", p.validFromUnixNanos],
-    ["valid_to_unix_nanos", p.validToUnixNanos],
-    ["request_id", p.requestId],
-  ]);
+  return requestMapWithActAs(
+    [
+      ["relation_type", p.relationType],
+      ["from_entity", p.fromEntity],
+      ["to_entity", p.toEntity],
+      ["properties_blob", Array.from(p.propertiesBlob)],
+      ["evidence", encodeEvidence(p.evidence)],
+      ["extractor_id", p.extractorId],
+      ["confidence", f32(p.confidence)],
+      ["valid_from_unix_nanos", p.validFromUnixNanos],
+      ["valid_to_unix_nanos", p.validToUnixNanos],
+      ["request_id", p.requestId],
+    ],
+    p.actAs,
+  );
 }
 
 /** Read a RELATION_CREATE map back into the typed request — shared by the
@@ -1464,6 +2255,7 @@ function relationCreateFromMap(m: Map<string, unknown>): RelationCreateRequest {
     validFromUnixNanos: asBig(field(m, "valid_from_unix_nanos")),
     validToUnixNanos: asBig(field(m, "valid_to_unix_nanos")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -1807,19 +2599,25 @@ export interface LinkRequest {
   weight: number;
   requestId: WireUuid;
   txnId: WireUuid | null;
+  /** Effective identity this link runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a LINK (`0x0025`) request. */
 export function encodeLink(p: LinkRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["source", p.source],
-      ["target", p.target],
-      ["kind", p.kind as number],
-      ["weight", f32(p.weight)],
-      ["request_id", p.requestId],
-      ["txn_id", p.txnId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["source", p.source],
+        ["target", p.target],
+        ["kind", p.kind as number],
+        ["weight", f32(p.weight)],
+        ["request_id", p.requestId],
+        ["txn_id", p.txnId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -1833,6 +2631,7 @@ export function decodeLink(bytes: Uint8Array): LinkRequest {
     weight: asNum(field(m, "weight")),
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -1881,18 +2680,24 @@ export interface UnlinkRequest {
   kind: EdgeKindWire;
   requestId: WireUuid;
   txnId: WireUuid | null;
+  /** Effective identity this unlink runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode an UNLINK (`0x0026`) request. */
 export function encodeUnlink(p: UnlinkRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["source", p.source],
-      ["target", p.target],
-      ["kind", p.kind as number],
-      ["request_id", p.requestId],
-      ["txn_id", p.txnId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["source", p.source],
+        ["target", p.target],
+        ["kind", p.kind as number],
+        ["request_id", p.requestId],
+        ["txn_id", p.txnId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -1905,6 +2710,7 @@ export function decodeUnlink(bytes: Uint8Array): UnlinkRequest {
     kind: asNum(field(m, "kind")) as EdgeKindWire,
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -1937,6 +2743,353 @@ export function decodeUnlinkResponse(bytes: Uint8Array): UnlinkResponse {
     target: asBig(field(m, "target")),
     kind: asNum(field(m, "kind")) as EdgeKindWire,
     removed: asBool(field(m, "removed")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MEMORY_LIST.
+// ---------------------------------------------------------------------------
+
+/** Sort axis for MEMORY_LIST. Integer discriminant on the wire. v1 supports
+ * only `Created` end-to-end; the others are reserved wire values. */
+export enum MemoryListSort {
+  Created = 0,
+  Salience = 1,
+  Occurred = 2,
+  LastAccessed = 3,
+}
+
+/** Sort direction for MEMORY_LIST. Integer discriminant on the wire. */
+export enum MemoryListDir {
+  Asc = 0,
+  Desc = 1,
+}
+
+/** Which time field a MEMORY_LIST `from`/`to` range filters on. Integer
+ * discriminant on the wire. v1 supports only `Created`. */
+export enum MemoryListTimeAxis {
+  Created = 0,
+  Occurred = 1,
+}
+
+/**
+ * MEMORY_LIST (`0x0027`): a paginated keyset enumeration of the caller's
+ * `(namespace, agent)` memories. Not RECALL — no query, no ranking. It walks
+ * the tenant timeline in a stable order and returns a page plus an opaque
+ * keyset cursor. Empty/zero fields mean "no filter".
+ */
+export interface MemoryListRequest {
+  sort: MemoryListSort;
+  dir: MemoryListDir;
+  /** Page size, validated server-side to `1..=100`. */
+  limit: number;
+  /** Empty on first page; opaque continuation token otherwise. */
+  cursor: Uint8Array;
+  /** Empty = all kinds; otherwise only these memory kinds are returned. */
+  kinds: MemoryKindWire[];
+  /** When false, tombstoned memories are excluded; when true, both active and
+   * tombstoned rows are enumerated. */
+  includeTombstoned: boolean;
+  /** Which time field the `from`/`to` bounds apply to. */
+  timeAxis: MemoryListTimeAxis;
+  /** Inclusive lower time bound in unix-nanos; `0` = no lower bound. */
+  fromUnixNanos: bigint;
+  /** Inclusive upper time bound in unix-nanos; `0` = no upper bound. */
+  toUnixNanos: bigint;
+  /** Inclusive salience floor in `[0, 1]`. */
+  salienceMin: number;
+  /** Inclusive salience ceiling in `[0, 1]`. */
+  salienceMax: number;
+  /** Substring/token filter over memory text; empty = no filter. */
+  textContains: string;
+  /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a MEMORY_LIST (`0x0027`) request. `act_as` trails when present. */
+export function encodeMemoryList(p: MemoryListRequest): Uint8Array {
+  return toCbor(
+    requestMapWithActAs(
+      [
+        ["sort", p.sort as number],
+        ["dir", p.dir as number],
+        ["limit", p.limit],
+        // `cursor` is `Vec<u8>` without serde_bytes server-side → a CBOR array
+        // of ints, not a byte string (matches statement/relation/entity list).
+        ["cursor", Array.from(p.cursor)],
+        ["kinds", p.kinds.map((k) => k as number)],
+        ["include_tombstoned", p.includeTombstoned],
+        ["time_axis", p.timeAxis as number],
+        ["from_unix_nanos", p.fromUnixNanos],
+        ["to_unix_nanos", p.toUnixNanos],
+        ["salience_min", f32(p.salienceMin)],
+        ["salience_max", f32(p.salienceMax)],
+        ["text_contains", p.textContains],
+      ],
+      p.actAs,
+    ),
+  );
+}
+
+/** Decode a MEMORY_LIST (`0x0027`) request payload. */
+export function decodeMemoryList(bytes: Uint8Array): MemoryListRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    sort: asNum(field(m, "sort")) as MemoryListSort,
+    dir: asNum(field(m, "dir")) as MemoryListDir,
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    kinds: asArray(field(m, "kinds")).map((k) => asNum(k) as MemoryKindWire),
+    includeTombstoned: asBool(field(m, "include_tombstoned")),
+    timeAxis: asNum(field(m, "time_axis")) as MemoryListTimeAxis,
+    fromUnixNanos: asBig(field(m, "from_unix_nanos")),
+    toUnixNanos: asBig(field(m, "to_unix_nanos")),
+    salienceMin: asNum(field(m, "salience_min")),
+    salienceMax: asNum(field(m, "salience_max")),
+    textContains: asStr(field(m, "text_contains")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** One memory in a MEMORY_LIST response batch: the enumeration-relevant fields
+ * plus relationship-handle counts. */
+export interface MemoryListItem {
+  memoryId: Uint8Array;
+  text: string;
+  /** Raw memory-kind byte (0 = Episodic, 1 = Semantic, 2 = Consolidated). */
+  kind: number;
+  /** Lifecycle state byte (0 = active, 1 = tombstoned). */
+  state: number;
+  createdAtUnixNanos: bigint;
+  /** Client-supplied event time; `0` when the memory has none. */
+  occurredAtUnixNanos: bigint;
+  lastAccessedAtUnixNanos: bigint;
+  /** Point-in-time salience snapshot (it decays). */
+  salience: number;
+  accessCount: number;
+  sourceRequestId: Uint8Array;
+  statementCount: number;
+  entityCount: number;
+  relationCount: number;
+}
+
+function encodeMemoryListItem(i: MemoryListItem): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", i.memoryId],
+    ["text", i.text],
+    ["kind", i.kind],
+    ["state", i.state],
+    ["created_at_unix_nanos", i.createdAtUnixNanos],
+    ["occurred_at_unix_nanos", i.occurredAtUnixNanos],
+    ["last_accessed_at_unix_nanos", i.lastAccessedAtUnixNanos],
+    ["salience", f32(i.salience)],
+    ["access_count", i.accessCount],
+    ["source_request_id", i.sourceRequestId],
+    ["statement_count", i.statementCount],
+    ["entity_count", i.entityCount],
+    ["relation_count", i.relationCount],
+  ]);
+}
+
+function decodeMemoryListItem(value: unknown): MemoryListItem {
+  const m = asMap(value);
+  return {
+    memoryId: asBytes(field(m, "memory_id")),
+    text: asStr(field(m, "text")),
+    kind: asNum(field(m, "kind")),
+    state: asNum(field(m, "state")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    occurredAtUnixNanos: asBig(field(m, "occurred_at_unix_nanos")),
+    lastAccessedAtUnixNanos: asBig(field(m, "last_accessed_at_unix_nanos")),
+    salience: asNum(field(m, "salience")),
+    accessCount: asNum(field(m, "access_count")),
+    sourceRequestId: asBytes(field(m, "source_request_id")),
+    statementCount: asNum(field(m, "statement_count")),
+    entityCount: asNum(field(m, "entity_count")),
+    relationCount: asNum(field(m, "relation_count")),
+  };
+}
+
+/** One streamed MEMORY_LIST_RESP (`0x00A7`) frame. The last frame carries
+ * `isFinal = true`; a non-empty `nextCursor` means more pages remain. */
+export interface MemoryListResponseFrame {
+  items: MemoryListItem[];
+  nextCursor: Uint8Array;
+  cumulativeCount: number;
+  isFinal: boolean;
+}
+
+/** Encode one MEMORY_LIST_RESP (`0x00A7`) streamed frame. */
+export function encodeMemoryListResponse(p: MemoryListResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["items", p.items.map(encodeMemoryListItem)],
+      // `next_cursor` is `Vec<u8>` without serde_bytes → CBOR array of ints.
+      ["next_cursor", Array.from(p.nextCursor)],
+      ["cumulative_count", p.cumulativeCount],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+/** Decode one MEMORY_LIST_RESP (`0x00A7`) streamed frame. */
+export function decodeMemoryListResponse(bytes: Uint8Array): MemoryListResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    items: asArray(field(m, "items")).map(decodeMemoryListItem),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
+    cumulativeCount: asNum(field(m, "cumulative_count")),
+    isFinal: asBool(field(m, "is_final")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GRAPH_FETCH — full-agent typed-graph export.
+// ---------------------------------------------------------------------------
+
+/** One graph node. `id` is the 16-byte entity / statement / memory id; `kind`
+ * says which id-space it is (0 = Entity, 1 = Statement, 2 = Memory). */
+export interface GraphNode {
+  id: Uint8Array;
+  kind: number;
+  label: string;
+  /** Entity type qname (e.g. `brain:Person`); empty for non-entity nodes. */
+  typeQname: string;
+}
+
+function encodeGraphNode(n: GraphNode): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["id", n.id],
+    ["kind", n.kind],
+    ["label", n.label],
+    ["type_qname", n.typeQname],
+  ]);
+}
+
+function decodeGraphNode(value: unknown): GraphNode {
+  const m = asMap(value);
+  return {
+    id: asBytes(field(m, "id")),
+    kind: asNum(field(m, "kind")),
+    label: asStr(field(m, "label")),
+    typeQname: asStr(field(m, "type_qname")),
+  };
+}
+
+/** One graph edge. `kind`: 0 = Relation, 1 = Fact, 2 = HasStatement, 3 = Mentions. */
+export interface GraphEdge {
+  fromId: Uint8Array;
+  toId: Uint8Array;
+  kind: number;
+  /** Predicate / relation-type label; empty for `Mentions`. */
+  label: string;
+}
+
+function encodeGraphEdge(e: GraphEdge): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["from_id", e.fromId],
+    ["to_id", e.toId],
+    ["kind", e.kind],
+    ["label", e.label],
+  ]);
+}
+
+function decodeGraphEdge(value: unknown): GraphEdge {
+  const m = asMap(value);
+  return {
+    fromId: asBytes(field(m, "from_id")),
+    toId: asBytes(field(m, "to_id")),
+    kind: asNum(field(m, "kind")),
+    label: asStr(field(m, "label")),
+  };
+}
+
+/**
+ * GRAPH_FETCH (`0x0163`): a paginated export of the caller's whole
+ * `(namespace, agent)` typed graph as a node/edge set. Default layer is the
+ * concept map (entity nodes + Relation/Fact edges); `includeStatements` adds
+ * value-object statement nodes, `includeMemories` adds source-memory nodes.
+ * The cursor is opaque, signed over the layer toggles.
+ */
+export interface GraphFetchRequest {
+  /** Page size, validated server-side to `1..=500`. */
+  limit: number;
+  /** Empty on first page; opaque continuation token otherwise. */
+  cursor: Uint8Array;
+  /** Emit value-object statement nodes + their `HasStatement` edges. */
+  includeStatements: boolean;
+  /** Emit source memory nodes + their `Mentions` edges. */
+  includeMemories: boolean;
+  /** Include tombstoned statements/relations. Default false. */
+  includeTombstoned: boolean;
+  /** Effective identity this export runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a GRAPH_FETCH (`0x0163`) request. `act_as` trails when present. */
+export function encodeGraphFetch(p: GraphFetchRequest): Uint8Array {
+  return toCbor(
+    requestMapWithActAs(
+      [
+        ["limit", p.limit],
+        // `cursor` is `Vec<u8>` without serde_bytes server-side → a CBOR array
+        // of ints, not a byte string (matches the *_list cursors).
+        ["cursor", Array.from(p.cursor)],
+        ["include_statements", p.includeStatements],
+        ["include_memories", p.includeMemories],
+        ["include_tombstoned", p.includeTombstoned],
+      ],
+      p.actAs,
+    ),
+  );
+}
+
+/** Decode a GRAPH_FETCH (`0x0163`) request payload. */
+export function decodeGraphFetch(bytes: Uint8Array): GraphFetchRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    includeStatements: asBool(field(m, "include_statements")),
+    includeMemories: asBool(field(m, "include_memories")),
+    includeTombstoned: asBool(field(m, "include_tombstoned")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** One streamed GRAPH_FETCH_RESP (`0x01E3`) frame. Nodes/edges may repeat
+ * across pages (completeness, not disjointness) — dedup by id. The last frame
+ * carries `isFinal = true`; a non-empty `nextCursor` means more pages remain. */
+export interface GraphFetchResponseFrame {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  nextCursor: Uint8Array;
+  isFinal: boolean;
+}
+
+/** Encode one GRAPH_FETCH_RESP (`0x01E3`) streamed frame. */
+export function encodeGraphFetchResponse(p: GraphFetchResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["nodes", p.nodes.map(encodeGraphNode)],
+      ["edges", p.edges.map(encodeGraphEdge)],
+      // `next_cursor` is `Vec<u8>` without serde_bytes → CBOR array of ints.
+      ["next_cursor", Array.from(p.nextCursor)],
+      ["is_final", p.isFinal],
+    ]),
+  );
+}
+
+/** Decode one GRAPH_FETCH_RESP (`0x01E3`) streamed frame. */
+export function decodeGraphFetchResponse(bytes: Uint8Array): GraphFetchResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    nodes: asArray(field(m, "nodes")).map(decodeGraphNode),
+    edges: asArray(field(m, "edges")).map(decodeGraphEdge),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
+    isFinal: asBool(field(m, "is_final")),
   };
 }
 
@@ -2025,20 +3178,26 @@ export interface PlanRequest {
   contextFilter: bigint[] | null;
   requestId: WireUuid | null;
   txnId: WireUuid | null;
+  /** Effective identity this plan runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a PLAN (`0x0022`) request. */
 export function encodePlan(p: PlanRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["start", encodePlanState(p.start)],
-      ["goal", encodePlanState(p.goal)],
-      ["budget", encodePlanBudget(p.budget)],
-      ["strategy_hint", p.strategyHint === null ? null : (p.strategyHint as number)],
-      ["context_filter", p.contextFilter === null ? null : p.contextFilter],
-      ["request_id", p.requestId],
-      ["txn_id", p.txnId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["start", encodePlanState(p.start)],
+        ["goal", encodePlanState(p.goal)],
+        ["budget", encodePlanBudget(p.budget)],
+        ["strategy_hint", p.strategyHint === null ? null : (p.strategyHint as number)],
+        ["context_filter", p.contextFilter === null ? null : p.contextFilter],
+        ["request_id", p.requestId],
+        ["txn_id", p.txnId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -2053,6 +3212,7 @@ export function decodePlan(bytes: Uint8Array): PlanRequest {
     contextFilter: asOpt(field(m, "context_filter"), (v) => asArray(v).map(asBig)),
     requestId: asOptBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -2179,21 +3339,27 @@ export interface ReasonRequest {
   budgetWallTimeMs: number;
   requestId: WireUuid | null;
   txnId: WireUuid | null;
+  /** Effective identity this reason runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a REASON (`0x0023`) request. */
 export function encodeReason(p: ReasonRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["observation", encodeObservationInput(p.observation)],
-      ["depth", p.depth],
-      ["confidence_threshold", f32(p.confidenceThreshold)],
-      ["context_filter", p.contextFilter === null ? null : p.contextFilter],
-      ["max_inferences", p.maxInferences],
-      ["budget_wall_time_ms", p.budgetWallTimeMs],
-      ["request_id", p.requestId],
-      ["txn_id", p.txnId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["observation", encodeObservationInput(p.observation)],
+        ["depth", p.depth],
+        ["confidence_threshold", f32(p.confidenceThreshold)],
+        ["context_filter", p.contextFilter === null ? null : p.contextFilter],
+        ["max_inferences", p.maxInferences],
+        ["budget_wall_time_ms", p.budgetWallTimeMs],
+        ["request_id", p.requestId],
+        ["txn_id", p.txnId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -2209,6 +3375,7 @@ export function decodeReason(bytes: Uint8Array): ReasonRequest {
     budgetWallTimeMs: asNum(field(m, "budget_wall_time_ms")),
     requestId: asOptBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -2654,17 +3821,21 @@ function decodeEntityView(value: unknown): EntityView {
 /** ENTITY_GET (`0x0131`): fetch one entity by id. */
 export interface EntityGetRequest {
   entityId: WireUuid;
+  /** Effective identity this get runs as, on behalf of the connection
+   * principal. `null` (the common case, CBOR-omitted) runs as the connection's
+   * own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode an ENTITY_GET (`0x0131`) request. */
 export function encodeEntityGet(p: EntityGetRequest): Uint8Array {
-  return toCbor(new Map<string, unknown>([["entity_id", p.entityId]]));
+  return toCbor(requestMapWithActAs([["entity_id", p.entityId]], p.actAs));
 }
 
 /** Decode an ENTITY_GET (`0x0131`) request payload. */
 export function decodeEntityGet(bytes: Uint8Array): EntityGetRequest {
   const m = asMap(fromCbor(bytes));
-  return { entityId: asBytes(field(m, "entity_id")) };
+  return { entityId: asBytes(field(m, "entity_id")), actAs: decodeOptActAs(m) };
 }
 
 /** ENTITY_GET_RESP (`0x01B1`): the requested entity view. */
@@ -2696,20 +3867,27 @@ export interface EntityListRequest {
   limit: number;
   /** Empty on first page; opaque continuation token otherwise. */
   cursor: Uint8Array;
+  /** Effective identity this list runs as, on behalf of the connection
+   * principal. `null` (the common case, CBOR-omitted) runs as the connection's
+   * own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode an ENTITY_LIST (`0x0137`) request. */
 export function encodeEntityList(p: EntityListRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["entity_type_id", p.entityTypeId],
-      ["name_prefix", p.namePrefix],
-      ["mention_count_min", p.mentionCountMin],
-      ["include_tombstoned", p.includeTombstoned],
-      ["include_merged", p.includeMerged],
-      ["limit", p.limit],
-      ["cursor", Array.from(p.cursor)],
-    ]),
+    requestMapWithActAs(
+      [
+        ["entity_type_id", p.entityTypeId],
+        ["name_prefix", p.namePrefix],
+        ["mention_count_min", p.mentionCountMin],
+        ["include_tombstoned", p.includeTombstoned],
+        ["include_merged", p.includeMerged],
+        ["limit", p.limit],
+        ["cursor", Array.from(p.cursor)],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -2724,6 +3902,7 @@ export function decodeEntityList(bytes: Uint8Array): EntityListRequest {
     includeMerged: asBool(field(m, "include_merged")),
     limit: asNum(field(m, "limit")),
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -2780,18 +3959,26 @@ export interface EntityResolveRequest {
   entityTypeHint: number;
   allowCreate: boolean;
   requestId: WireUuid;
+  /** Effective identity this resolve runs as, on behalf of the connection
+   * principal. `null` (the common case, CBOR-omitted) runs as the
+   * connection's own key-bound identity. Resolution is scoped to the
+   * effective `(namespace, agent)`. */
+  actAs: ActAs | null;
 }
 
 /** Encode an ENTITY_RESOLVE (`0x0136`) request. */
 export function encodeEntityResolve(p: EntityResolveRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["candidate_name", p.candidateName],
-      ["context", p.context],
-      ["entity_type_hint", p.entityTypeHint],
-      ["allow_create", p.allowCreate],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["candidate_name", p.candidateName],
+        ["context", p.context],
+        ["entity_type_hint", p.entityTypeHint],
+        ["allow_create", p.allowCreate],
+        ["request_id", p.requestId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -2804,6 +3991,7 @@ export function decodeEntityResolve(bytes: Uint8Array): EntityResolveRequest {
     entityTypeHint: asNum(field(m, "entity_type_hint")),
     allowCreate: asBool(field(m, "allow_create")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -2940,15 +4128,22 @@ function decodeStatementView(value: unknown): StatementView {
 export interface StatementGetRequest {
   statementId: WireUuid;
   followSupersession: boolean;
+  /** Effective identity this get runs as, on behalf of the connection
+   * principal. `null` (the common case, CBOR-omitted) runs as the connection's
+   * own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a STATEMENT_GET (`0x0141`) request. */
 export function encodeStatementGet(p: StatementGetRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["statement_id", p.statementId],
-      ["follow_supersession", p.followSupersession],
-    ]),
+    requestMapWithActAs(
+      [
+        ["statement_id", p.statementId],
+        ["follow_supersession", p.followSupersession],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -2958,6 +4153,7 @@ export function decodeStatementGet(bytes: Uint8Array): StatementGetRequest {
   return {
     statementId: asBytes(field(m, "statement_id")),
     followSupersession: asBool(field(m, "follow_supersession")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -2999,23 +4195,30 @@ export interface StatementListRequest {
   includeTombstoned: boolean;
   limit: number;
   cursor: Uint8Array;
+  /** Effective identity this list runs as, on behalf of the connection
+   * principal. `null` (the common case, CBOR-omitted) runs as the connection's
+   * own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a STATEMENT_LIST (`0x0146`) request. */
 export function encodeStatementList(p: StatementListRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["subject", p.subject],
-      ["predicate", p.predicate],
-      ["kind", p.kind],
-      ["min_confidence", f32(p.minConfidence)],
-      ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
-      ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
-      ["only_current", p.onlyCurrent],
-      ["include_tombstoned", p.includeTombstoned],
-      ["limit", p.limit],
-      ["cursor", Array.from(p.cursor)],
-    ]),
+    requestMapWithActAs(
+      [
+        ["subject", p.subject],
+        ["predicate", p.predicate],
+        ["kind", p.kind],
+        ["min_confidence", f32(p.minConfidence)],
+        ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
+        ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
+        ["only_current", p.onlyCurrent],
+        ["include_tombstoned", p.includeTombstoned],
+        ["limit", p.limit],
+        ["cursor", Array.from(p.cursor)],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -3033,6 +4236,7 @@ export function decodeStatementList(bytes: Uint8Array): StatementListRequest {
     includeTombstoned: asBool(field(m, "include_tombstoned")),
     limit: asNum(field(m, "limit")),
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -3150,21 +4354,27 @@ export interface RelationListFromRequest {
   includeTombstoned: boolean;
   limit: number;
   cursor: Uint8Array;
+  /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a RELATION_LIST_FROM (`0x0154`) request. */
 export function encodeRelationListFrom(p: RelationListFromRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["from_entity", p.fromEntity],
-      ["relation_type_filter", p.relationTypeFilter],
-      ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
-      ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
-      ["include_superseded", p.includeSuperseded],
-      ["include_tombstoned", p.includeTombstoned],
-      ["limit", p.limit],
-      ["cursor", Array.from(p.cursor)],
-    ]),
+    requestMapWithActAs(
+      [
+        ["from_entity", p.fromEntity],
+        ["relation_type_filter", p.relationTypeFilter],
+        ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
+        ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
+        ["include_superseded", p.includeSuperseded],
+        ["include_tombstoned", p.includeTombstoned],
+        ["limit", p.limit],
+        ["cursor", Array.from(p.cursor)],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -3180,6 +4390,7 @@ export function decodeRelationListFrom(bytes: Uint8Array): RelationListFromReque
     includeTombstoned: asBool(field(m, "include_tombstoned")),
     limit: asNum(field(m, "limit")),
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -3224,21 +4435,27 @@ export interface RelationListToRequest {
   includeTombstoned: boolean;
   limit: number;
   cursor: Uint8Array;
+  /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a RELATION_LIST_TO (`0x0155`) request. */
 export function encodeRelationListTo(p: RelationListToRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["to_entity", p.toEntity],
-      ["relation_type_filter", p.relationTypeFilter],
-      ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
-      ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
-      ["include_superseded", p.includeSuperseded],
-      ["include_tombstoned", p.includeTombstoned],
-      ["limit", p.limit],
-      ["cursor", Array.from(p.cursor)],
-    ]),
+    requestMapWithActAs(
+      [
+        ["to_entity", p.toEntity],
+        ["relation_type_filter", p.relationTypeFilter],
+        ["time_range_start_unix_nanos", p.timeRangeStartUnixNanos],
+        ["time_range_end_unix_nanos", p.timeRangeEndUnixNanos],
+        ["include_superseded", p.includeSuperseded],
+        ["include_tombstoned", p.includeTombstoned],
+        ["limit", p.limit],
+        ["cursor", Array.from(p.cursor)],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -3254,6 +4471,7 @@ export function decodeRelationListTo(bytes: Uint8Array): RelationListToRequest {
     includeTombstoned: asBool(field(m, "include_tombstoned")),
     limit: asNum(field(m, "limit")),
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -3298,15 +4516,21 @@ export function decodeRelationListToResponse(bytes: Uint8Array): RelationListToR
 export interface RelationGetRequest {
   relationId: WireUuid;
   followSupersession: boolean;
+  /** Effective identity this get runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a RELATION_GET (`0x0151`) request. */
 export function encodeRelationGet(p: RelationGetRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["relation_id", p.relationId],
-      ["follow_supersession", p.followSupersession],
-    ]),
+    requestMapWithActAs(
+      [
+        ["relation_id", p.relationId],
+        ["follow_supersession", p.followSupersession],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -3316,6 +4540,7 @@ export function decodeRelationGet(bytes: Uint8Array): RelationGetRequest {
   return {
     relationId: asBytes(field(m, "relation_id")),
     followSupersession: asBool(field(m, "follow_supersession")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -3509,21 +4734,29 @@ export interface RelationTraverseRequest {
   timeAtUnixNanos: bigint;
   includeSuperseded: boolean;
   requestId: WireUuid;
+  /** Effective identity this traversal runs as, on behalf of the connection
+   * principal. `null` (the common case, CBOR-omitted) runs as the connection's
+   * own key-bound identity. The walk is scoped to the effective
+   * `(namespace, agent)`. */
+  actAs: ActAs | null;
 }
 
 /** Encode a RELATION_TRAVERSE (`0x0156`) request. */
 export function encodeRelationTraverse(p: RelationTraverseRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["start_entity", p.startEntity],
-      ["relation_types", p.relationTypes],
-      ["direction", p.direction],
-      ["max_depth", p.maxDepth],
-      ["max_nodes", p.maxNodes],
-      ["time_at_unix_nanos", p.timeAtUnixNanos],
-      ["include_superseded", p.includeSuperseded],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["start_entity", p.startEntity],
+        ["relation_types", p.relationTypes],
+        ["direction", p.direction],
+        ["max_depth", p.maxDepth],
+        ["max_nodes", p.maxNodes],
+        ["time_at_unix_nanos", p.timeAtUnixNanos],
+        ["include_superseded", p.includeSuperseded],
+        ["request_id", p.requestId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -3539,6 +4772,7 @@ export function decodeRelationTraverse(bytes: Uint8Array): RelationTraverseReque
     timeAtUnixNanos: asBig(field(m, "time_at_unix_nanos")),
     includeSuperseded: asBool(field(m, "include_superseded")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 

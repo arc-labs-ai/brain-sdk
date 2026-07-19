@@ -15,7 +15,7 @@ use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
     AgentPermissions, AuthOkPayload, AuthPayload, ClientPongRequest, EncodeRequest, EncodeResponse,
-    HelloCapabilities, HelloPayload, MemoryKindWire, ServerFeatures, ServerPingResponse,
+    HelloCapabilities, HelloPayload, MemoryKindWire, ServerFeatures, ServerPingResponse, WaitMode,
     WelcomePayload,
 };
 
@@ -55,6 +55,7 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -113,16 +114,20 @@ fn encode_response(req: &EncodeRequest, agent_id: [u8; 16]) -> EncodeResponse {
         embedding_model_fp: [0; 16],
         pending_stages: vec![],
         has_active_schema: true,
+        trace: None,
     }
 }
 
 fn encode_request(context_id: u64) -> EncodeRequest {
     EncodeRequest {
+        act_as: None,
         text: format!("memory {context_id}"),
         context_id,
         request_id: new_id(),
         txn_id: None,
         occurred_at_unix_nanos: None,
+        wait: WaitMode::Ack,
+        allow_duplicates: false,
     }
 }
 
@@ -249,6 +254,7 @@ async fn serve_subscription(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -446,6 +452,7 @@ async fn serve_keepalive(mut sock: TcpStream) {
         agent_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,

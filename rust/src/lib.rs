@@ -23,6 +23,7 @@
 
 pub mod client;
 pub mod error;
+pub mod http;
 pub mod mux;
 pub mod pool;
 pub mod retry;
@@ -36,3 +37,8 @@ pub use mux::{HandshakeOutcome, MuxConnection, Subscription};
 pub use pool::Pool;
 pub use retry::{with_default_retry, with_retry, RetryPolicy};
 pub use verbs::{EncodeBuilder, ForgetBuilder, RecallBuilder};
+
+// HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).
+// Only the client + error are re-exported at the root (unique names); the
+// contract types live under `http::` to avoid colliding with the wire types.
+pub use http::{BrainHttpClient, BrainHttpError, HttpRetryPolicy};

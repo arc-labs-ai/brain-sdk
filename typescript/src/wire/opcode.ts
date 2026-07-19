@@ -42,6 +42,10 @@ export const Opcode = {
   LinkResp: 0x00a5,
   UnlinkReq: 0x0026,
   UnlinkResp: 0x00a6,
+  MemoryListReq: 0x0027,
+  MemoryListResp: 0x00a7,
+  MemoryInspectReq: 0x0028,
+  MemoryInspectResp: 0x00a8,
   EncodeVectorDirectReq: 0x002a,
   EncodeVectorDirectResp: 0x00aa,
 
@@ -130,6 +134,8 @@ export const Opcode = {
   QueryExplainResp: 0x01e1,
   QueryTraceReq: 0x0162,
   QueryTraceResp: 0x01e2,
+  GraphFetchReq: 0x0163,
+  GraphFetchResp: 0x01e3,
   MaterializeProceduralReq: 0x0164,
   MaterializeProceduralResp: 0x01e4,
 } as const;

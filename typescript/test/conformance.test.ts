@@ -77,21 +77,48 @@ const handlers: Record<string, Handler> = {
   resp_welcome: payloadRoundTrip(t.decodeWelcome, t.encodeWelcome),
   req_auth: payloadRoundTrip(t.decodeAuth, t.encodeAuth),
   resp_auth_ok: payloadRoundTrip(t.decodeAuthOk, t.encodeAuthOk),
+  resp_auth_ok_act_as: payloadRoundTrip(t.decodeAuthOk, t.encodeAuthOk),
 
   req_encode: payloadRoundTrip(t.decodeEncode, t.encodeEncode),
+  req_encode_act_as: payloadRoundTrip(t.decodeEncode, t.encodeEncode),
+  req_encode_trace: payloadRoundTrip(t.decodeEncode, t.encodeEncode),
+  req_encode_allow_duplicates: payloadRoundTrip(t.decodeEncode, t.encodeEncode),
   resp_encode: payloadRoundTrip(t.decodeEncodeResponse, t.encodeEncodeResponse),
+  resp_encode_trace: payloadRoundTrip(t.decodeEncodeResponse, t.encodeEncodeResponse),
   req_encode_vector_direct: payloadRoundTrip(
     t.decodeEncodeVectorDirect,
     t.encodeEncodeVectorDirect,
   ),
 
   req_recall: payloadRoundTrip(t.decodeRecall, t.encodeRecall),
+  req_recall_act_as: payloadRoundTrip(t.decodeRecall, t.encodeRecall),
   resp_recall: payloadRoundTrip(t.decodeRecallResponse, t.encodeRecallResponse),
+  resp_recall_trace: payloadRoundTrip(t.decodeRecallResponse, t.encodeRecallResponse),
+
+  req_memory_list: payloadRoundTrip(t.decodeMemoryList, t.encodeMemoryList),
+  resp_memory_list: payloadRoundTrip(
+    t.decodeMemoryListResponse,
+    t.encodeMemoryListResponse,
+  ),
+
+  req_memory_inspect: payloadRoundTrip(t.decodeMemoryInspect, t.encodeMemoryInspect),
+  resp_memory_inspect: payloadRoundTrip(
+    t.decodeMemoryInspectResponse,
+    t.encodeMemoryInspectResponse,
+  ),
+
+  req_graph_fetch: payloadRoundTrip(t.decodeGraphFetch, t.encodeGraphFetch),
+  resp_graph_fetch: payloadRoundTrip(
+    t.decodeGraphFetchResponse,
+    t.encodeGraphFetchResponse,
+  ),
 
   req_forget: payloadRoundTrip(t.decodeForget, t.encodeForget),
+  req_forget_act_as: payloadRoundTrip(t.decodeForget, t.encodeForget),
   resp_forget: payloadRoundTrip(t.decodeForgetResponse, t.encodeForgetResponse),
 
   req_entity_create: payloadRoundTrip(t.decodeEntityCreate, t.encodeEntityCreate),
+  req_entity_create_act_as: payloadRoundTrip(t.decodeEntityCreate, t.encodeEntityCreate),
   resp_entity_create: payloadRoundTrip(
     t.decodeEntityCreateResponse,
     t.encodeEntityCreateResponse,
@@ -146,7 +173,9 @@ const handlers: Record<string, Handler> = {
     t.encodeRelationListFromResponse,
   ),
 
+  req_plan_act_as: payloadRoundTrip(t.decodePlan, t.encodePlan),
   resp_plan: payloadRoundTrip(t.decodePlanResponse, t.encodePlanResponse),
+  req_reason_act_as: payloadRoundTrip(t.decodeReason, t.encodeReason),
   resp_reason: payloadRoundTrip(t.decodeReasonResponse, t.encodeReasonResponse),
   resp_link: payloadRoundTrip(t.decodeLinkResponse, t.encodeLinkResponse),
 
@@ -172,6 +201,7 @@ const handlers: Record<string, Handler> = {
   resp_server_ping: payloadRoundTrip(t.decodeServerPing, t.encodeServerPing),
 
   resp_error_protocol: payloadRoundTrip(t.decodeError, t.encodeError),
+  resp_error_act_as_denied: payloadRoundTrip(t.decodeError, t.encodeError),
   resp_error_authentication: payloadRoundTrip(t.decodeError, t.encodeError),
   resp_error_authorization: payloadRoundTrip(t.decodeError, t.encodeError),
   resp_error_validation: payloadRoundTrip(t.decodeError, t.encodeError),

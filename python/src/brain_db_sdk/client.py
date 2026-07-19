@@ -52,6 +52,10 @@ from .wire.types import (
     ForgetResponse,
     GetCapabilitiesRequest,
     GetCapabilitiesResponse,
+    GraphEdge,
+    GraphFetchRequest,
+    GraphFetchResponseFrame,
+    GraphNode,
     HelloCapabilities,
     HelloPayload,
     InferenceStep,
@@ -59,6 +63,11 @@ from .wire.types import (
     LinkResponse,
     MaterializeProceduralRequest,
     MaterializeProceduralResponse,
+    MemoryInspectRequest,
+    MemoryInspectResponse,
+    MemoryListItem,
+    MemoryListRequest,
+    MemoryListResponseFrame,
     MemoryResult,
     MtlsClaim,
     PlanRequest,
@@ -346,6 +355,69 @@ class BrainClient:
                 f"{frame.opcode:#06x}"
             )
         return decode_payload(ForgetResponse, frame.payload)
+
+    def memory_list(self, request: MemoryListRequest) -> list[MemoryListItem]:
+        """List memories (MEMORY_LIST), flattening every streamed frame's
+        ``items`` into one ordered list. This is a pure paginated enumeration of
+        the caller's ``(namespace, agent)`` memories — no query, no ranking. For
+        the raw streamed frames (cursors, cumulative counts, ``is_final``), use
+        :meth:`memory_list_frames`."""
+        items: list[MemoryListItem] = []
+        for frame in self.memory_list_frames(request):
+            items.extend(frame.items)
+        return items
+
+    def memory_list_frames(self, request: MemoryListRequest) -> list[MemoryListResponseFrame]:
+        """List memories, returning each decoded MEMORY_LIST_RESP frame as
+        streamed (preserving ``next_cursor`` / ``cumulative_count`` /
+        ``is_final``)."""
+        return self._streamed(
+            Opcode.MEMORY_LIST_REQ,
+            Opcode.MEMORY_LIST_RESP,
+            MemoryListResponseFrame,
+            request,
+        )
+
+    def memory_inspect(self, request: MemoryInspectRequest) -> MemoryInspectResponse:
+        """Inspect one memory's durable write-artifact bundle (MEMORY_INSPECT):
+        its text plus the per-stage record of what the write built — the
+        embedding vector, the stored record, the analyzed keyword terms, the
+        write-time HyPE questions, and the extracted knowledge graph. Returns
+        ``found = False`` (with an empty ``artifact``) for an id that doesn't
+        exist under the caller's scope."""
+        return self._unary(
+            Opcode.MEMORY_INSPECT_REQ,
+            Opcode.MEMORY_INSPECT_RESP,
+            MemoryInspectResponse,
+            request,
+        )
+
+    def graph_fetch(
+        self, request: GraphFetchRequest
+    ) -> tuple[list[GraphNode], list[GraphEdge]]:
+        """Export the caller's typed graph (GRAPH_FETCH), flattening every
+        streamed frame's nodes + edges into two ordered lists. Nodes/edges may
+        repeat across pages (completeness, not disjointness) — dedup by id if
+        needed. For the raw streamed frames (cursors, ``is_final``), use
+        :meth:`graph_fetch_frames`."""
+        nodes: list[GraphNode] = []
+        edges: list[GraphEdge] = []
+        for frame in self.graph_fetch_frames(request):
+            nodes.extend(frame.nodes)
+            edges.extend(frame.edges)
+        return nodes, edges
+
+    def graph_fetch_frames(
+        self, request: GraphFetchRequest
+    ) -> list[GraphFetchResponseFrame]:
+        """Export the typed graph, returning each decoded GRAPH_FETCH_RESP frame
+        as streamed (preserving ``next_cursor`` / ``is_final``)."""
+        return self._streamed(
+            Opcode.GRAPH_FETCH_REQ,
+            Opcode.GRAPH_FETCH_RESP,
+            GraphFetchResponseFrame,
+            request,
+        )
 
     def create_entity(self, request: EntityCreateRequest) -> EntityCreateResponse:
         """Create a typed entity (ENTITY_CREATE)."""

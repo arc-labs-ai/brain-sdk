@@ -85,6 +85,7 @@ async function serveGraph(sock: net.Socket): Promise<void> {
       canReason: true,
       canForget: true,
       canAdmin: true,
+      canActAs: false,
     },
     namespace: "",
     serverTimeUnixNanos: 1n,
@@ -158,6 +159,7 @@ describe("typed-graph verbs", () => {
         aliases: ["Ada"],
         attributesBlob: new Uint8Array(0),
         requestId: newId(),
+        actAs: null,
       });
       expect([...entity.entityId]).toEqual([...ENTITY_ID]);
 
@@ -174,6 +176,7 @@ describe("typed-graph verbs", () => {
         eventAtUnixNanos: 0n,
         schemaVersion: 1,
         requestId: newId(),
+        actAs: null,
       });
       expect([...statement.statementId]).toEqual([...STATEMENT_ID]);
       expect([...statement.chainRoot]).toEqual([...STATEMENT_ID]);
@@ -189,6 +192,7 @@ describe("typed-graph verbs", () => {
         validFromUnixNanos: 0n,
         validToUnixNanos: 0xffffffffffffffffn,
         requestId: newId(),
+        actAs: null,
       });
       expect([...relation.relationId]).toEqual([...RELATION_ID]);
 
