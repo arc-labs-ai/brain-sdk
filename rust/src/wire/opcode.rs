@@ -3,8 +3,13 @@
 //! High byte is the namespace (`0x00` substrate / connection / admin,
 //! `0x01` typed-graph). Within a namespace the low byte's high bit
 //! selects direction: `< 0x80` server-bound request, `>= 0x80`
-//! client-bound response. Phase 1 covers the handshake, the three v1
-//! verbs, BYE, and ERROR; the rest arrive as later phases need them.
+//! client-bound response. The table is the full v1 set: the handshake
+//! (HELLO/WELCOME/AUTH/AUTH_OK/BYE), keepalive (PING/PONG + server
+//! heartbeat), the cognitive verbs (ENCODE/RECALL/PLAN/REASON/FORGET/LINK
+//! and friends), server-push subscriptions, transactions, capability
+//! introspection, ERROR, and the `0x01xx` typed-graph ops the conformance
+//! corpus exercises (entity / statement / relation / schema CRUD, history,
+//! and traversal).
 
 /// Wire-protocol opcode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -40,6 +45,10 @@ pub enum Opcode {
     LinkResp = 0x00A5,
     UnlinkReq = 0x0026,
     UnlinkResp = 0x00A6,
+    MemoryListReq = 0x0027,
+    MemoryListResp = 0x00A7,
+    MemoryInspectReq = 0x0028,
+    MemoryInspectResp = 0x00A8,
     EncodeVectorDirectReq = 0x002A,
     EncodeVectorDirectResp = 0x00AA,
 
@@ -73,6 +82,9 @@ pub enum Opcode {
     SchemaListResp = 0x01A2,
     SchemaValidateReq = 0x0123,
     SchemaValidateResp = 0x01A3,
+    // Extractor introspection (read-only; extraction is always-on).
+    ExtractorListReq = 0x0124,
+    ExtractorListResp = 0x01A4,
     EntityCreateReq = 0x0130,
     EntityCreateResp = 0x01B0,
     EntityGetReq = 0x0131,
@@ -81,20 +93,57 @@ pub enum Opcode {
     EntityResolveResp = 0x01B6,
     EntityListReq = 0x0137,
     EntityListResp = 0x01B7,
+    // Entity mutation: an entity accretes detail (update/rename), consolidates
+    // duplicates (merge/unmerge), and retires (tombstone) over its lifetime.
+    EntityUpdateReq = 0x0132,
+    EntityUpdateResp = 0x01B2,
+    EntityRenameReq = 0x0133,
+    EntityRenameResp = 0x01B3,
+    EntityMergeReq = 0x0134,
+    EntityMergeResp = 0x01B4,
+    EntityUnmergeReq = 0x0135,
+    EntityUnmergeResp = 0x01B5,
+    EntityTombstoneReq = 0x0138,
+    EntityTombstoneResp = 0x01B8,
     StatementCreateReq = 0x0140,
     StatementCreateResp = 0x01C0,
     StatementGetReq = 0x0141,
     StatementGetResp = 0x01C1,
     StatementListReq = 0x0146,
     StatementListResp = 0x01C6,
+    // Statement lifecycle: a claim is revised (supersede), walked back
+    // (retract), retired (tombstone), or inspected across versions (history).
+    StatementSupersedeReq = 0x0142,
+    StatementSupersedeResp = 0x01C2,
+    StatementTombstoneReq = 0x0143,
+    StatementTombstoneResp = 0x01C3,
+    StatementRetractReq = 0x0144,
+    StatementRetractResp = 0x01C4,
+    StatementHistoryReq = 0x0145,
+    StatementHistoryResp = 0x01C5,
     RelationCreateReq = 0x0150,
     RelationCreateResp = 0x01D0,
     RelationListFromReq = 0x0154,
     RelationListFromResp = 0x01D4,
     RelationListToReq = 0x0155,
     RelationListToResp = 0x01D5,
-    QueryReq = 0x0160,
-    QueryResp = 0x01E0,
+    // Relation lifecycle + traversal: fetch one (get), revise (supersede),
+    // retire (tombstone), or walk the graph from an entity (traverse).
+    RelationGetReq = 0x0151,
+    RelationGetResp = 0x01D1,
+    RelationSupersedeReq = 0x0152,
+    RelationSupersedeResp = 0x01D2,
+    RelationTombstoneReq = 0x0153,
+    RelationTombstoneResp = 0x01D3,
+    RelationTraverseReq = 0x0156,
+    RelationTraverseResp = 0x01D6,
+    // Query introspection debug surface: the plan (explain) and execution trace.
+    QueryExplainReq = 0x0161,
+    QueryExplainResp = 0x01E1,
+    QueryTraceReq = 0x0162,
+    QueryTraceResp = 0x01E2,
+    GraphFetchReq = 0x0163,
+    GraphFetchResp = 0x01E3,
     MaterializeProceduralReq = 0x0164,
     MaterializeProceduralResp = 0x01E4,
 }
@@ -137,6 +186,8 @@ mod tests {
         assert_eq!(Opcode::LinkResp.as_u16(), 0x00A5);
         assert_eq!(Opcode::UnlinkReq.as_u16(), 0x0026);
         assert_eq!(Opcode::UnlinkResp.as_u16(), 0x00A6);
+        assert_eq!(Opcode::MemoryListReq.as_u16(), 0x0027);
+        assert_eq!(Opcode::MemoryListResp.as_u16(), 0x00A7);
         assert_eq!(Opcode::EncodeVectorDirectReq.as_u16(), 0x002A);
         assert_eq!(Opcode::Error.as_u16(), 0x00FF);
         assert_eq!(Opcode::MaterializeProceduralReq.as_u16(), 0x0164);
@@ -164,6 +215,8 @@ mod tests {
         assert_eq!(Opcode::SchemaListResp.as_u16(), 0x01A2);
         assert_eq!(Opcode::SchemaValidateReq.as_u16(), 0x0123);
         assert_eq!(Opcode::SchemaValidateResp.as_u16(), 0x01A3);
+        assert_eq!(Opcode::ExtractorListReq.as_u16(), 0x0124);
+        assert_eq!(Opcode::ExtractorListResp.as_u16(), 0x01A4);
         assert_eq!(Opcode::EntityGetReq.as_u16(), 0x0131);
         assert_eq!(Opcode::EntityGetResp.as_u16(), 0x01B1);
         assert_eq!(Opcode::EntityResolveReq.as_u16(), 0x0136);

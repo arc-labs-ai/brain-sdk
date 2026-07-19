@@ -19,6 +19,7 @@ import {
   AuthMethod,
   type AuthPayload,
   type EncodeRequest,
+  WaitMode,
   type EncodeResponse,
   type HelloPayload,
   MemoryKindWire,
@@ -72,6 +73,8 @@ function encodeRequest(contextId: bigint): EncodeRequest {
     requestId: newId(),
     txnId: null,
     occurredAtUnixNanos: null,
+    actAs: null,
+    wait: WaitMode.Ack,
   };
 }
 
@@ -111,6 +114,7 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
       canReason: true,
       canForget: true,
       canAdmin: false,
+      canActAs: false,
     },
     namespace: "",
     serverTimeUnixNanos: 1n,
@@ -233,6 +237,7 @@ async function serveKeepalive(
       canReason: true,
       canForget: true,
       canAdmin: false,
+      canActAs: false,
     },
     namespace: "",
     serverTimeUnixNanos: 1n,

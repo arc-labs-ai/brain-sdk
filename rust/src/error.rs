@@ -6,8 +6,8 @@
 //! server chose to return, version negotiation failure, a clean peer close, and
 //! a timeout. The server-returned [`BrainError::Server`] carries the full
 //! [`ErrorResponse`] so callers can branch on its stable code and category and
-//! honor `retry_after_ms`; the retry policy that consumes it lands in a later
-//! phase.
+//! honor `retry_after_ms` — which the [`crate::retry`] combinator consumes to
+//! back off retryable failures.
 
 use std::time::Duration;
 

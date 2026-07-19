@@ -8,9 +8,9 @@
  * Public surface: the high-level {@link BrainClient} (every verb — encode /
  * recall / forget, typed-graph create + read, schema, link / unlink, plan /
  * reason, txn, subscribe), the multiplexed {@link MuxConnection} and
- * {@link Subscription}, the serial {@link Connection}, the connection
- * {@link Pool}, the retry combinator, request builders, the error taxonomy,
- * and the wire layer (frame codec, CBOR codec, opcodes, typed payload structs).
+ * {@link Subscription}, the connection {@link Pool}, the retry combinator,
+ * request builders, the error taxonomy, and the wire layer (frame codec, CBOR
+ * codec, opcodes, typed payload structs).
  */
 
 // Wire layer.
@@ -23,7 +23,6 @@ export * from "./wire/types.js";
 export { BrainClient, newId } from "./client.js";
 export type { Auth, ClientConfig, SessionInfo } from "./client.js";
 export { MuxConnection, Subscription } from "./mux.js";
-export { Connection } from "./connection.js";
 export type { HandshakeOutcome } from "./connection.js";
 export { Pool } from "./pool.js";
 export { DEFAULT_RETRY_POLICY, NO_RETRY, backoffMs } from "./retry.js";
@@ -37,7 +36,15 @@ export {
   ServerError,
   VersionMismatch,
   isRetryable,
+  isActAsDenied,
 } from "./errors.js";
+
+// HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).
+// The contract types are namespaced under `http` to avoid colliding with the
+// wire types (`PlanStep`, `Capabilities`, …) exported above.
+export { BrainHttpClient, BrainHttpError, DEFAULT_HTTP_RETRY, NO_HTTP_RETRY } from "./http/index.js";
+export type { BrainHttpClientOptions, HttpRetryPolicy } from "./http/client.js";
+export * as http from "./http/types.js";
 
 /** This SDK package's release version. */
 export const SDK_VERSION = "0.1.0";

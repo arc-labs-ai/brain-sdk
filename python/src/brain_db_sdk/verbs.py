@@ -11,15 +11,17 @@ expose just the knobs a caller tunes. The verbs on
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from .client import new_id
 from .wire.types import (
+    ActAs,
     EncodeRequest,
     ForgetMode,
     ForgetRequest,
     RecallRequest,
+    WaitMode,
 )
 
 
@@ -33,13 +35,52 @@ class EncodeBuilder:
     text: str
     context_id: int = 0
     occurred_at_unix_nanos: Optional[int] = None
+    act_as_identity: Optional[ActAs] = None
+    wait_mode: int = WaitMode.ACK
+    allow_dups: bool = False
 
     def context(self, context_id: int) -> "EncodeBuilder":
+        """Store the memory under a specific context id instead of the default 0."""
         self.context_id = context_id
         return self
 
     def occurred_at(self, occurred_at_unix_nanos: Optional[int]) -> "EncodeBuilder":
+        """Record when the event the text describes happened (event time),
+        distinct from the server's ingest time."""
         self.occurred_at_unix_nanos = occurred_at_unix_nanos
+        return self
+
+    def wait(self, mode: int = WaitMode.ACK) -> "EncodeBuilder":
+        """Set the write-completion mode. ``WaitMode.ACK`` (the default)
+        returns as soon as the write is durable and the async derivation
+        stages run in the background; ``WaitMode.DERIVED`` blocks until they
+        complete and the :class:`EncodeResponse` carries a populated ``trace``
+        describing the write timeline and the artifacts it produced."""
+        self.wait_mode = mode
+        return self
+
+    def derived(self) -> "EncodeBuilder":
+        """Convenience for ``wait(WaitMode.DERIVED)``: block until async
+        derivation completes and return the full synchronous write trace."""
+        self.wait_mode = WaitMode.DERIVED
+        return self
+
+    def act_as(self, namespace: str, agent_id: bytes) -> "EncodeBuilder":
+        """Run this encode as the effective identity ``(namespace, agent_id)``
+        on behalf of the connection principal. Requires the connection's key to
+        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
+        Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
+        return self
+
+    def allow_duplicates(self, allow: bool = True) -> "EncodeBuilder":
+        """Opt out of content dedup and force a distinct memory. By default
+        Brain dedupes byte-identical text on ``(agent_id, context_id,
+        BLAKE3(text))`` and returns the existing memory (``was_deduplicated =
+        True``) without writing. Call this when the same text is a genuinely
+        distinct observation that must coexist (e.g. the same fact re-stated at
+        a different ``occurred_at``)."""
+        self.allow_dups = allow
         return self
 
     def build(self) -> EncodeRequest:
@@ -50,6 +91,9 @@ class EncodeBuilder:
             request_id=new_id(),
             txn_id=None,
             occurred_at_unix_nanos=self.occurred_at_unix_nanos,
+            act_as=self.act_as_identity,
+            wait=self.wait_mode,
+            allow_duplicates=self.allow_dups,
         )
 
 
@@ -72,55 +116,74 @@ class RecallBuilder:
     include_edges: bool = True
     include_graph: bool = False
     include_text: bool = True
-    agent_filter: list[bytes] = field(default_factory=list)
-    include_other_agents: bool = False
+    trace_enabled: bool = False
+    act_as_identity: Optional[ActAs] = None
 
     def subject(self, subject_name: str) -> "RecallBuilder":
+        """Name the entity a fact lookup is about, so recall resolves the
+        subject before matching the cue."""
         self.subject_name = subject_name
         return self
 
     def limit(self, max_results: int) -> "RecallBuilder":
+        """Cap how many memories recall returns."""
         self.max_results = max_results
         return self
 
     def as_of(self, as_of_record_time_unix_nanos: Optional[int]) -> "RecallBuilder":
+        """Query the graph as it stood at a record time (bi-temporal travel)."""
         self.as_of_record_time_unix_nanos = as_of_record_time_unix_nanos
         return self
 
     def confidence(self, threshold: float) -> "RecallBuilder":
+        """Drop memories whose salience falls below this floor."""
         self.confidence_threshold = threshold
         return self
 
     def contexts(self, contexts: list[int]) -> "RecallBuilder":
+        """Restrict recall to memories in these context ids."""
         self.context_filter = list(contexts)
         return self
 
     def kinds(self, kinds: list[int]) -> "RecallBuilder":
+        """Restrict recall to these memory kinds (integer discriminants)."""
         self.kind_filter = list(kinds)
         return self
 
     def salience(self, floor: float) -> "RecallBuilder":
+        """Drop memories below this salience floor."""
         self.salience_floor = floor
         return self
 
     def edges(self, include: bool) -> "RecallBuilder":
+        """Include (or omit) each memory's outgoing edges in the response."""
         self.include_edges = include
         return self
 
     def graph(self, include: bool) -> "RecallBuilder":
+        """Include (or omit) the resolved entity/statement/relation graph
+        enrichment alongside the memories."""
         self.include_graph = include
         return self
 
     def text(self, include: bool) -> "RecallBuilder":
+        """Include (or omit) the stored memory text in the response."""
         self.include_text = include
         return self
 
-    def agents(self, agents: list[bytes]) -> "RecallBuilder":
-        self.agent_filter = list(agents)
+    def trace(self, trace: bool = True) -> "RecallBuilder":
+        """Ask for the per-stage read-pipeline trace on the final frame
+        (``RecallResponseFrame.trace``). Off by default; costs nothing when
+        off."""
+        self.trace_enabled = trace
         return self
 
-    def other_agents(self, include: bool) -> "RecallBuilder":
-        self.include_other_agents = include
+    def act_as(self, namespace: str, agent_id: bytes) -> "RecallBuilder":
+        """Run this recall as the effective identity ``(namespace, agent_id)``
+        on behalf of the connection principal. Requires the connection's key to
+        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
+        Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
         return self
 
     def build(self) -> RecallRequest:
@@ -140,8 +203,8 @@ class RecallBuilder:
             include_text=self.include_text,
             request_id=new_id(),
             txn_id=None,
-            agent_filter=list(self.agent_filter),
-            include_other_agents=self.include_other_agents,
+            trace=self.trace_enabled,
+            act_as=self.act_as_identity,
         )
 
 
@@ -152,13 +215,25 @@ class ForgetBuilder:
 
     memory_id: int
     mode: int = ForgetMode.SOFT
+    act_as_identity: Optional[ActAs] = None
 
     def hard(self) -> "ForgetBuilder":
+        """Switch to a hard forget: zero the memory immediately, no grace
+        period."""
         self.mode = ForgetMode.HARD
         return self
 
     def with_mode(self, mode: int) -> "ForgetBuilder":
+        """Set the forget mode explicitly (integer discriminant)."""
         self.mode = mode
+        return self
+
+    def act_as(self, namespace: str, agent_id: bytes) -> "ForgetBuilder":
+        """Run this forget as the effective identity ``(namespace, agent_id)``
+        on behalf of the connection principal. Requires the connection's key to
+        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
+        Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
         return self
 
     def build(self) -> ForgetRequest:
@@ -168,6 +243,7 @@ class ForgetBuilder:
             mode=self.mode,
             request_id=new_id(),
             txn_id=None,
+            act_as=self.act_as_identity,
         )
 
 

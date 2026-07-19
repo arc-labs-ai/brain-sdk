@@ -23,6 +23,8 @@ import {
   type AuthPayload,
   type EncodeRequest,
   type EncodeResponse,
+  type EncodeVectorDirectRequest,
+  encodeEncodeVectorDirect,
   type EntityCreateRequest,
   type EntityCreateResponse,
   type EntityGetRequest,
@@ -32,6 +34,8 @@ import {
   type EntityListResponseFrame,
   type EntityResolveRequest,
   type EntityResolveResponse,
+  type ExtractorListRequest,
+  type ExtractorListResponseFrame,
   type ForgetRequest,
   type ForgetResponse,
   type GetCapabilitiesResponse,
@@ -42,11 +46,18 @@ import {
   type LinkResponse,
   type MaterializeProceduralRequest,
   type MaterializeProceduralResponse,
+  type MemoryInspectRequest,
+  type MemoryInspectResponse,
+  type MemoryListItem,
+  type MemoryListRequest,
+  type MemoryListResponseFrame,
+  type GraphNode,
+  type GraphEdge,
+  type GraphFetchRequest,
+  type GraphFetchResponseFrame,
   type PlanRequest,
   type PlanResponseFrame,
   type PlanStep,
-  type QueryRequest,
-  type QueryResponse,
   type ReasonRequest,
   type ReasonResponseFrame,
   type RecallAnswer,
@@ -90,12 +101,15 @@ import {
   decodeEntityGetResponse,
   decodeEntityListResponse,
   decodeEntityResolveResponse,
+  decodeExtractorListResponse,
   decodeForgetResponse,
   decodeGetCapabilitiesResponse,
   decodeLinkResponse,
   decodeMaterializeProceduralResponse,
+  decodeMemoryInspectResponse,
+  decodeMemoryListResponse,
+  decodeGraphFetchResponse,
   decodePlanResponse,
-  decodeQueryResponse,
   decodeReasonResponse,
   decodeRecallResponse,
   decodeRelationCreateResponse,
@@ -114,15 +128,75 @@ import {
   decodeUnlinkResponse,
   encodeEncode,
   encodeEntityCreate,
+  type EntityUpdateRequest,
+  encodeEntityUpdate,
+  type EntityRenameRequest,
+  encodeEntityRename,
+  type EntityViewResponse,
+  decodeEntityViewResponse,
+  type EntityMergeRequest,
+  type EntityMergeResponse,
+  encodeEntityMerge,
+  decodeEntityMergeResponse,
+  type EntityUnmergeRequest,
+  type EntityUnmergeResponse,
+  encodeEntityUnmerge,
+  decodeEntityUnmergeResponse,
+  type EntityTombstoneRequest,
+  type EntityTombstoneResponse,
+  encodeEntityTombstone,
+  decodeEntityTombstoneResponse,
+  type StatementSupersedeRequest,
+  type StatementSupersedeResponse,
+  encodeStatementSupersede,
+  decodeStatementSupersedeResponse,
+  type StatementReasonRequest,
+  type StatementTombstoneResponse,
+  type StatementRetractResponse,
+  encodeStatementReason,
+  decodeStatementTombstoneResponse,
+  decodeStatementRetractResponse,
+  type StatementHistoryRequest,
+  type StatementHistoryResponseFrame,
+  encodeStatementHistory,
+  decodeStatementHistoryResponseFrame,
+  type RelationGetRequest,
+  type RelationGetResponse,
+  encodeRelationGet,
+  decodeRelationGetResponse,
+  type RelationSupersedeRequest,
+  type RelationSupersedeResponse,
+  encodeRelationSupersede,
+  decodeRelationSupersedeResponse,
+  type RelationTombstoneRequest,
+  type RelationTombstoneResponse,
+  encodeRelationTombstone,
+  decodeRelationTombstoneResponse,
+  type RelationTraverseRequest,
+  type RelationTraverseResponseFrame,
+  type TraversalPathWire,
+  encodeRelationTraverse,
+  decodeRelationTraverseResponse,
+  type QueryExplainRequest,
+  type QueryExplainResponse,
+  encodeQueryExplain,
+  decodeQueryExplainResponse,
+  type QueryTraceRequest,
+  type QueryTraceResponse,
+  encodeQueryTrace,
+  decodeQueryTraceResponse,
   encodeEntityGet,
   encodeEntityList,
   encodeEntityResolve,
+  encodeExtractorList,
   encodeForget,
   encodeGetCapabilities,
   encodeLink,
   encodeMaterializeProcedural,
+  encodeMemoryInspect,
+  encodeMemoryList,
+  encodeGraphFetch,
   encodePlan,
-  encodeQuery,
   encodeReason,
   encodeRecall,
   encodeRelationCreate,
@@ -293,8 +367,8 @@ export class BrainClient {
   }
 
   /**
-   * Store a memory from text. A minimal typed round-trip over the connection;
-   * the ergonomic request builder lands in a later phase.
+   * Store a memory from text (ENCODE). Build the request by hand or with the
+   * {@link EncodeBuilder}, which fills defaults and mints the `requestId`.
    */
   async encode(request: EncodeRequest): Promise<EncodeResponse> {
     const frame = await this.conn.requestOne(Opcode.EncodeReq, encodeEncode(request));
@@ -304,6 +378,21 @@ export class BrainClient {
           `0x${frame.opcode.toString(16)}`,
       );
     }
+    return decodeEncodeResponse(frame.payload);
+  }
+
+  /**
+   * Write a pre-computed embedding directly (ENCODE_VECTOR_DIRECT), bypassing
+   * the server's owned embedding model. The vector rides the trailing raw f32
+   * section of the frame, not the CBOR map; the reply is an ordinary
+   * {@link EncodeResponse}.
+   */
+  async encodeVectorDirect(request: EncodeVectorDirectRequest): Promise<EncodeResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.EncodeVectorDirectReq,
+      encodeEncodeVectorDirect(request),
+    );
+    this.expect(frame.opcode, Opcode.EncodeVectorDirectResp, "ENCODE_VECTOR_DIRECT_RESP");
     return decodeEncodeResponse(frame.payload);
   }
 
@@ -342,6 +431,75 @@ export class BrainClient {
     });
   }
 
+  /**
+   * List memories (MEMORY_LIST), flattening every streamed frame's `items` into
+   * one ordered list. A pure paginated enumeration of the caller's
+   * `(namespace, agent)` memories — no query, no ranking. For the raw streamed
+   * frames (cursors, cumulative counts, `isFinal`), use {@link memoryListFrames}.
+   */
+  async memoryList(request: MemoryListRequest): Promise<MemoryListItem[]> {
+    const frames = await this.memoryListFrames(request);
+    return frames.flatMap((f) => f.items);
+  }
+
+  /**
+   * List memories, returning each decoded MEMORY_LIST_RESP frame as streamed
+   * (preserving `nextCursor` / `cumulativeCount` / `isFinal`).
+   */
+  async memoryListFrames(request: MemoryListRequest): Promise<MemoryListResponseFrame[]> {
+    return this.streamed(
+      Opcode.MemoryListReq,
+      Opcode.MemoryListResp,
+      "MEMORY_LIST_RESP",
+      encodeMemoryList(request),
+      decodeMemoryListResponse,
+    );
+  }
+
+  /**
+   * Inspect one memory's durable write-artifact bundle (MEMORY_INSPECT):
+   * the embedding vector, redb record, analyzed keyword terms, write-time HyPE
+   * questions, and the extracted knowledge graph. Single-shot — the reply
+   * carries the whole bundle. `found = false` (with an empty `artifact`) when no
+   * memory / no bundle exists for the id.
+   */
+  async memoryInspect(request: MemoryInspectRequest): Promise<MemoryInspectResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.MemoryInspectReq,
+      encodeMemoryInspect(request),
+    );
+    this.expect(frame.opcode, Opcode.MemoryInspectResp, "MEMORY_INSPECT_RESP");
+    return decodeMemoryInspectResponse(frame.payload);
+  }
+
+  /**
+   * Export the caller's typed graph (GRAPH_FETCH), flattening every streamed
+   * frame's nodes + edges into two ordered lists. Nodes/edges may repeat across
+   * pages (completeness, not disjointness) — dedup by id if needed. For the raw
+   * streamed frames (cursors, `isFinal`), use {@link graphFetchFrames}.
+   */
+  async graphFetch(request: GraphFetchRequest): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
+    const frames = await this.graphFetchFrames(request);
+    return {
+      nodes: frames.flatMap((f) => f.nodes),
+      edges: frames.flatMap((f) => f.edges),
+    };
+  }
+
+  /**
+   * Export the typed graph, returning each decoded GRAPH_FETCH_RESP frame as
+   * streamed (preserving `nextCursor` / `isFinal`).
+   */
+  async graphFetchFrames(request: GraphFetchRequest): Promise<GraphFetchResponseFrame[]> {
+    return this.streamed(
+      Opcode.GraphFetchReq,
+      Opcode.GraphFetchResp,
+      "GRAPH_FETCH_RESP",
+      encodeGraphFetch(request),
+      decodeGraphFetchResponse,
+    );
+  }
+
   /** Forget a memory (soft tombstone or hard zeroing, per the request). */
   async forget(request: ForgetRequest): Promise<ForgetResponse> {
     const frame = await this.conn.requestOne(Opcode.ForgetReq, encodeForget(request));
@@ -374,6 +532,112 @@ export class BrainClient {
     return decodeStatementCreateResponse(frame.payload);
   }
 
+  /** Replace an entity's name, aliases, and attributes (ENTITY_UPDATE). */
+  async updateEntity(request: EntityUpdateRequest): Promise<EntityViewResponse> {
+    const frame = await this.conn.requestOne(Opcode.EntityUpdateReq, encodeEntityUpdate(request));
+    this.expect(frame.opcode, Opcode.EntityUpdateResp, "ENTITY_UPDATE_RESP");
+    return decodeEntityViewResponse(frame.payload);
+  }
+
+  /** Rename an entity, optionally keeping the old name as an alias (ENTITY_RENAME). */
+  async renameEntity(request: EntityRenameRequest): Promise<EntityViewResponse> {
+    const frame = await this.conn.requestOne(Opcode.EntityRenameReq, encodeEntityRename(request));
+    this.expect(frame.opcode, Opcode.EntityRenameResp, "ENTITY_RENAME_RESP");
+    return decodeEntityViewResponse(frame.payload);
+  }
+
+  /**
+   * Merge two entities that are the same real-world thing (ENTITY_MERGE).
+   * Reversible within the returned grace window via {@link unmergeEntity}.
+   */
+  async mergeEntities(request: EntityMergeRequest): Promise<EntityMergeResponse> {
+    const frame = await this.conn.requestOne(Opcode.EntityMergeReq, encodeEntityMerge(request));
+    this.expect(frame.opcode, Opcode.EntityMergeResp, "ENTITY_MERGE_RESP");
+    return decodeEntityMergeResponse(frame.payload);
+  }
+
+  /** Undo a merge within its grace window (ENTITY_UNMERGE). */
+  async unmergeEntity(request: EntityUnmergeRequest): Promise<EntityUnmergeResponse> {
+    const frame = await this.conn.requestOne(Opcode.EntityUnmergeReq, encodeEntityUnmerge(request));
+    this.expect(frame.opcode, Opcode.EntityUnmergeResp, "ENTITY_UNMERGE_RESP");
+    return decodeEntityUnmergeResponse(frame.payload);
+  }
+
+  /**
+   * Retire an entity with an audit reason (ENTITY_TOMBSTONE). Soft: the row
+   * survives but drops out of resolution and traversal.
+   */
+  async tombstoneEntity(request: EntityTombstoneRequest): Promise<EntityTombstoneResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.EntityTombstoneReq,
+      encodeEntityTombstone(request),
+    );
+    this.expect(frame.opcode, Opcode.EntityTombstoneResp, "ENTITY_TOMBSTONE_RESP");
+    return decodeEntityTombstoneResponse(frame.payload);
+  }
+
+  /**
+   * Replace a statement with a revised one (STATEMENT_SUPERSEDE), keeping both
+   * on the same chain so history is preserved.
+   */
+  async supersedeStatement(
+    request: StatementSupersedeRequest,
+  ): Promise<StatementSupersedeResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.StatementSupersedeReq,
+      encodeStatementSupersede(request),
+    );
+    this.expect(frame.opcode, Opcode.StatementSupersedeResp, "STATEMENT_SUPERSEDE_RESP");
+    return decodeStatementSupersedeResponse(frame.payload);
+  }
+
+  /** Retire a statement with a coded reason (STATEMENT_TOMBSTONE). Recoverable. */
+  async tombstoneStatement(
+    request: StatementReasonRequest,
+  ): Promise<StatementTombstoneResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.StatementTombstoneReq,
+      encodeStatementReason(request),
+    );
+    this.expect(frame.opcode, Opcode.StatementTombstoneResp, "STATEMENT_TOMBSTONE_RESP");
+    return decodeStatementTombstoneResponse(frame.payload);
+  }
+
+  /**
+   * Assert a statement was wrong (STATEMENT_RETRACT). Unlike a tombstone,
+   * retraction schedules a hard-zero so a genuine mistake gets scrubbed.
+   */
+  async retractStatement(request: StatementReasonRequest): Promise<StatementRetractResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.StatementRetractReq,
+      encodeStatementReason(request),
+    );
+    this.expect(frame.opcode, Opcode.StatementRetractResp, "STATEMENT_RETRACT_RESP");
+    return decodeStatementRetractResponse(frame.payload);
+  }
+
+  /**
+   * Walk a claim's full version chain (STATEMENT_HISTORY), flattening every
+   * streamed frame's `items`. For the raw frames, use {@link statementHistoryFrames}.
+   */
+  async statementHistory(request: StatementHistoryRequest): Promise<StatementView[]> {
+    const frames = await this.statementHistoryFrames(request);
+    return frames.flatMap((f) => f.items);
+  }
+
+  /** Walk a claim's version chain, returning each decoded STATEMENT_HISTORY frame. */
+  async statementHistoryFrames(
+    request: StatementHistoryRequest,
+  ): Promise<StatementHistoryResponseFrame[]> {
+    return this.streamed(
+      Opcode.StatementHistoryReq,
+      Opcode.StatementHistoryResp,
+      "STATEMENT_HISTORY_RESP",
+      encodeStatementHistory(request),
+      decodeStatementHistoryResponseFrame,
+    );
+  }
+
   /** Create a relation between two entities (RELATION_CREATE). */
   async createRelation(request: RelationCreateRequest): Promise<RelationCreateResponse> {
     const frame = await this.conn.requestOne(
@@ -382,6 +646,69 @@ export class BrainClient {
     );
     this.expect(frame.opcode, Opcode.RelationCreateResp, "RELATION_CREATE_RESP");
     return decodeRelationCreateResponse(frame.payload);
+  }
+
+  /**
+   * Fetch one relation by id (RELATION_GET). With `followSupersession` set, the
+   * server returns the current chain head when the id has been superseded.
+   */
+  async getRelation(request: RelationGetRequest): Promise<RelationGetResponse> {
+    const frame = await this.conn.requestOne(Opcode.RelationGetReq, encodeRelationGet(request));
+    this.expect(frame.opcode, Opcode.RelationGetResp, "RELATION_GET_RESP");
+    return decodeRelationGetResponse(frame.payload);
+  }
+
+  /**
+   * Revise a relation with a new one (RELATION_SUPERSEDE), keeping both on the
+   * same chain so history is preserved.
+   */
+  async supersedeRelation(
+    request: RelationSupersedeRequest,
+  ): Promise<RelationSupersedeResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.RelationSupersedeReq,
+      encodeRelationSupersede(request),
+    );
+    this.expect(frame.opcode, Opcode.RelationSupersedeResp, "RELATION_SUPERSEDE_RESP");
+    return decodeRelationSupersedeResponse(frame.payload);
+  }
+
+  /**
+   * Soft-retire a relation with an audit reason (RELATION_TOMBSTONE). The row
+   * survives but drops out of traversal.
+   */
+  async tombstoneRelation(
+    request: RelationTombstoneRequest,
+  ): Promise<RelationTombstoneResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.RelationTombstoneReq,
+      encodeRelationTombstone(request),
+    );
+    this.expect(frame.opcode, Opcode.RelationTombstoneResp, "RELATION_TOMBSTONE_RESP");
+    return decodeRelationTombstoneResponse(frame.payload);
+  }
+
+  /**
+   * Multi-hop walk of the relation graph from an entity (RELATION_TRAVERSE),
+   * flattening every streamed frame's `paths`. For the raw frames (with
+   * `truncated` / `totalPaths`), use {@link traverseRelationsFrames}.
+   */
+  async traverseRelations(request: RelationTraverseRequest): Promise<TraversalPathWire[]> {
+    const frames = await this.traverseRelationsFrames(request);
+    return frames.flatMap((f) => f.paths);
+  }
+
+  /** Traverse the relation graph, returning each decoded RELATION_TRAVERSE frame. */
+  async traverseRelationsFrames(
+    request: RelationTraverseRequest,
+  ): Promise<RelationTraverseResponseFrame[]> {
+    return this.streamed(
+      Opcode.RelationTraverseReq,
+      Opcode.RelationTraverseResp,
+      "RELATION_TRAVERSE_RESP",
+      encodeRelationTraverse(request),
+      decodeRelationTraverseResponse,
+    );
   }
 
   /**
@@ -395,14 +722,18 @@ export class BrainClient {
     return decodeSchemaUploadResponse(frame.payload);
   }
 
-  /**
-   * Run a typed-graph query (QUERY). Returns fused, ranked results with
-   * per-retriever contributions and outcome diagnostics.
-   */
-  async query(request: QueryRequest): Promise<QueryResponse> {
-    const frame = await this.conn.requestOne(Opcode.QueryReq, encodeQuery(request));
-    this.expect(frame.opcode, Opcode.QueryResp, "QUERY_RESP");
-    return decodeQueryResponse(frame.payload);
+  /** Return a query's plan without running it (QUERY_EXPLAIN). */
+  async queryExplain(request: QueryExplainRequest): Promise<QueryExplainResponse> {
+    const frame = await this.conn.requestOne(Opcode.QueryExplainReq, encodeQueryExplain(request));
+    this.expect(frame.opcode, Opcode.QueryExplainResp, "QUERY_EXPLAIN_RESP");
+    return decodeQueryExplainResponse(frame.payload);
+  }
+
+  /** Run a query and return its per-stage execution trace (QUERY_TRACE). */
+  async queryTrace(request: QueryTraceRequest): Promise<QueryTraceResponse> {
+    const frame = await this.conn.requestOne(Opcode.QueryTraceReq, encodeQueryTrace(request));
+    this.expect(frame.opcode, Opcode.QueryTraceResp, "QUERY_TRACE_RESP");
+    return decodeQueryTraceResponse(frame.payload);
   }
 
   /** Materialize a procedural-memory system block (MATERIALIZE_PROCEDURAL). */
@@ -443,6 +774,24 @@ export class BrainClient {
     );
     this.expect(frame.opcode, Opcode.GetCapabilitiesResp, "GET_CAPABILITIES_RESP");
     return decodeGetCapabilitiesResponse(frame.payload);
+  }
+
+  /**
+   * List the always-on extractors registered on the connected shard
+   * (EXTRACTOR_LIST). Read-only introspection: extraction is always-on, so
+   * there is no enable/disable and the request takes no arguments. Each row
+   * carries the extractor's id, namespace, name, tier kind, schema version, and
+   * creation timestamp.
+   */
+  async extractorList(
+    request: ExtractorListRequest = {},
+  ): Promise<ExtractorListResponseFrame> {
+    const frame = await this.conn.requestOne(
+      Opcode.ExtractorListReq,
+      encodeExtractorList(request),
+    );
+    this.expect(frame.opcode, Opcode.ExtractorListResp, "EXTRACTOR_LIST_RESP");
+    return decodeExtractorListResponse(frame.payload);
   }
 
   /** Fetch one entity by id (ENTITY_GET). */

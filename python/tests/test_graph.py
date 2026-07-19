@@ -1,5 +1,5 @@
 """Typed-graph verb round-trips against an in-process mock server:
-ENTITY_CREATE, STATEMENT_CREATE, RELATION_CREATE, SCHEMA_UPLOAD, QUERY, and
+ENTITY_CREATE, STATEMENT_CREATE, RELATION_CREATE, SCHEMA_UPLOAD, and
 MATERIALIZE_PROCEDURAL. Each is a single-shot request/response; the test drives
 them in sequence over one connection and checks the decoded replies.
 """
@@ -21,15 +21,10 @@ from brain_db_sdk.wire.types import (
     EntityCreateResponse,
     EvidenceRef,
     HelloPayload,
-    ItemId,
     MaterializeProceduralRequest,
     MaterializeProceduralResponse,
-    QueryRequest,
-    QueryResponse,
-    QueryResultItem,
     RelationCreateRequest,
     RelationCreateResponse,
-    RetrieverSelection,
     SchemaUploadRequest,
     SchemaUploadResponse,
     ServerFeatures,
@@ -128,18 +123,6 @@ def _serve_graph(sock: socket.socket) -> None:
         Opcode.SCHEMA_UPLOAD_RESP,
         f.stream_id,
         encode_payload(SchemaUploadResponse("people", 2, [], True, [])),
-    )
-
-    # QUERY.
-    f = read_frame(sock, buf)
-    assert f.opcode == Opcode.QUERY_REQ
-    req = decode_payload(QueryRequest, f.payload)
-    assert req.text == "computing pioneers"
-    _write(
-        sock,
-        Opcode.QUERY_RESP,
-        f.stream_id,
-        encode_payload(QueryResponse([QueryResultItem(ItemId(1, ENTITY_ID), 0.95, [])], 1.5, [])),
     )
 
     # MATERIALIZE_PROCEDURAL.
@@ -244,26 +227,6 @@ def test_typed_graph_verbs_round_trip() -> None:
         )
         assert schema.namespace == "people"
         assert schema.backward_compatible
-
-        results = client.query(
-            QueryRequest(
-                text="computing pioneers",
-                entity_anchor=None,
-                kind_filter=[],
-                predicate_filter=[],
-                time_filter=None,
-                as_of_record_time_unix_nanos=None,
-                confidence_min=None,
-                include_tombstoned=False,
-                include_superseded=False,
-                limit=10,
-                retrievers=RetrieverSelection.auto(),
-                fusion_config=None,
-                request_id=_rid(),
-            )
-        )
-        assert len(results.items) == 1
-        assert results.items[0].id.bytes == ENTITY_ID
 
         proc = client.materialize_procedural(
             MaterializeProceduralRequest(

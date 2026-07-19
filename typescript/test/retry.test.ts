@@ -60,6 +60,7 @@ async function handshake(chan: FrameChannel): Promise<void> {
       canReason: true,
       canForget: true,
       canAdmin: false,
+      canActAs: false,
     },
     namespace: "",
     serverTimeUnixNanos: 1n,

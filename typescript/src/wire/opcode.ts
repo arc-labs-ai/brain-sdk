@@ -4,8 +4,12 @@
  * The high byte is the namespace (0x00 = connection / substrate / admin,
  * 0x01 = typed-graph). Within a namespace the low byte's high bit selects
  * direction: values below 0x80 are server-bound requests, 0x80 and above are
- * client-bound responses. This covers the handshake, the three v1 verbs, BYE,
- * ERROR, and the typed-graph ops the conformance corpus exercises.
+ * client-bound responses. The full set covers connection management and
+ * keepalive, the v1 cognitive verbs (encode / recall / plan / reason / forget /
+ * link / unlink, plus direct-vector encode), subscriptions, capability
+ * introspection, transactions, the error frame, and every typed-graph op the
+ * client speaks: schema, entity, statement, and relation lifecycle; the query
+ * explain / trace debug surface; and procedural materialization.
  */
 
 export const Opcode = {
@@ -38,6 +42,10 @@ export const Opcode = {
   LinkResp: 0x00a5,
   UnlinkReq: 0x0026,
   UnlinkResp: 0x00a6,
+  MemoryListReq: 0x0027,
+  MemoryListResp: 0x00a7,
+  MemoryInspectReq: 0x0028,
+  MemoryInspectResp: 0x00a8,
   EncodeVectorDirectReq: 0x002a,
   EncodeVectorDirectResp: 0x00aa,
 
@@ -71,6 +79,11 @@ export const Opcode = {
   SchemaListResp: 0x01a2,
   SchemaValidateReq: 0x0123,
   SchemaValidateResp: 0x01a3,
+
+  // Extractor introspection (read-only; extraction is always-on).
+  ExtractorListReq: 0x0124,
+  ExtractorListResp: 0x01a4,
+
   EntityCreateReq: 0x0130,
   EntityCreateResp: 0x01b0,
   EntityGetReq: 0x0131,
@@ -79,20 +92,50 @@ export const Opcode = {
   EntityResolveResp: 0x01b6,
   EntityListReq: 0x0137,
   EntityListResp: 0x01b7,
+  EntityUpdateReq: 0x0132,
+  EntityUpdateResp: 0x01b2,
+  EntityRenameReq: 0x0133,
+  EntityRenameResp: 0x01b3,
+  EntityMergeReq: 0x0134,
+  EntityMergeResp: 0x01b4,
+  EntityUnmergeReq: 0x0135,
+  EntityUnmergeResp: 0x01b5,
+  EntityTombstoneReq: 0x0138,
+  EntityTombstoneResp: 0x01b8,
   StatementCreateReq: 0x0140,
   StatementCreateResp: 0x01c0,
+  StatementSupersedeReq: 0x0142,
+  StatementSupersedeResp: 0x01c2,
+  StatementTombstoneReq: 0x0143,
+  StatementTombstoneResp: 0x01c3,
+  StatementRetractReq: 0x0144,
+  StatementRetractResp: 0x01c4,
+  StatementHistoryReq: 0x0145,
+  StatementHistoryResp: 0x01c5,
   StatementGetReq: 0x0141,
   StatementGetResp: 0x01c1,
   StatementListReq: 0x0146,
   StatementListResp: 0x01c6,
   RelationCreateReq: 0x0150,
   RelationCreateResp: 0x01d0,
+  RelationGetReq: 0x0151,
+  RelationGetResp: 0x01d1,
+  RelationSupersedeReq: 0x0152,
+  RelationSupersedeResp: 0x01d2,
+  RelationTombstoneReq: 0x0153,
+  RelationTombstoneResp: 0x01d3,
   RelationListFromReq: 0x0154,
   RelationListFromResp: 0x01d4,
   RelationListToReq: 0x0155,
   RelationListToResp: 0x01d5,
-  QueryReq: 0x0160,
-  QueryResp: 0x01e0,
+  RelationTraverseReq: 0x0156,
+  RelationTraverseResp: 0x01d6,
+  QueryExplainReq: 0x0161,
+  QueryExplainResp: 0x01e1,
+  QueryTraceReq: 0x0162,
+  QueryTraceResp: 0x01e2,
+  GraphFetchReq: 0x0163,
+  GraphFetchResp: 0x01e3,
   MaterializeProceduralReq: 0x0164,
   MaterializeProceduralResp: 0x01e4,
 } as const;

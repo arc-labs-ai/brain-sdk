@@ -18,6 +18,18 @@
     "payload_len": 102
   },
   {
+    "name": "req_encode_trace",
+    "opcode": "0x0020",
+    "kind": "request",
+    "payload_len": 108
+  },
+  {
+    "name": "req_encode_allow_duplicates",
+    "opcode": "0x0020",
+    "kind": "request",
+    "payload_len": 120
+  },
+  {
     "name": "req_encode_vector_direct",
     "opcode": "0x002A",
     "kind": "request",
@@ -27,7 +39,13 @@
     "name": "req_recall",
     "opcode": "0x0021",
     "kind": "request",
-    "payload_len": 316
+    "payload_len": 287
+  },
+  {
+    "name": "req_recall_act_as",
+    "opcode": "0x0021",
+    "kind": "request",
+    "payload_len": 332
   },
   {
     "name": "req_forget",
@@ -36,10 +54,40 @@
     "payload_len": 65
   },
   {
+    "name": "req_forget_act_as",
+    "opcode": "0x0024",
+    "kind": "request",
+    "payload_len": 121
+  },
+  {
+    "name": "req_encode_act_as",
+    "opcode": "0x0020",
+    "kind": "request",
+    "payload_len": 156
+  },
+  {
+    "name": "req_plan_act_as",
+    "opcode": "0x0022",
+    "kind": "request",
+    "payload_len": 233
+  },
+  {
+    "name": "req_reason_act_as",
+    "opcode": "0x0023",
+    "kind": "request",
+    "payload_len": 211
+  },
+  {
     "name": "req_entity_create",
     "opcode": "0x0130",
     "kind": "request",
     "payload_len": 123
+  },
+  {
+    "name": "req_entity_create_act_as",
+    "opcode": "0x0130",
+    "kind": "request",
+    "payload_len": 179
   },
   {
     "name": "req_statement_create",
@@ -60,12 +108,6 @@
     "payload_len": 130
   },
   {
-    "name": "req_query",
-    "opcode": "0x0160",
-    "kind": "request",
-    "payload_len": 278
-  },
-  {
     "name": "req_materialize_procedural",
     "opcode": "0x0164",
     "kind": "request",
@@ -81,7 +123,13 @@
     "name": "resp_auth_ok",
     "opcode": "0x0082",
     "kind": "response",
-    "payload_len": 172
+    "payload_len": 184
+  },
+  {
+    "name": "resp_auth_ok_act_as",
+    "opcode": "0x0082",
+    "kind": "response",
+    "payload_len": 184
   },
   {
     "name": "resp_encode",
@@ -90,10 +138,22 @@
     "payload_len": 241
   },
   {
+    "name": "resp_encode_trace",
+    "opcode": "0x00A0",
+    "kind": "response",
+    "payload_len": 1624
+  },
+  {
     "name": "resp_recall",
     "opcode": "0x00A1",
     "kind": "response",
     "payload_len": 77
+  },
+  {
+    "name": "resp_recall_trace",
+    "opcode": "0x00A1",
+    "kind": "response",
+    "payload_len": 421
   },
   {
     "name": "resp_forget",
@@ -124,12 +184,6 @@
     "opcode": "0x01A0",
     "kind": "response",
     "payload_len": 95
-  },
-  {
-    "name": "resp_query",
-    "opcode": "0x01E0",
-    "kind": "response",
-    "payload_len": 48
   },
   {
     "name": "resp_materialize_procedural",
@@ -210,6 +264,18 @@
     "payload_len": 47
   },
   {
+    "name": "req_extractor_list",
+    "opcode": "0x0124",
+    "kind": "request",
+    "payload_len": 1
+  },
+  {
+    "name": "resp_extractor_list",
+    "opcode": "0x01A4",
+    "kind": "response",
+    "payload_len": 124
+  },
+  {
     "name": "resp_get_capabilities",
     "opcode": "0x00B2",
     "kind": "response",
@@ -288,6 +354,12 @@
     "payload_len": 114
   },
   {
+    "name": "resp_error_act_as_denied",
+    "opcode": "0x00FF",
+    "kind": "response",
+    "payload_len": 85
+  },
+  {
     "name": "frame_hello",
     "opcode": "0x0001",
     "kind": "frame",
@@ -303,7 +375,7 @@
     "name": "frame_encode",
     "opcode": "0x0020",
     "kind": "frame",
-    "payload_len": 134
+    "payload_len": 141
   },
   {
     "name": "frame_encode_vector_direct",
@@ -322,5 +394,41 @@
     "opcode": "0x00A1",
     "kind": "frame",
     "payload_len": 109
+  },
+  {
+    "name": "req_memory_list",
+    "opcode": "0x0027",
+    "kind": "request",
+    "payload_len": 155
+  },
+  {
+    "name": "resp_memory_list",
+    "opcode": "0x00A7",
+    "kind": "response",
+    "payload_len": 321
+  },
+  {
+    "name": "req_memory_inspect",
+    "opcode": "0x0028",
+    "kind": "request",
+    "payload_len": 28
+  },
+  {
+    "name": "resp_memory_inspect",
+    "opcode": "0x00A8",
+    "kind": "response",
+    "payload_len": 523
+  },
+  {
+    "name": "req_graph_fetch",
+    "opcode": "0x0163",
+    "kind": "request",
+    "payload_len": 84
+  },
+  {
+    "name": "resp_graph_fetch",
+    "opcode": "0x01E3",
+    "kind": "response",
+    "payload_len": 270
   }
 ]
