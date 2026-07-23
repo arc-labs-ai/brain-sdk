@@ -82,6 +82,7 @@ class StageKind:
     AUTO_EDGE = 0
     TEMPORAL_EDGE = 1
     EXTRACTOR = 2
+    HYPE = 3
 
 
 class WaitMode:
@@ -786,19 +787,32 @@ class EncodeTraceStatement:
     predicate: str
     object_name: str
     confidence: float  # f32
+    # When the statement's EVENT happened, in unix nanos. Omitted from the
+    # wire map for a statement with no event time.
+    event_at_unix_nanos: Optional[int] = None
 
     def to_map(self) -> dict:
-        return {
+        m: dict = {
             "id": self.id,
             "subject_name": self.subject_name,
             "predicate": self.predicate,
             "object_name": self.object_name,
             "confidence": round_f32(self.confidence),
         }
+        if self.event_at_unix_nanos is not None:
+            m["event_at_unix_nanos"] = self.event_at_unix_nanos
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EncodeTraceStatement":
-        return cls(m["id"], m["subject_name"], m["predicate"], m["object_name"], m["confidence"])
+        return cls(
+            m["id"],
+            m["subject_name"],
+            m["predicate"],
+            m["object_name"],
+            m["confidence"],
+            m.get("event_at_unix_nanos"),
+        )
 
 
 @dataclass
@@ -1006,19 +1020,32 @@ class EncodeGraphEdge:
     predicate: str
     kind: str
     confidence: float  # f32
+    # When the EVENT this edge records happened, in unix nanos. Omitted for
+    # an undated statement and for every non-statement edge kind.
+    event_at_unix_nanos: Optional[int] = None
 
     def to_map(self) -> dict:
-        return {
+        m: dict = {
             "source": self.source,
             "target": self.target,
             "predicate": self.predicate,
             "kind": self.kind,
             "confidence": round_f32(self.confidence),
         }
+        if self.event_at_unix_nanos is not None:
+            m["event_at_unix_nanos"] = self.event_at_unix_nanos
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EncodeGraphEdge":
-        return cls(m["source"], m["target"], m["predicate"], m["kind"], m["confidence"])
+        return cls(
+            m["source"],
+            m["target"],
+            m["predicate"],
+            m["kind"],
+            m["confidence"],
+            m.get("event_at_unix_nanos"),
+        )
 
 
 @dataclass
@@ -1275,19 +1302,32 @@ class EnrichedStatement:
     predicate: str
     object_label: str
     confidence: float  # f32
+    # When the statement's EVENT happened, in unix nanos. Omitted from the
+    # wire map for a statement with no event time.
+    event_at_unix_nanos: Optional[int] = None
 
     def to_map(self) -> dict:
-        return {
+        m: dict = {
             "id": self.id,
             "subject_name": self.subject_name,
             "predicate": self.predicate,
             "object_label": self.object_label,
             "confidence": round_f32(self.confidence),
         }
+        if self.event_at_unix_nanos is not None:
+            m["event_at_unix_nanos"] = self.event_at_unix_nanos
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "EnrichedStatement":
-        return cls(m["id"], m["subject_name"], m["predicate"], m["object_label"], m["confidence"])
+        return cls(
+            m["id"],
+            m["subject_name"],
+            m["predicate"],
+            m["object_label"],
+            m["confidence"],
+            m.get("event_at_unix_nanos"),
+        )
 
 
 @dataclass
@@ -1475,6 +1515,10 @@ class RecallTraceRetriever:
     status_detail: str
     latency_ms: float  # f64
     candidate_count: int
+    # Only populated in full-detail mode (``trace = True``): the raw
+    # candidates this lane contributed before fusion, in the lane's own
+    # rank order. Empty when the connected server predates this field.
+    candidates: list["RecallTraceCandidate"] = field(default_factory=list)
 
     def to_map(self) -> dict:
         return {
@@ -1483,6 +1527,7 @@ class RecallTraceRetriever:
             "status_detail": self.status_detail,
             "latency_ms": mark_f64(self.latency_ms),
             "candidate_count": self.candidate_count,
+            "candidates": [c.to_map() for c in self.candidates],
         }
 
     @classmethod
@@ -1493,7 +1538,60 @@ class RecallTraceRetriever:
             m["status_detail"],
             m["latency_ms"],
             m["candidate_count"],
+            [RecallTraceCandidate.from_map(c) for c in m.get("candidates", [])],
         )
+
+
+@dataclass
+class RecallTraceCandidate:
+    """One retriever-lane candidate surfaced in full-detail trace mode: its memory id, text (truncated server-side), and this lane's raw score."""
+
+    memory_id: int  # u128
+    text: str
+    score: float  # f32
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "score": round_f32(self.score),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RecallTraceCandidate":
+        return cls(m["memory_id"], m["text"], m["score"])
+
+
+class RankedItemKindWire:
+    """Which id-space a ``RecallTraceDroppedId.id`` belongs to, as its
+    on-wire integer discriminant. Mirrors the pipeline-internal
+    ``RankedItemId``: unlike the type/temporal/confidence/tombstone filter
+    steps (which only ever drop ``Memory`` items), supersession, as-of, and
+    the final limit truncation can drop ``Statement`` and ``Relation``
+    items too, so those three steps tag each dropped id with its kind."""
+
+    MEMORY = 0
+    STATEMENT = 1
+    ENTITY = 2
+    RELATION = 3
+
+
+@dataclass
+class RecallTraceDroppedId:
+    """One id a filter-chain step dropped, tagged with which id-space
+    (``RankedItemKindWire``) it came from. Used for ``dropped_by_supersession``
+    / ``dropped_by_as_of`` / ``dropped_by_limit``, the three filter-chain
+    steps that can drop non-``Memory`` items."""
+
+    kind: int  # RankedItemKindWire
+    id: int  # u128
+
+    def to_map(self) -> dict:
+        return {"kind": self.kind, "id": self.id}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RecallTraceDroppedId":
+        return cls(m["kind"], m["id"])
 
 
 @dataclass
@@ -1508,6 +1606,22 @@ class RecallTraceFilterChain:
     after_supersession: int
     after_as_of: int
     after_limit: int
+    # Only populated in full-detail mode (``trace = True``): which memory
+    # ids were removed by this specific filter step (empty = nothing
+    # dropped here, or the connected server predates this field). These
+    # four steps only ever drop ``Memory`` items in practice, so they stay
+    # plain id lists.
+    dropped_by_type: list[int] = field(default_factory=list)
+    dropped_by_temporal: list[int] = field(default_factory=list)
+    dropped_by_confidence: list[int] = field(default_factory=list)
+    dropped_by_tombstone: list[int] = field(default_factory=list)
+    # Only populated in full-detail mode: kind-tagged ids removed by
+    # supersession / as-of / the final limit truncation, since these three
+    # steps can drop ``Statement`` and ``Relation`` items, not just
+    # ``Memory`` ones (empty = nothing dropped here).
+    dropped_by_supersession: list[RecallTraceDroppedId] = field(default_factory=list)
+    dropped_by_as_of: list[RecallTraceDroppedId] = field(default_factory=list)
+    dropped_by_limit: list[RecallTraceDroppedId] = field(default_factory=list)
 
     def to_map(self) -> dict:
         return {
@@ -1519,6 +1633,13 @@ class RecallTraceFilterChain:
             "after_supersession": self.after_supersession,
             "after_as_of": self.after_as_of,
             "after_limit": self.after_limit,
+            "dropped_by_type": list(self.dropped_by_type),
+            "dropped_by_temporal": list(self.dropped_by_temporal),
+            "dropped_by_confidence": list(self.dropped_by_confidence),
+            "dropped_by_tombstone": list(self.dropped_by_tombstone),
+            "dropped_by_supersession": [d.to_map() for d in self.dropped_by_supersession],
+            "dropped_by_as_of": [d.to_map() for d in self.dropped_by_as_of],
+            "dropped_by_limit": [d.to_map() for d in self.dropped_by_limit],
         }
 
     @classmethod
@@ -1532,6 +1653,13 @@ class RecallTraceFilterChain:
             m["after_supersession"],
             m["after_as_of"],
             m["after_limit"],
+            list(m.get("dropped_by_type", [])),
+            list(m.get("dropped_by_temporal", [])),
+            list(m.get("dropped_by_confidence", [])),
+            list(m.get("dropped_by_tombstone", [])),
+            [RecallTraceDroppedId.from_map(d) for d in m.get("dropped_by_supersession", [])],
+            [RecallTraceDroppedId.from_map(d) for d in m.get("dropped_by_as_of", [])],
+            [RecallTraceDroppedId.from_map(d) for d in m.get("dropped_by_limit", [])],
         )
 
 
@@ -1542,17 +1670,68 @@ class RecallTraceRerank:
     applied: bool
     candidates: int
     latency_ms: float  # f64
+    # Full-detail mode only: the fused (pre-rerank) and post-rerank orders,
+    # so the client can show exactly what the cross-encoder moved. Empty
+    # when trace detail wasn't requested or the server predates this field.
+    before_order: list[int] = field(default_factory=list)
+    after_order: list[int] = field(default_factory=list)
 
     def to_map(self) -> dict:
         return {
             "applied": self.applied,
             "candidates": self.candidates,
             "latency_ms": mark_f64(self.latency_ms),
+            "before_order": list(self.before_order),
+            "after_order": list(self.after_order),
         }
 
     @classmethod
     def from_map(cls, m: dict) -> "RecallTraceRerank":
-        return cls(m["applied"], m["candidates"], m["latency_ms"])
+        return cls(
+            m["applied"],
+            m["candidates"],
+            m["latency_ms"],
+            list(m.get("before_order", [])),
+            list(m.get("after_order", [])),
+        )
+
+
+@dataclass
+class RecallTraceFusionItem:
+    """One fused item's RRF score plus the per-lane component scores that contributed to it."""
+
+    memory_id: int  # u128
+    rrf_score: float  # f32
+    lane_scores: list[tuple[int, float]]  # (RetrieverName, f32) pairs
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "rrf_score": round_f32(self.rrf_score),
+            "lane_scores": [[name, round_f32(score)] for name, score in self.lane_scores],
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RecallTraceFusionItem":
+        return cls(
+            m["memory_id"],
+            m["rrf_score"],
+            [(pair[0], pair[1]) for pair in m["lane_scores"]],
+        )
+
+
+@dataclass
+class RecallTraceFusion:
+    """Full-detail mode only: per-fused-item score breakdown by contributing lane, surfaced on a ``RecallTrace`` when the request opted into tracing."""
+
+    items: list[RecallTraceFusionItem]
+
+    def to_map(self) -> dict:
+        return {"items": [i.to_map() for i in self.items]}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "RecallTraceFusion":
+        return cls([RecallTraceFusionItem.from_map(i) for i in m["items"]])
 
 
 @dataclass
@@ -1563,6 +1742,10 @@ class RecallTrace:
     filter_chain: RecallTraceFilterChain
     rerank: Optional[RecallTraceRerank]
     total_latency_ms: float  # f64
+    # Full-detail mode only: per-fused-item score breakdown by contributing
+    # lane. None when trace detail wasn't requested, fusion produced
+    # nothing, or the connected server predates this field.
+    fusion: Optional[RecallTraceFusion] = None
 
     def to_map(self) -> dict:
         return {
@@ -1570,16 +1753,19 @@ class RecallTrace:
             "filter_chain": self.filter_chain.to_map(),
             "rerank": None if self.rerank is None else self.rerank.to_map(),
             "total_latency_ms": mark_f64(self.total_latency_ms),
+            "fusion": None if self.fusion is None else self.fusion.to_map(),
         }
 
     @classmethod
     def from_map(cls, m: dict) -> "RecallTrace":
         rerank = m["rerank"]
+        fusion = m.get("fusion")
         return cls(
             [RecallTraceRetriever.from_map(r) for r in m["retrievers"]],
             RecallTraceFilterChain.from_map(m["filter_chain"]),
             None if rerank is None else RecallTraceRerank.from_map(rerank),
             m["total_latency_ms"],
+            None if fusion is None else RecallTraceFusion.from_map(fusion),
         )
 
 
@@ -1900,13 +2086,18 @@ class GraphFetchRequest:
     ``(namespace, agent)`` typed graph as a node/edge set. The default layer is
     the concept map (entity nodes + Relation/Fact edges); ``include_statements``
     adds value-object statement nodes, ``include_memories`` adds source-memory
-    nodes. ``cursor`` / ``next_cursor`` are opaque byte blobs (CBOR arrays of
+    nodes, ``include_memory_edges`` adds the stored memory↔memory links between
+    them. ``cursor`` / ``next_cursor`` are opaque byte blobs (CBOR arrays of
     ints on the wire, not byte strings)."""
 
     limit: int  # u32, validated server-side to 1..=500
     cursor: bytes  # empty on first page; opaque continuation token otherwise
     include_statements: bool
     include_memories: bool
+    # Stored memory↔memory edges (SimilarTo, FollowedBy, …) incident to the
+    # page's memory nodes. Requires include_memories; setting it alone is
+    # rejected, since the edges would have no rendered endpoints.
+    include_memory_edges: bool
     include_tombstoned: bool
     # Effective identity this export runs as. Omitted from the CBOR map when
     # None so the common single-tenant path stays byte-identical.
@@ -1918,6 +2109,7 @@ class GraphFetchRequest:
             "cursor": list(self.cursor),
             "include_statements": self.include_statements,
             "include_memories": self.include_memories,
+            "include_memory_edges": self.include_memory_edges,
             "include_tombstoned": self.include_tombstoned,
         }
         if self.act_as is not None:
@@ -1932,6 +2124,7 @@ class GraphFetchRequest:
             bytes(m["cursor"]),
             m["include_statements"],
             m["include_memories"],
+            m["include_memory_edges"],
             m["include_tombstoned"],
             None if act_as is None else ActAs.from_map(act_as),
         )
@@ -2863,6 +3056,12 @@ class PlanRequest:
     context_filter: Optional[list[int]]
     request_id: Optional[bytes]
     txn_id: Optional[bytes]
+    # Opt-in per-stage observability. Always present on the wire (defaults to
+    # False); when True the final PLAN_RESP frame carries a populated
+    # ``trace: PlanTrace`` describing every node the bidirectional BFS
+    # visited (in both directions) and every meeting point found, including
+    # the ones dropped by the ``max_paths`` cap. Mirrors ``RecallRequest.trace``.
+    trace: bool = False
     # Effective identity this plan runs as. Omitted from the CBOR map when
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
@@ -2878,6 +3077,7 @@ class PlanRequest:
             ),
             "request_id": self.request_id,
             "txn_id": self.txn_id,
+            "trace": self.trace,
         }
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
@@ -2894,6 +3094,7 @@ class PlanRequest:
             None if m["context_filter"] is None else list(m["context_filter"]),
             m["request_id"],
             m["txn_id"],
+            bool(m.get("trace", False)),
             None if act_as is None else ActAs.from_map(act_as),
         )
 
@@ -2938,20 +3139,124 @@ class PlanResponseFrame:
     steps: list[PlanStep]
     is_final: bool
     plan_status: Optional[int]
+    # Per-stage bidirectional-search trace, present only on the final frame
+    # and only when the request set ``trace = True``; omitted from the CBOR
+    # map otherwise. Mirrors ``RecallResponseFrame.trace``.
+    trace: Optional["PlanTrace"] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "steps": [s.to_map() for s in self.steps],
             "is_final": self.is_final,
             "plan_status": self.plan_status,
         }
+        if self.trace is not None:
+            m["trace"] = self.trace.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "PlanResponseFrame":
+        trace = m.get("trace")
         return cls(
             [PlanStep.from_map(s) for s in m["steps"]],
             m["is_final"],
             m["plan_status"],
+            None if trace is None else PlanTrace.from_map(trace),
+        )
+
+
+# ===========================================================================
+# PLAN trace (opt-in per-stage bidirectional-search observability).
+# ===========================================================================
+
+
+class PlanTraceDirection:
+    """Which direction of the bidirectional BFS a ``PlanTraceNode`` was visited from, as its on-wire integer discriminant."""
+
+    FORWARD = 0
+    BACKWARD = 1
+
+
+@dataclass
+class PlanTraceNode:
+    """One node the bidirectional BFS visited, from either direction: its
+    memory, direction, depth, the edge it was reached through (``None`` for
+    a root), and the goal-proximity alignment score when one was computed."""
+
+    memory_id: int  # u128
+    text: str
+    direction: int  # PlanTraceDirection
+    depth: int
+    parent_edge: Optional[int]  # WireMemoryId or None
+    alignment_score: Optional[float]  # f32 or None
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "direction": self.direction,
+            "depth": self.depth,
+            "parent_edge": self.parent_edge,
+            "alignment_score": (
+                None if self.alignment_score is None else round_f32(self.alignment_score)
+            ),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "PlanTraceNode":
+        return cls(
+            m["memory_id"],
+            m["text"],
+            m["direction"],
+            m["depth"],
+            m["parent_edge"],
+            m["alignment_score"],
+        )
+
+
+@dataclass
+class PlanTraceMeetingPoint:
+    """One meeting point the bidirectional BFS found where the forward and
+    backward frontiers connected, flagging whether it survived the
+    ``max_paths`` cap and contributed a path to the response."""
+
+    memory_id: int  # u128
+    text: str
+    included_in_result: bool
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "included_in_result": self.included_in_result,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "PlanTraceMeetingPoint":
+        return cls(m["memory_id"], m["text"], m["included_in_result"])
+
+
+@dataclass
+class PlanTrace:
+    """Per-stage observability for one PLAN (surfaced on the final frame
+    when the request set ``trace = True``): every node the bidirectional BFS
+    visited in both directions, and every meeting point found (including
+    ones dropped by the ``max_paths`` cap)."""
+
+    explored: list[PlanTraceNode]
+    meeting_points: list[PlanTraceMeetingPoint]
+
+    def to_map(self) -> dict:
+        return {
+            "explored": [n.to_map() for n in self.explored],
+            "meeting_points": [p.to_map() for p in self.meeting_points],
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "PlanTrace":
+        return cls(
+            [PlanTraceNode.from_map(n) for n in m["explored"]],
+            [PlanTraceMeetingPoint.from_map(p) for p in m["meeting_points"]],
         )
 
 
@@ -3032,6 +3337,13 @@ class ReasonRequest:
     budget_wall_time_ms: int
     request_id: Optional[bytes]
     txn_id: Optional[bytes]
+    # Opt-in per-stage observability. Always present on the wire (defaults to
+    # False); when True the final REASON_RESP frame carries a populated
+    # ``trace: ReasonTrace`` describing the full base-candidate set, every
+    # edge the outward walk considered (and why each was pruned), the
+    # un-collapsed per-item score components, and whether topic-alignment
+    # centroid computation ran. Mirrors ``RecallRequest.trace``.
+    trace: bool = False
     # Effective identity this reason runs as. Omitted from the CBOR map when
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
@@ -3048,6 +3360,7 @@ class ReasonRequest:
             "budget_wall_time_ms": self.budget_wall_time_ms,
             "request_id": self.request_id,
             "txn_id": self.txn_id,
+            "trace": self.trace,
         }
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
@@ -3065,6 +3378,7 @@ class ReasonRequest:
             m["budget_wall_time_ms"],
             m["request_id"],
             m["txn_id"],
+            bool(m.get("trace", False)),
             None if act_as is None else ActAs.from_map(act_as),
         )
 
@@ -3109,20 +3423,270 @@ class ReasonResponseFrame:
     inferences: list[InferenceStep]
     is_final: bool
     reason_status: Optional[int]
+    # Per-stage read-pipeline trace, present only on the final frame and only
+    # when the request set ``trace = True``; omitted from the CBOR map
+    # otherwise. Mirrors ``RecallResponseFrame.trace``.
+    trace: Optional["ReasonTrace"] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "inferences": [i.to_map() for i in self.inferences],
             "is_final": self.is_final,
             "reason_status": self.reason_status,
         }
+        if self.trace is not None:
+            m["trace"] = self.trace.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "ReasonResponseFrame":
+        trace = m.get("trace")
         return cls(
             [InferenceStep.from_map(i) for i in m["inferences"]],
             m["is_final"],
             m["reason_status"],
+            None if trace is None else ReasonTrace.from_map(trace),
+        )
+
+
+# ===========================================================================
+# REASON trace (opt-in per-stage evidence-walk observability).
+# ===========================================================================
+
+
+@dataclass
+class ReasonTraceCandidate:
+    """One base-candidate hit surfaced in a REASON trace: its memory id, text, and HNSW score."""
+
+    memory_id: int  # u128
+    text: str
+    score: float  # f32
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "score": round_f32(self.score),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTraceCandidate":
+        return cls(m["memory_id"], m["text"], m["score"])
+
+
+@dataclass
+class ReasonTraceBase:
+    """The base observation's resolved candidate set, before any evidence walk — the full HNSW hit set, not just the subset that seeded the walk."""
+
+    candidates: list[ReasonTraceCandidate]
+
+    def to_map(self) -> dict:
+        return {"candidates": [c.to_map() for c in self.candidates]}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTraceBase":
+        return cls([ReasonTraceCandidate.from_map(c) for c in m["candidates"]])
+
+
+@dataclass
+class ReasonTraceEdgeCandidate:
+    """One edge the outward evidence walk visited, considered or dropped: the target memory, edge kind, depth, source memory, and raw score."""
+
+    memory_id: int  # u128
+    text: str
+    edge_kind: int  # EdgeKind
+    depth: int
+    from_memory_id: int  # u128
+    raw_score: float  # f32
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "edge_kind": self.edge_kind,
+            "depth": self.depth,
+            "from_memory_id": self.from_memory_id,
+            "raw_score": round_f32(self.raw_score),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTraceEdgeCandidate":
+        return cls(
+            m["memory_id"],
+            m["text"],
+            m["edge_kind"],
+            m["depth"],
+            m["from_memory_id"],
+            m["raw_score"],
+        )
+
+
+@dataclass
+class ReasonTraceIdWithText:
+    """A memory id plus its stored text, with no other payload — the shared
+    shape for the walk's plain id-dropped buckets (tombstone / visited /
+    trim-cap) so an opaque id is never surfaced without the content that
+    explains the drop."""
+
+    memory_id: int  # u128
+    text: str
+
+    def to_map(self) -> dict:
+        return {"memory_id": self.memory_id, "text": self.text}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTraceIdWithText":
+        return cls(m["memory_id"], m["text"])
+
+
+@dataclass
+class ReasonTraceScoredId:
+    """A memory id plus its stored text, paired with the score it was dropped at."""
+
+    memory_id: int  # u128
+    text: str
+    score: float  # f32
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "score": round_f32(self.score),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTraceScoredId":
+        return cls(m["memory_id"], m["text"], m["score"])
+
+
+@dataclass
+class ReasonTraceWalk:
+    """Everything the outward evidence walk considered and every reason an
+    edge or item was pruned before becoming a surviving ``InferenceStep``."""
+
+    considered: list[ReasonTraceEdgeCandidate]
+    dropped_by_edge_kind: list[ReasonTraceEdgeCandidate]
+    dropped_by_tombstone: list[ReasonTraceIdWithText]
+    dropped_by_visited: list[ReasonTraceIdWithText]
+    dropped_by_confidence: list[ReasonTraceScoredId]
+    dropped_by_max_supporting: list[ReasonTraceIdWithText]
+    dropped_by_max_contradicting: list[ReasonTraceIdWithText]
+
+    def to_map(self) -> dict:
+        return {
+            "considered": [c.to_map() for c in self.considered],
+            "dropped_by_edge_kind": [c.to_map() for c in self.dropped_by_edge_kind],
+            "dropped_by_tombstone": [c.to_map() for c in self.dropped_by_tombstone],
+            "dropped_by_visited": [c.to_map() for c in self.dropped_by_visited],
+            "dropped_by_confidence": [c.to_map() for c in self.dropped_by_confidence],
+            "dropped_by_max_supporting": [c.to_map() for c in self.dropped_by_max_supporting],
+            "dropped_by_max_contradicting": [
+                c.to_map() for c in self.dropped_by_max_contradicting
+            ],
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTraceWalk":
+        return cls(
+            [ReasonTraceEdgeCandidate.from_map(c) for c in m["considered"]],
+            [ReasonTraceEdgeCandidate.from_map(c) for c in m["dropped_by_edge_kind"]],
+            [ReasonTraceIdWithText.from_map(c) for c in m["dropped_by_tombstone"]],
+            [ReasonTraceIdWithText.from_map(c) for c in m["dropped_by_visited"]],
+            [ReasonTraceScoredId.from_map(c) for c in m["dropped_by_confidence"]],
+            [ReasonTraceIdWithText.from_map(c) for c in m["dropped_by_max_supporting"]],
+            [ReasonTraceIdWithText.from_map(c) for c in m["dropped_by_max_contradicting"]],
+        )
+
+
+@dataclass
+class ReasonTraceScoreBreakdown:
+    """The un-collapsed multiplicative score components combined into one
+    ``InferenceStep.confidence`` value, for one surviving evidence item."""
+
+    memory_id: int  # u128
+    text: str
+    base_similarity: float  # f32
+    decay: float  # f32
+    weight_product: float  # f32
+    alignment: float  # f32
+    # Structural-fit nudge from VSA analogical inference (bind/bundle/
+    # analogy_query over the item's statement-graph triple against the
+    # observation's own triple). Neutral 1.0 when no triple is resolvable
+    # for the item -- a re-rank nudge only, never a gate.
+    analogical_fit: float  # f32
+    final_score: float  # f32
+
+    def to_map(self) -> dict:
+        return {
+            "memory_id": self.memory_id,
+            "text": self.text,
+            "base_similarity": round_f32(self.base_similarity),
+            "decay": round_f32(self.decay),
+            "weight_product": round_f32(self.weight_product),
+            "alignment": round_f32(self.alignment),
+            "analogical_fit": round_f32(self.analogical_fit),
+            "final_score": round_f32(self.final_score),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTraceScoreBreakdown":
+        return cls(
+            m["memory_id"],
+            m["text"],
+            m["base_similarity"],
+            m["decay"],
+            m["weight_product"],
+            m["alignment"],
+            m["analogical_fit"],
+            m["final_score"],
+        )
+
+
+@dataclass
+class ReasonTraceCentroid:
+    """Whether topic-alignment centroid computation ran for this REASON, and
+    why not when it didn't (``build_base_centroid`` silently returns
+    ``None`` on several paths — singleton base, ``ByText`` observation,
+    missing text, embed error)."""
+
+    computed: bool
+    skipped_reason: Optional[str]
+
+    def to_map(self) -> dict:
+        return {"computed": self.computed, "skipped_reason": self.skipped_reason}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTraceCentroid":
+        return cls(m["computed"], m["skipped_reason"])
+
+
+@dataclass
+class ReasonTrace:
+    """Per-stage observability for one REASON (surfaced on the final frame
+    when the request set ``trace = True``): the full base-candidate set, the
+    outward evidence walk (considered edges + every prune reason), the
+    un-collapsed per-item score components, and the centroid outcome."""
+
+    base: ReasonTraceBase
+    walk: ReasonTraceWalk
+    scoring: list[ReasonTraceScoreBreakdown]
+    centroid: ReasonTraceCentroid
+
+    def to_map(self) -> dict:
+        return {
+            "base": self.base.to_map(),
+            "walk": self.walk.to_map(),
+            "scoring": [s.to_map() for s in self.scoring],
+            "centroid": self.centroid.to_map(),
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ReasonTrace":
+        return cls(
+            ReasonTraceBase.from_map(m["base"]),
+            ReasonTraceWalk.from_map(m["walk"]),
+            [ReasonTraceScoreBreakdown.from_map(s) for s in m["scoring"]],
+            ReasonTraceCentroid.from_map(m["centroid"]),
         )
 
 
@@ -3309,6 +3873,26 @@ class StageTemporalEdgePayload:
 
 
 @dataclass
+class StageHypePayload:
+    """HyPE stage detail: how many hypothetical questions were embedded and
+    persisted, and the LLM micro-USD spent generating them (``0`` on a cache
+    hit)."""
+
+    questions_written: int
+    cost_micro_usd: int
+
+    def to_map(self) -> dict:
+        return {
+            "questions_written": self.questions_written,
+            "cost_micro_usd": self.cost_micro_usd,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "StageHypePayload":
+        return cls(m["questions_written"], m["cost_micro_usd"])
+
+
+@dataclass
 class StageExtractorPayload:
     """Extractor stage detail: entity/statement/relation counts, the audit status, and any error message."""
 
@@ -3341,7 +3925,7 @@ class StageExtractorPayload:
 @dataclass
 class StagePayload:
     """Externally-tagged per-stage detail: ``{"AutoEdge": {...}}`` /
-    ``{"TemporalEdge": {...}}`` / ``{"Extractor": {...}}``.
+    ``{"TemporalEdge": {...}}`` / ``{"Extractor": {...}}`` / ``{"Hype": {...}}``.
     """
 
     variant: str
@@ -3359,6 +3943,8 @@ class StagePayload:
             return cls("TemporalEdge", StageTemporalEdgePayload.from_map(value))
         if variant == "Extractor":
             return cls("Extractor", StageExtractorPayload.from_map(value))
+        if variant == "Hype":
+            return cls("Hype", StageHypePayload.from_map(value))
         raise ValueError(f"unknown stage payload variant {variant!r}")
 
 
@@ -3382,12 +3968,13 @@ class SimilarityFilter:
 
 @dataclass
 class SubscriptionFilter:
-    """The selection filter on a subscription: optional context, kind, similarity, and agent-subset constraints (None = no constraint)."""
+    """The selection filter on a subscription: optional context, kind, similarity, agent-subset, and memory-id-subset constraints (None = no constraint)."""
 
     contexts: Optional[list[int]]
     kinds: Optional[list[int]]
     similar_to: Optional[SimilarityFilter]
     agents: Optional[list[bytes]]  # subset of agent ids, or None for all
+    memory_ids: Optional[list[int]] = None  # subset of memory ids (u128), or None for all
 
     def to_map(self) -> dict:
         return {
@@ -3395,6 +3982,7 @@ class SubscriptionFilter:
             "kinds": None if self.kinds is None else list(self.kinds),
             "similar_to": None if self.similar_to is None else self.similar_to.to_map(),
             "agents": None if self.agents is None else list(self.agents),
+            "memory_ids": None if self.memory_ids is None else list(self.memory_ids),
         }
 
     @classmethod
@@ -3404,6 +3992,7 @@ class SubscriptionFilter:
             None if m["kinds"] is None else list(m["kinds"]),
             None if m["similar_to"] is None else SimilarityFilter.from_map(m["similar_to"]),
             None if m["agents"] is None else list(m["agents"]),
+            None if m.get("memory_ids") is None else list(m["memory_ids"]),
         )
 
 
@@ -3415,22 +4004,31 @@ class SubscribeRequest:
     include_history: bool
     from_lsn: Optional[int]
     max_inflight: int
+    # Effective identity this subscription runs as, on behalf of the
+    # authenticated connection principal. Omitted from the CBOR map when
+    # None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict:
-        return {
+        m = {
             "filter": self.filter.to_map(),
             "include_history": self.include_history,
             "from_lsn": self.from_lsn,
             "max_inflight": self.max_inflight,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict) -> "SubscribeRequest":
+        act_as = m.get("act_as")
         return cls(
             SubscriptionFilter.from_map(m["filter"]),
             m["include_history"],
             m["from_lsn"],
             m["max_inflight"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 

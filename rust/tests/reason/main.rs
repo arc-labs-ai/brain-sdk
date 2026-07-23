@@ -30,6 +30,7 @@ async fn reason_from_text_observation_round_trips() {
         budget_wall_time_ms: 2_000,
         request_id: None,
         txn_id: None,
+        trace: false,
     };
     // The contract under test is that the server accepts every parameter and
     // returns a well-formed list, capped by max_inferences. Note:
@@ -68,6 +69,7 @@ async fn reason_from_memory_observation_round_trips() {
         budget_wall_time_ms: 1_000,
         request_id: None,
         txn_id: None,
+        trace: false,
     };
     let inferences = client.reason(&req).await.expect("reason by memory id");
     assert!(

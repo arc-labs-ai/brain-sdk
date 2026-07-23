@@ -20,12 +20,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/brain-db-io/brain-sdk.git",
+    "url": "git+https://github.com/arc-labs-ai/brain-sdk.git",
     "directory": "typescript"
   },
-  "homepage": "https://github.com/brain-db-io/brain-sdk/tree/main/typescript#readme",
+  "homepage": "https://github.com/arc-labs-ai/brain-sdk/tree/main/typescript#readme",
   "bugs": {
-    "url": "https://github.com/brain-db-io/brain-sdk/issues"
+    "url": "https://github.com/arc-labs-ai/brain-sdk/issues"
   },
   "publishConfig": {
     "access": "public"

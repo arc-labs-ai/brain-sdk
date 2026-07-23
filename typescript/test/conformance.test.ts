@@ -175,8 +175,10 @@ const handlers: Record<string, Handler> = {
 
   req_plan_act_as: payloadRoundTrip(t.decodePlan, t.encodePlan),
   resp_plan: payloadRoundTrip(t.decodePlanResponse, t.encodePlanResponse),
+  resp_plan_trace: payloadRoundTrip(t.decodePlanResponse, t.encodePlanResponse),
   req_reason_act_as: payloadRoundTrip(t.decodeReason, t.encodeReason),
   resp_reason: payloadRoundTrip(t.decodeReasonResponse, t.encodeReasonResponse),
+  resp_reason_trace: payloadRoundTrip(t.decodeReasonResponse, t.encodeReasonResponse),
   resp_link: payloadRoundTrip(t.decodeLinkResponse, t.encodeLinkResponse),
 
   resp_txn_begin: payloadRoundTrip(t.decodeTxnBeginResponse, t.encodeTxnBeginResponse),

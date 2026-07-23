@@ -124,11 +124,12 @@ export enum ForgetMode {
   Hard = 1,
 }
 
-/** A background write-pipeline stage a freshly-encoded memory is still pending (auto-edge, temporal-edge, or extractor). */
+/** A background write-pipeline stage a freshly-encoded memory is still pending (auto-edge, temporal-edge, extractor, or HyPE). */
 export enum StageKind {
   AutoEdge = 0,
   TemporalEdge = 1,
   Extractor = 2,
+  Hype = 3,
 }
 
 /** Authentication method offered in WELCOME and selected in AUTH: a bearer token or an mTLS subject claim. */
@@ -855,6 +856,10 @@ export interface EncodeTraceStatement {
   predicate: string;
   objectName: string;
   confidence: number;
+  /** When the statement's EVENT happened, in unix nanos — the reified Time
+   * slot of an Event-kind statement. `null` when the statement has no event
+   * time (and then absent from the wire map). */
+  eventAtUnixNanos: bigint | null;
 }
 
 /** One relation artifact produced by a traced ENCODE. */
@@ -928,16 +933,18 @@ function encodeEncodeTraceArtifacts(a: EncodeTraceArtifacts): Map<string, unknow
     ],
     [
       "statements",
-      a.statements.map(
-        (s) =>
-          new Map<string, unknown>([
-            ["id", s.id],
-            ["subject_name", s.subjectName],
-            ["predicate", s.predicate],
-            ["object_name", s.objectName],
-            ["confidence", f32(s.confidence)],
-          ]),
-      ),
+      a.statements.map((s) => {
+        const sm = new Map<string, unknown>([
+          ["id", s.id],
+          ["subject_name", s.subjectName],
+          ["predicate", s.predicate],
+          ["object_name", s.objectName],
+          ["confidence", f32(s.confidence)],
+        ]);
+        if (s.eventAtUnixNanos != null)
+          sm.set("event_at_unix_nanos", s.eventAtUnixNanos);
+        return sm;
+      }),
     ],
     [
       "relations",
@@ -1008,6 +1015,9 @@ function decodeEncodeTraceArtifacts(value: unknown): EncodeTraceArtifacts {
         predicate: asStr(field(s, "predicate")),
         objectName: asStr(field(s, "object_name")),
         confidence: asNum(field(s, "confidence")),
+        eventAtUnixNanos: s.has("event_at_unix_nanos")
+          ? asBig(field(s, "event_at_unix_nanos"))
+          : null,
       };
     }),
     relations: asArray(field(m, "relations")).map((v) => {
@@ -1155,16 +1165,23 @@ export interface EncodeGraphEdge {
   kind: string;
   /** Extraction confidence, when applicable. */
   confidence: number;
+  /** When the EVENT this edge records happened, in unix nanos, denormalised
+   * from the backing statement. `null` for an undated statement and for
+   * every non-statement edge kind (and then absent from the wire map). */
+  eventAtUnixNanos: bigint | null;
 }
 
 function encodeStageGraphEdge(e: EncodeGraphEdge): Map<string, unknown> {
-  return new Map<string, unknown>([
+  const m = new Map<string, unknown>([
     ["source", e.source],
     ["target", e.target],
     ["predicate", e.predicate],
     ["kind", e.kind],
     ["confidence", f32(e.confidence)],
   ]);
+  if (e.eventAtUnixNanos != null)
+    m.set("event_at_unix_nanos", e.eventAtUnixNanos);
+  return m;
 }
 
 function decodeStageGraphEdge(value: unknown): EncodeGraphEdge {
@@ -1175,6 +1192,9 @@ function decodeStageGraphEdge(value: unknown): EncodeGraphEdge {
     predicate: asStr(field(m, "predicate")),
     kind: asStr(field(m, "kind")),
     confidence: asNum(field(m, "confidence")),
+    eventAtUnixNanos: m.has("event_at_unix_nanos")
+      ? asBig(field(m, "event_at_unix_nanos"))
+      : null,
   };
 }
 
@@ -1419,6 +1439,10 @@ export interface EnrichedStatement {
   predicate: string;
   objectLabel: string;
   confidence: number;
+  /** When the statement's EVENT happened, in unix nanos — the reified Time
+   * slot of an Event-kind statement. `null` when the statement has no event
+   * time (and then absent from the wire map). */
+  eventAtUnixNanos: bigint | null;
 }
 
 /** A graph-enrichment relation attached to a recall hit: from-name, predicate, to-name. */
@@ -1458,16 +1482,18 @@ function encodeGraph(g: GraphEnrichment): Map<string, unknown> {
     ],
     [
       "statements",
-      g.statements.map(
-        (s) =>
-          new Map<string, unknown>([
-            ["id", s.id],
-            ["subject_name", s.subjectName],
-            ["predicate", s.predicate],
-            ["object_label", s.objectLabel],
-            ["confidence", f32(s.confidence)],
-          ]),
-      ),
+      g.statements.map((s) => {
+        const sm = new Map<string, unknown>([
+          ["id", s.id],
+          ["subject_name", s.subjectName],
+          ["predicate", s.predicate],
+          ["object_label", s.objectLabel],
+          ["confidence", f32(s.confidence)],
+        ]);
+        if (s.eventAtUnixNanos != null)
+          sm.set("event_at_unix_nanos", s.eventAtUnixNanos);
+        return sm;
+      }),
     ],
     [
       "relations",
@@ -1566,6 +1592,9 @@ function decodeGraph(value: unknown): GraphEnrichment {
         predicate: asStr(field(s, "predicate")),
         objectLabel: asStr(field(s, "object_label")),
         confidence: asNum(field(s, "confidence")),
+        eventAtUnixNanos: s.has("event_at_unix_nanos")
+          ? asBig(field(s, "event_at_unix_nanos"))
+          : null,
       };
     }),
     relations: asArray(field(m, "relations")).map((v) => {
@@ -1679,6 +1708,37 @@ export interface RecallTraceRetriever {
   statusDetail: string;
   latencyMs: number;
   candidateCount: number;
+  /** Only populated in full-detail mode (`trace: true`): the raw candidates
+   * this lane contributed before fusion, in the lane's own rank order. */
+  candidates: RecallTraceCandidate[];
+}
+
+/** One retriever-lane candidate surfaced in full-detail trace mode. */
+export interface RecallTraceCandidate {
+  memoryId: bigint;
+  /** Full-detail mode only; truncated server-side. */
+  text: string;
+  /** This lane's raw score for this item. */
+  score: number;
+}
+
+/** Which id-space a [[RecallTraceDroppedId]]'s `id` belongs to. Mirrors the
+ * pipeline-internal `RankedItemId`: supersession, as-of, and the final limit
+ * truncation can drop `Statement`/`Relation`/`Entity` items, not just
+ * `Memory` ones, so those three drop lists are kind-tagged. */
+export enum RankedItemKindWire {
+  Memory = 0,
+  Statement = 1,
+  Entity = 2,
+  Relation = 3,
+}
+
+/** One id a filter-chain step dropped, tagged with which id-space it came
+ * from. Used where a step can drop non-`Memory` items (supersession, as-of,
+ * and the final limit truncation). */
+export interface RecallTraceDroppedId {
+  kind: RankedItemKindWire;
+  id: bigint;
 }
 
 /** Filter-chain survivor counts after each step of a traced RECALL. */
@@ -1691,6 +1751,25 @@ export interface RecallTraceFilterChain {
   afterSupersession: number;
   afterAsOf: number;
   afterLimit: number;
+  /** Only populated in full-detail mode: which memory ids were removed by
+   * this specific filter step (empty = nothing dropped here). This step only
+   * ever drops `Memory` items in practice, so it stays a plain id list. */
+  droppedByType: bigint[];
+  droppedByTemporal: bigint[];
+  droppedByConfidence: bigint[];
+  droppedByTombstone: bigint[];
+  /** Only populated in full-detail mode: which ids were removed by
+   * supersession, kind-tagged since this step drops `Statement` and
+   * `Relation` items, not just `Memory` ones (empty = nothing dropped here). */
+  droppedBySupersession: RecallTraceDroppedId[];
+  /** Only populated in full-detail mode: which ids the bi-temporal as-of
+   * filter removed, kind-tagged since this step drops `Statement` items
+   * (empty = nothing dropped here). */
+  droppedByAsOf: RecallTraceDroppedId[];
+  /** Only populated in full-detail mode: which ids the final `limit`
+   * truncation removed, kind-tagged since the truncated tail can contain any
+   * item kind (empty = nothing dropped here). */
+  droppedByLimit: RecallTraceDroppedId[];
 }
 
 /** Outcome of the cross-encoder rerank stage in a RECALL trace. */
@@ -1698,6 +1777,25 @@ export interface RecallTraceRerank {
   applied: boolean;
   candidates: number;
   latencyMs: number;
+  /** Full-detail mode only: the fused (pre-rerank) order, so the client can
+   * show exactly what the cross-encoder moved. */
+  beforeOrder: bigint[];
+  /** Full-detail mode only: the post-rerank order. */
+  afterOrder: bigint[];
+}
+
+/** Full-detail mode only: per-fused-item score breakdown by contributing
+ * lane, surfaced on a `RecallTrace` when the request opted into tracing. */
+export interface RecallTraceFusion {
+  items: RecallTraceFusionItem[];
+}
+
+/** One fused item's RRF score plus the per-lane component scores that
+ * contributed to it. */
+export interface RecallTraceFusionItem {
+  memoryId: bigint;
+  rrfScore: number;
+  laneScores: [RetrieverNameWire, number][];
 }
 
 /** Per-stage observability for one traced RECALL. */
@@ -1707,6 +1805,42 @@ export interface RecallTrace {
   /** Rerank outcome, or `null` when the rerank stage did not run. */
   rerank: RecallTraceRerank | null;
   totalLatencyMs: number;
+  /** Full-detail mode only: per-fused-item score breakdown by contributing
+   * lane. `null` when trace detail wasn't requested or fusion produced
+   * nothing. */
+  fusion: RecallTraceFusion | null;
+}
+
+function encodeRecallTraceCandidate(c: RecallTraceCandidate): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", c.memoryId],
+    ["text", c.text],
+    ["score", f32(c.score)],
+  ]);
+}
+
+function decodeRecallTraceCandidate(value: unknown): RecallTraceCandidate {
+  const c = asMap(value);
+  return {
+    memoryId: asBig(field(c, "memory_id")),
+    text: asStr(field(c, "text")),
+    score: asNum(field(c, "score")),
+  };
+}
+
+function encodeRecallTraceDroppedId(d: RecallTraceDroppedId): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["kind", d.kind as number],
+    ["id", d.id],
+  ]);
+}
+
+function decodeRecallTraceDroppedId(value: unknown): RecallTraceDroppedId {
+  const d = asMap(value);
+  return {
+    kind: asNum(field(d, "kind")) as RankedItemKindWire,
+    id: asBig(field(d, "id")),
+  };
 }
 
 function encodeRecallTrace(t: RecallTrace): Map<string, unknown> {
@@ -1721,6 +1855,7 @@ function encodeRecallTrace(t: RecallTrace): Map<string, unknown> {
             ["status_detail", r.statusDetail],
             ["latency_ms", f64(r.latencyMs)],
             ["candidate_count", r.candidateCount],
+            ["candidates", r.candidates.map(encodeRecallTraceCandidate)],
           ]),
       ),
     ],
@@ -1735,6 +1870,13 @@ function encodeRecallTrace(t: RecallTrace): Map<string, unknown> {
         ["after_supersession", t.filterChain.afterSupersession],
         ["after_as_of", t.filterChain.afterAsOf],
         ["after_limit", t.filterChain.afterLimit],
+        ["dropped_by_type", t.filterChain.droppedByType],
+        ["dropped_by_temporal", t.filterChain.droppedByTemporal],
+        ["dropped_by_confidence", t.filterChain.droppedByConfidence],
+        ["dropped_by_tombstone", t.filterChain.droppedByTombstone],
+        ["dropped_by_supersession", t.filterChain.droppedBySupersession.map(encodeRecallTraceDroppedId)],
+        ["dropped_by_as_of", t.filterChain.droppedByAsOf.map(encodeRecallTraceDroppedId)],
+        ["dropped_by_limit", t.filterChain.droppedByLimit.map(encodeRecallTraceDroppedId)],
       ]),
     ],
     [
@@ -1745,9 +1887,29 @@ function encodeRecallTrace(t: RecallTrace): Map<string, unknown> {
             ["applied", t.rerank.applied],
             ["candidates", t.rerank.candidates],
             ["latency_ms", f64(t.rerank.latencyMs)],
+            ["before_order", t.rerank.beforeOrder],
+            ["after_order", t.rerank.afterOrder],
           ]),
     ],
     ["total_latency_ms", f64(t.totalLatencyMs)],
+    [
+      "fusion",
+      t.fusion === null
+        ? null
+        : new Map<string, unknown>([
+            [
+              "items",
+              t.fusion.items.map(
+                (i) =>
+                  new Map<string, unknown>([
+                    ["memory_id", i.memoryId],
+                    ["rrf_score", f32(i.rrfScore)],
+                    ["lane_scores", i.laneScores.map(([name, score]) => [name as number, f32(score)])],
+                  ]),
+              ),
+            ],
+          ]),
+    ],
   ]);
 }
 
@@ -1763,6 +1925,7 @@ function decodeRecallTrace(value: unknown): RecallTrace {
         statusDetail: asStr(field(r, "status_detail")),
         latencyMs: asNum(field(r, "latency_ms")),
         candidateCount: asNum(field(r, "candidate_count")),
+        candidates: asArray(field(r, "candidates")).map(decodeRecallTraceCandidate),
       };
     }),
     filterChain: {
@@ -1774,6 +1937,13 @@ function decodeRecallTrace(value: unknown): RecallTrace {
       afterSupersession: asNum(field(fc, "after_supersession")),
       afterAsOf: asNum(field(fc, "after_as_of")),
       afterLimit: asNum(field(fc, "after_limit")),
+      droppedByType: asArray(field(fc, "dropped_by_type")).map(asBig),
+      droppedByTemporal: asArray(field(fc, "dropped_by_temporal")).map(asBig),
+      droppedByConfidence: asArray(field(fc, "dropped_by_confidence")).map(asBig),
+      droppedByTombstone: asArray(field(fc, "dropped_by_tombstone")).map(asBig),
+      droppedBySupersession: asArray(field(fc, "dropped_by_supersession")).map(decodeRecallTraceDroppedId),
+      droppedByAsOf: asArray(field(fc, "dropped_by_as_of")).map(decodeRecallTraceDroppedId),
+      droppedByLimit: asArray(field(fc, "dropped_by_limit")).map(decodeRecallTraceDroppedId),
     },
     rerank: asOpt(field(m, "rerank"), (v) => {
       const rr = asMap(v);
@@ -1781,9 +1951,30 @@ function decodeRecallTrace(value: unknown): RecallTrace {
         applied: asBool(field(rr, "applied")),
         candidates: asNum(field(rr, "candidates")),
         latencyMs: asNum(field(rr, "latency_ms")),
+        beforeOrder: asArray(field(rr, "before_order")).map(asBig),
+        afterOrder: asArray(field(rr, "after_order")).map(asBig),
       };
     }),
     totalLatencyMs: asNum(field(m, "total_latency_ms")),
+    fusion: asOpt(field(m, "fusion"), (v) => {
+      const fu = asMap(v);
+      return {
+        items: asArray(field(fu, "items")).map((iv) => {
+          const i = asMap(iv);
+          return {
+            memoryId: asBig(field(i, "memory_id")),
+            rrfScore: asNum(field(i, "rrf_score")),
+            laneScores: asArray(field(i, "lane_scores")).map((lsv) => {
+              const ls = asArray(lsv);
+              return [asNum(ls[0]) as RetrieverNameWire, asNum(ls[1])] as [
+                RetrieverNameWire,
+                number,
+              ];
+            }),
+          };
+        }),
+      };
+    }),
   };
 }
 
@@ -3009,7 +3200,8 @@ function decodeGraphEdge(value: unknown): GraphEdge {
  * GRAPH_FETCH (`0x0163`): a paginated export of the caller's whole
  * `(namespace, agent)` typed graph as a node/edge set. Default layer is the
  * concept map (entity nodes + Relation/Fact edges); `includeStatements` adds
- * value-object statement nodes, `includeMemories` adds source-memory nodes.
+ * value-object statement nodes, `includeMemories` adds source-memory nodes,
+ * `includeMemoryEdges` adds the stored memory↔memory links between them.
  * The cursor is opaque, signed over the layer toggles.
  */
 export interface GraphFetchRequest {
@@ -3021,6 +3213,10 @@ export interface GraphFetchRequest {
   includeStatements: boolean;
   /** Emit source memory nodes + their `Mentions` edges. */
   includeMemories: boolean;
+  /** Emit the stored memory↔memory edges (`SimilarTo`, `FollowedBy`, …)
+   * incident to the page's memory nodes. Requires `includeMemories` — setting
+   * it alone is rejected, because the edges would have no rendered endpoints. */
+  includeMemoryEdges: boolean;
   /** Include tombstoned statements/relations. Default false. */
   includeTombstoned: boolean;
   /** Effective identity this export runs as. `null` (CBOR-omitted) runs as the
@@ -3039,6 +3235,7 @@ export function encodeGraphFetch(p: GraphFetchRequest): Uint8Array {
         ["cursor", Array.from(p.cursor)],
         ["include_statements", p.includeStatements],
         ["include_memories", p.includeMemories],
+        ["include_memory_edges", p.includeMemoryEdges],
         ["include_tombstoned", p.includeTombstoned],
       ],
       p.actAs,
@@ -3054,6 +3251,7 @@ export function decodeGraphFetch(bytes: Uint8Array): GraphFetchRequest {
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
     includeStatements: asBool(field(m, "include_statements")),
     includeMemories: asBool(field(m, "include_memories")),
+    includeMemoryEdges: asBool(field(m, "include_memory_edges")),
     includeTombstoned: asBool(field(m, "include_tombstoned")),
     actAs: decodeOptActAs(m),
   };
@@ -3178,6 +3376,13 @@ export interface PlanRequest {
   contextFilter: bigint[] | null;
   requestId: WireUuid | null;
   txnId: WireUuid | null;
+  /** Opt-in per-stage observability. When `true`, the final PLAN_RESP frame
+   * carries a populated `trace: PlanTrace` describing every node the
+   * bidirectional BFS visited (in both directions) and every meeting point
+   * found, including the ones dropped by the `max_paths` cap. When `false`
+   * (the default) the pipeline discards that data as before, so the flag is
+   * zero-cost on the hot path. Mirrors `RecallRequest.trace`. */
+  trace: boolean;
   /** Effective identity this plan runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
   actAs: ActAs | null;
@@ -3195,6 +3400,7 @@ export function encodePlan(p: PlanRequest): Uint8Array {
         ["context_filter", p.contextFilter === null ? null : p.contextFilter],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
+        ["trace", p.trace],
       ],
       p.actAs,
     ),
@@ -3212,6 +3418,7 @@ export function decodePlan(bytes: Uint8Array): PlanRequest {
     contextFilter: asOpt(field(m, "context_filter"), (v) => asArray(v).map(asBig)),
     requestId: asOptBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
+    trace: m.has("trace") ? asBool(field(m, "trace")) : false,
     actAs: decodeOptActAs(m),
   };
 }
@@ -3285,26 +3492,134 @@ export interface PlanResponseFrame {
   steps: PlanStep[];
   isFinal: boolean;
   planStatus: PlanStatus | null;
+  /** Per-stage bidirectional-search trace, present only on the final frame
+   * and only when the request set `trace = true`; absent (CBOR-omitted)
+   * otherwise. Mirrors `RecallResponseFrame.trace`. */
+  trace?: PlanTrace;
 }
 
 /** Encode one PLAN_RESP (`0x00A2`) streamed frame. */
 export function encodePlanResponse(p: PlanResponseFrame): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
-      ["steps", p.steps.map(encodePlanStep)],
-      ["is_final", p.isFinal],
-      ["plan_status", p.planStatus === null ? null : (p.planStatus as number)],
-    ]),
-  );
+  const map = new Map<string, unknown>([
+    ["steps", p.steps.map(encodePlanStep)],
+    ["is_final", p.isFinal],
+    ["plan_status", p.planStatus === null ? null : (p.planStatus as number)],
+  ]);
+  if (p.trace != null) map.set("trace", encodePlanTrace(p.trace));
+  return toCbor(map);
 }
 
 /** Decode one PLAN_RESP (`0x00A2`) streamed frame. */
 export function decodePlanResponse(bytes: Uint8Array): PlanResponseFrame {
   const m = asMap(fromCbor(bytes));
-  return {
+  const out: PlanResponseFrame = {
     steps: asArray(field(m, "steps")).map(decodePlanStep),
     isFinal: asBool(field(m, "is_final")),
     planStatus: asOpt(field(m, "plan_status"), (v) => asNum(v) as PlanStatus),
+  };
+  if (m.has("trace")) out.trace = decodePlanTrace(field(m, "trace"));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// PLAN trace.
+// ---------------------------------------------------------------------------
+
+/** Which direction of the bidirectional BFS a `PlanTraceNode` was visited from. */
+export enum PlanTraceDirection {
+  /** Visited by the forward search, rooted at `start`. */
+  Forward = 0,
+  /** Visited by the backward search, rooted at `goal`. */
+  Backward = 1,
+}
+
+/** One node the bidirectional BFS visited, from either direction. */
+export interface PlanTraceNode {
+  memoryId: bigint;
+  text: string;
+  direction: PlanTraceDirection;
+  depth: number;
+  /** The parent node's memory id this node was reached through. `null` for
+   * the root (`start` in the forward direction, `goal` in the backward
+   * direction). */
+  parentEdge: bigint | null;
+  /** The goal-proximity alignment score computed for this node, when one
+   * was computed. */
+  alignmentScore: number | null;
+}
+
+/** One meeting point the bidirectional BFS found where the forward and
+ * backward frontiers connected. */
+export interface PlanTraceMeetingPoint {
+  memoryId: bigint;
+  text: string;
+  /** `true` when this meeting point survived the `max_paths` cap and
+   * contributed a path to the response; `false` when it was found but
+   * dropped by the cap. */
+  includedInResult: boolean;
+}
+
+/** Per-stage observability for one traced PLAN. */
+export interface PlanTrace {
+  /** Every node the bidirectional BFS visited, in both directions. */
+  explored: PlanTraceNode[];
+  /** Every meeting point the BFS found, flagging which ones survived the
+   * `max_paths` cap and made it into the returned path(s). */
+  meetingPoints: PlanTraceMeetingPoint[];
+}
+
+function encodePlanTraceNode(n: PlanTraceNode): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", n.memoryId],
+    ["text", n.text],
+    ["direction", n.direction as number],
+    ["depth", n.depth],
+    ["parent_edge", n.parentEdge],
+    ["alignment_score", n.alignmentScore === null ? null : f32(n.alignmentScore)],
+  ]);
+}
+
+function decodePlanTraceNode(value: unknown): PlanTraceNode {
+  const m = asMap(value);
+  return {
+    memoryId: asBig(field(m, "memory_id")),
+    text: asStr(field(m, "text")),
+    direction: asNum(field(m, "direction")) as PlanTraceDirection,
+    depth: asNum(field(m, "depth")),
+    parentEdge: asOpt(field(m, "parent_edge"), asBig),
+    alignmentScore: asOpt(field(m, "alignment_score"), asNum),
+  };
+}
+
+function encodePlanTraceMeetingPoint(p: PlanTraceMeetingPoint): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", p.memoryId],
+    ["text", p.text],
+    ["included_in_result", p.includedInResult],
+  ]);
+}
+
+function decodePlanTraceMeetingPoint(value: unknown): PlanTraceMeetingPoint {
+  const m = asMap(value);
+  return {
+    memoryId: asBig(field(m, "memory_id")),
+    text: asStr(field(m, "text")),
+    includedInResult: asBool(field(m, "included_in_result")),
+  };
+}
+
+function encodePlanTrace(t: PlanTrace): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["explored", t.explored.map(encodePlanTraceNode)],
+    ["meeting_points", t.meetingPoints.map(encodePlanTraceMeetingPoint)],
+  ]);
+}
+
+function decodePlanTrace(value: unknown): PlanTrace {
+  const m = asMap(value);
+  return {
+    explored: asArray(field(m, "explored")).map(decodePlanTraceNode),
+    meetingPoints: asArray(field(m, "meeting_points")).map(decodePlanTraceMeetingPoint),
   };
 }
 
@@ -3339,6 +3654,14 @@ export interface ReasonRequest {
   budgetWallTimeMs: number;
   requestId: WireUuid | null;
   txnId: WireUuid | null;
+  /** Opt-in per-stage observability. When `true`, the final REASON_RESP frame
+   * carries a populated `trace: ReasonTrace` describing the full
+   * base-candidate set, every edge the outward walk considered (and why each
+   * was pruned), the un-collapsed per-item score components, and whether
+   * topic-alignment centroid computation ran. When `false` (the default) the
+   * pipeline discards that data as before, so the flag is zero-cost on the
+   * hot path. Mirrors `RecallRequest.trace`. */
+  trace: boolean;
   /** Effective identity this reason runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
   actAs: ActAs | null;
@@ -3357,6 +3680,7 @@ export function encodeReason(p: ReasonRequest): Uint8Array {
         ["budget_wall_time_ms", p.budgetWallTimeMs],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
+        ["trace", p.trace],
       ],
       p.actAs,
     ),
@@ -3375,6 +3699,7 @@ export function decodeReason(bytes: Uint8Array): ReasonRequest {
     budgetWallTimeMs: asNum(field(m, "budget_wall_time_ms")),
     requestId: asOptBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
+    trace: m.has("trace") ? asBool(field(m, "trace")) : false,
     actAs: decodeOptActAs(m),
   };
 }
@@ -3446,26 +3771,302 @@ export interface ReasonResponseFrame {
   inferences: InferenceStep[];
   isFinal: boolean;
   reasonStatus: ReasonStatus | null;
+  /** Per-stage read-pipeline trace, present only on the final frame and only
+   * when the request set `trace = true`; absent (CBOR-omitted) otherwise.
+   * Mirrors `RecallResponseFrame.trace`. */
+  trace?: ReasonTrace;
 }
 
 /** Encode one REASON_RESP (`0x00A3`) streamed frame. */
 export function encodeReasonResponse(p: ReasonResponseFrame): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([
-      ["inferences", p.inferences.map(encodeInferenceStep)],
-      ["is_final", p.isFinal],
-      ["reason_status", p.reasonStatus === null ? null : (p.reasonStatus as number)],
-    ]),
-  );
+  const map = new Map<string, unknown>([
+    ["inferences", p.inferences.map(encodeInferenceStep)],
+    ["is_final", p.isFinal],
+    ["reason_status", p.reasonStatus === null ? null : (p.reasonStatus as number)],
+  ]);
+  if (p.trace != null) map.set("trace", encodeReasonTrace(p.trace));
+  return toCbor(map);
 }
 
 /** Decode one REASON_RESP (`0x00A3`) streamed frame. */
 export function decodeReasonResponse(bytes: Uint8Array): ReasonResponseFrame {
   const m = asMap(fromCbor(bytes));
-  return {
+  const out: ReasonResponseFrame = {
     inferences: asArray(field(m, "inferences")).map(decodeInferenceStep),
     isFinal: asBool(field(m, "is_final")),
     reasonStatus: asOpt(field(m, "reason_status"), (v) => asNum(v) as ReasonStatus),
+  };
+  if (m.has("trace")) out.trace = decodeReasonTrace(field(m, "trace"));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// REASON trace.
+// ---------------------------------------------------------------------------
+
+/** One base-candidate hit surfaced in a REASON trace. */
+export interface ReasonTraceCandidate {
+  memoryId: bigint;
+  text: string;
+  score: number;
+}
+
+/** The base observation's resolved candidate set, before any evidence walk. */
+export interface ReasonTraceBase {
+  candidates: ReasonTraceCandidate[];
+}
+
+/** One edge the outward walk visited, considered or dropped. */
+export interface ReasonTraceEdgeCandidate {
+  memoryId: bigint;
+  text: string;
+  edgeKind: EdgeKindWire;
+  depth: number;
+  fromMemoryId: bigint;
+  rawScore: number;
+}
+
+/** A memory id plus its stored text, with no other payload — the shared
+ * shape for the walk's plain id-dropped buckets (tombstone / visited /
+ * trim-cap) so an opaque id is never surfaced without the content that
+ * explains the drop. */
+export interface ReasonTraceIdWithText {
+  memoryId: bigint;
+  text: string;
+}
+
+/** A memory id paired with the score it was dropped at. */
+export interface ReasonTraceScoredId {
+  memoryId: bigint;
+  text: string;
+  score: number;
+}
+
+/** Everything the outward evidence walk considered and every reason an edge
+ * or item was pruned before becoming a surviving `InferenceStep`. */
+export interface ReasonTraceWalk {
+  /** Every edge the walk visited at each node, before any pruning — the
+   * direct analogue of `RecallTraceRetriever.candidates`. */
+  considered: ReasonTraceEdgeCandidate[];
+  /** Edges pruned by the edge-kind filter. */
+  droppedByEdgeKind: ReasonTraceEdgeCandidate[];
+  /** Edges pruned because the target memory was tombstoned. */
+  droppedByTombstone: ReasonTraceIdWithText[];
+  /** Edges pruned because the target memory was already visited. */
+  droppedByVisited: ReasonTraceIdWithText[];
+  /** Evidence items pruned by `confidence_threshold` in `filter_and_trim`. */
+  droppedByConfidence: ReasonTraceScoredId[];
+  /** Supporting-evidence items dropped by the per-inference trim cap. */
+  droppedByMaxSupporting: ReasonTraceIdWithText[];
+  /** Contradicting-evidence items dropped by the per-inference trim cap. */
+  droppedByMaxContradicting: ReasonTraceIdWithText[];
+}
+
+/** The un-collapsed multiplicative score components combined into one
+ * `InferenceStep.confidence` value. */
+export interface ReasonTraceScoreBreakdown {
+  memoryId: bigint;
+  text: string;
+  baseSimilarity: number;
+  decay: number;
+  weightProduct: number;
+  alignment: number;
+  /** Structural-fit nudge from VSA analogical inference (bind/bundle/
+   * `analogy_query` over the item's statement-graph triple against the
+   * observation's own triple). Neutral `1.0` when no triple is resolvable
+   * for the item — a re-rank nudge only, never a gate. */
+  analogicalFit: number;
+  finalScore: number;
+}
+
+/** Whether topic-alignment centroid computation ran for this REASON. */
+export interface ReasonTraceCentroid {
+  computed: boolean;
+  /** Populated when `computed = false`; `null` otherwise. */
+  skippedReason: string | null;
+}
+
+/** Per-stage observability for one traced REASON. */
+export interface ReasonTrace {
+  /** The full HNSW hit set resolved for the base observation, not just the
+   * subset that seeded the walk. */
+  base: ReasonTraceBase;
+  /** Everything the outward evidence walk touched: considered edges and
+   * every prune reason, one bucket per prune point. */
+  walk: ReasonTraceWalk;
+  /** Un-collapsed score components for every surviving evidence item. */
+  scoring: ReasonTraceScoreBreakdown[];
+  /** Whether topic-alignment centroid computation ran, and why not when it
+   * didn't. */
+  centroid: ReasonTraceCentroid;
+}
+
+function encodeReasonTraceCandidate(c: ReasonTraceCandidate): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", c.memoryId],
+    ["text", c.text],
+    ["score", f32(c.score)],
+  ]);
+}
+
+function decodeReasonTraceCandidate(value: unknown): ReasonTraceCandidate {
+  const c = asMap(value);
+  return {
+    memoryId: asBig(field(c, "memory_id")),
+    text: asStr(field(c, "text")),
+    score: asNum(field(c, "score")),
+  };
+}
+
+function encodeReasonTraceEdgeCandidate(e: ReasonTraceEdgeCandidate): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", e.memoryId],
+    ["text", e.text],
+    ["edge_kind", e.edgeKind as number],
+    ["depth", e.depth],
+    ["from_memory_id", e.fromMemoryId],
+    ["raw_score", f32(e.rawScore)],
+  ]);
+}
+
+function decodeReasonTraceEdgeCandidate(value: unknown): ReasonTraceEdgeCandidate {
+  const e = asMap(value);
+  return {
+    memoryId: asBig(field(e, "memory_id")),
+    text: asStr(field(e, "text")),
+    edgeKind: asNum(field(e, "edge_kind")) as EdgeKindWire,
+    depth: asNum(field(e, "depth")),
+    fromMemoryId: asBig(field(e, "from_memory_id")),
+    rawScore: asNum(field(e, "raw_score")),
+  };
+}
+
+function encodeReasonTraceIdWithText(i: ReasonTraceIdWithText): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", i.memoryId],
+    ["text", i.text],
+  ]);
+}
+
+function decodeReasonTraceIdWithText(value: unknown): ReasonTraceIdWithText {
+  const i = asMap(value);
+  return {
+    memoryId: asBig(field(i, "memory_id")),
+    text: asStr(field(i, "text")),
+  };
+}
+
+function encodeReasonTraceScoredId(s: ReasonTraceScoredId): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", s.memoryId],
+    ["text", s.text],
+    ["score", f32(s.score)],
+  ]);
+}
+
+function decodeReasonTraceScoredId(value: unknown): ReasonTraceScoredId {
+  const s = asMap(value);
+  return {
+    memoryId: asBig(field(s, "memory_id")),
+    text: asStr(field(s, "text")),
+    score: asNum(field(s, "score")),
+  };
+}
+
+function encodeReasonTraceScoreBreakdown(s: ReasonTraceScoreBreakdown): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["memory_id", s.memoryId],
+    ["text", s.text],
+    ["base_similarity", f32(s.baseSimilarity)],
+    ["decay", f32(s.decay)],
+    ["weight_product", f32(s.weightProduct)],
+    ["alignment", f32(s.alignment)],
+    ["analogical_fit", f32(s.analogicalFit)],
+    ["final_score", f32(s.finalScore)],
+  ]);
+}
+
+function decodeReasonTraceScoreBreakdown(value: unknown): ReasonTraceScoreBreakdown {
+  const s = asMap(value);
+  return {
+    memoryId: asBig(field(s, "memory_id")),
+    text: asStr(field(s, "text")),
+    baseSimilarity: asNum(field(s, "base_similarity")),
+    decay: asNum(field(s, "decay")),
+    weightProduct: asNum(field(s, "weight_product")),
+    alignment: asNum(field(s, "alignment")),
+    analogicalFit: asNum(field(s, "analogical_fit")),
+    finalScore: asNum(field(s, "final_score")),
+  };
+}
+
+function encodeReasonTrace(t: ReasonTrace): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["base", new Map<string, unknown>([["candidates", t.base.candidates.map(encodeReasonTraceCandidate)]])],
+    [
+      "walk",
+      new Map<string, unknown>([
+        ["considered", t.walk.considered.map(encodeReasonTraceEdgeCandidate)],
+        ["dropped_by_edge_kind", t.walk.droppedByEdgeKind.map(encodeReasonTraceEdgeCandidate)],
+        ["dropped_by_tombstone", t.walk.droppedByTombstone.map(encodeReasonTraceIdWithText)],
+        ["dropped_by_visited", t.walk.droppedByVisited.map(encodeReasonTraceIdWithText)],
+        ["dropped_by_confidence", t.walk.droppedByConfidence.map(encodeReasonTraceScoredId)],
+        [
+          "dropped_by_max_supporting",
+          t.walk.droppedByMaxSupporting.map(encodeReasonTraceIdWithText),
+        ],
+        [
+          "dropped_by_max_contradicting",
+          t.walk.droppedByMaxContradicting.map(encodeReasonTraceIdWithText),
+        ],
+      ]),
+    ],
+    ["scoring", t.scoring.map(encodeReasonTraceScoreBreakdown)],
+    [
+      "centroid",
+      new Map<string, unknown>([
+        ["computed", t.centroid.computed],
+        ["skipped_reason", t.centroid.skippedReason],
+      ]),
+    ],
+  ]);
+}
+
+function decodeReasonTrace(value: unknown): ReasonTrace {
+  const m = asMap(value);
+  const base = asMap(field(m, "base"));
+  const walk = asMap(field(m, "walk"));
+  const centroid = asMap(field(m, "centroid"));
+  return {
+    base: {
+      candidates: asArray(field(base, "candidates")).map(decodeReasonTraceCandidate),
+    },
+    walk: {
+      considered: asArray(field(walk, "considered")).map(decodeReasonTraceEdgeCandidate),
+      droppedByEdgeKind: asArray(field(walk, "dropped_by_edge_kind")).map(
+        decodeReasonTraceEdgeCandidate,
+      ),
+      droppedByTombstone: asArray(field(walk, "dropped_by_tombstone")).map(
+        decodeReasonTraceIdWithText,
+      ),
+      droppedByVisited: asArray(field(walk, "dropped_by_visited")).map(
+        decodeReasonTraceIdWithText,
+      ),
+      droppedByConfidence: asArray(field(walk, "dropped_by_confidence")).map(
+        decodeReasonTraceScoredId,
+      ),
+      droppedByMaxSupporting: asArray(field(walk, "dropped_by_max_supporting")).map(
+        decodeReasonTraceIdWithText,
+      ),
+      droppedByMaxContradicting: asArray(field(walk, "dropped_by_max_contradicting")).map(
+        decodeReasonTraceIdWithText,
+      ),
+    },
+    scoring: asArray(field(m, "scoring")).map(decodeReasonTraceScoreBreakdown),
+    centroid: {
+      computed: asBool(field(centroid, "computed")),
+      skippedReason: asOpt(field(centroid, "skipped_reason"), asStr),
+    },
   };
 }
 
@@ -5186,11 +5787,18 @@ export interface StageExtractorPayload {
   errorMessage: string;
 }
 
+/** StageCompleted detail for the HyPE stage: how many hypothetical questions were embedded/persisted/indexed, and LLM spend (0 on a cache hit). */
+export interface StageHypePayload {
+  questionsWritten: number;
+  costMicroUsd: bigint;
+}
+
 /** Per-stage detail sidecar on StageCompleted events. Externally tagged. */
 export type StagePayload =
   | { kind: "AutoEdge"; value: StageAutoEdgePayload }
   | { kind: "TemporalEdge"; value: StageTemporalEdgePayload }
-  | { kind: "Extractor"; value: StageExtractorPayload };
+  | { kind: "Extractor"; value: StageExtractorPayload }
+  | { kind: "Hype"; value: StageHypePayload };
 
 function encodeStagePayload(s: StagePayload): unknown {
   switch (s.kind) {
@@ -5212,6 +5820,16 @@ function encodeStagePayload(s: StagePayload): unknown {
             ["relation_count", s.value.relationCount],
             ["audit_status", s.value.auditStatus as number],
             ["error_message", s.value.errorMessage],
+          ]),
+        ],
+      ]);
+    case "Hype":
+      return new Map<string, unknown>([
+        [
+          "Hype",
+          new Map<string, unknown>([
+            ["questions_written", s.value.questionsWritten],
+            ["cost_micro_usd", s.value.costMicroUsd],
           ]),
         ],
       ]);
@@ -5244,6 +5862,16 @@ function decodeStagePayload(value: unknown): StagePayload {
       },
     };
   }
+  if (m.has("Hype")) {
+    const inner = asMap(m.get("Hype"));
+    return {
+      kind: "Hype",
+      value: {
+        questionsWritten: asNum(field(inner, "questions_written")),
+        costMicroUsd: asBig(field(inner, "cost_micro_usd")),
+      },
+    };
+  }
   throw new CborError("unknown StagePayload variant");
 }
 
@@ -5253,12 +5881,14 @@ export interface SimilarityFilter {
   threshold: number;
 }
 
-/** The predicate a SUBSCRIBE applies to the change feed: context, kind, similarity, and agent scoping. */
+/** The predicate a SUBSCRIBE applies to the change feed: context, kind, similarity, agent, and memory-id scoping. */
 export interface SubscriptionFilter {
   contexts: bigint[] | null;
   kinds: MemoryKindWire[] | null;
   similarTo: SimilarityFilter | null;
   agents: WireUuid[] | null;
+  /** Subset of memory ids whose events the subscriber wants. `null` or empty = all memories. Scopes a subscription to a single in-flight write (e.g. to watch its async derivation stages complete). */
+  memoryIds: bigint[] | null;
 }
 
 function encodeSubscriptionFilter(f: SubscriptionFilter): Map<string, unknown> {
@@ -5275,6 +5905,7 @@ function encodeSubscriptionFilter(f: SubscriptionFilter): Map<string, unknown> {
           ]),
     ],
     ["agents", f.agents === null ? null : f.agents],
+    ["memory_ids", f.memoryIds === null ? null : f.memoryIds],
   ]);
 }
 
@@ -5291,6 +5922,7 @@ function decodeSubscriptionFilter(value: unknown): SubscriptionFilter {
       };
     }),
     agents: asOpt(field(m, "agents"), (v) => asArray(v).map(asBytes)),
+    memoryIds: asOpt(field(m, "memory_ids"), (v) => asArray(v).map(asBig)),
   };
 }
 
@@ -5300,17 +5932,23 @@ export interface SubscribeRequest {
   includeHistory: boolean;
   fromLsn: bigint | null;
   maxInflight: number;
+  /** Effective identity this subscription runs as. `null` (CBOR-omitted) runs as
+   * the connection's own key-bound identity. */
+  actAs: ActAs | null;
 }
 
 /** Encode a SUBSCRIBE (`0x0030`) request. */
 export function encodeSubscribe(p: SubscribeRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["filter", encodeSubscriptionFilter(p.filter)],
-      ["include_history", p.includeHistory],
-      ["from_lsn", p.fromLsn],
-      ["max_inflight", p.maxInflight],
-    ]),
+    requestMapWithActAs(
+      [
+        ["filter", encodeSubscriptionFilter(p.filter)],
+        ["include_history", p.includeHistory],
+        ["from_lsn", p.fromLsn],
+        ["max_inflight", p.maxInflight],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -5322,6 +5960,7 @@ export function decodeSubscribe(bytes: Uint8Array): SubscribeRequest {
     includeHistory: asBool(field(m, "include_history")),
     fromLsn: asOpt(field(m, "from_lsn"), asBig),
     maxInflight: asNum(field(m, "max_inflight")),
+    actAs: decodeOptActAs(m),
   };
 }
 

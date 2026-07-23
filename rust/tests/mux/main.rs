@@ -326,10 +326,12 @@ fn subscribe_types_round_trip() {
             kinds: Some(vec![MemoryKindWire::Semantic]),
             similar_to: None,
             agents: Some(vec![[7u8; 16]]),
+            memory_ids: Some(vec![123]),
         },
         include_history: true,
         from_lsn: Some(42),
         max_inflight: 16,
+        act_as: None,
     };
     let bytes = to_cbor_bytes(&req);
     let back: SubscribeRequest = from_cbor_bytes(&bytes).expect("decode subscribe req");
@@ -385,10 +387,12 @@ async fn subscription_drains_events_unsubscribes_and_leaks_no_route() {
                 kinds: None,
                 similar_to: None,
                 agents: None,
+                memory_ids: None,
             },
             include_history: false,
             from_lsn: None,
             max_inflight: 8,
+            act_as: None,
         })
         .await
         .expect("subscribe");

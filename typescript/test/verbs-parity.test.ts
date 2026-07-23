@@ -392,6 +392,7 @@ describe("parity verbs over a mock server", () => {
         contextFilter: null,
         requestId: null,
         txnId: null,
+        trace: false,
         actAs: null,
       });
       expect(steps.length).toBe(2);
@@ -415,10 +416,11 @@ describe("parity verbs over a mock server", () => {
       const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
       const sub = await client.subscribe({
-        filter: { contexts: null, kinds: null, similarTo: null, agents: null },
+        filter: { contexts: null, kinds: null, similarTo: null, agents: null, memoryIds: null },
         includeHistory: false,
         fromLsn: null,
         maxInflight: 8,
+        actAs: null,
       });
 
       const first = await sub.nextEvent();
@@ -446,10 +448,11 @@ describe("parity verbs over a mock server", () => {
     try {
       const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
       const sub = await client.subscribe({
-        filter: { contexts: null, kinds: null, similarTo: null, agents: null },
+        filter: { contexts: null, kinds: null, similarTo: null, agents: null, memoryIds: null },
         includeHistory: false,
         fromLsn: null,
         maxInflight: 8,
+        actAs: null,
       });
 
       const drained: bigint[] = [];

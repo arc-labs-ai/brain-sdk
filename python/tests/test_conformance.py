@@ -91,7 +91,9 @@ PAYLOAD_TYPES = {
     "resp_relation_list": t.RelationListFromResponseFrame,
     # Cognitive read-side responses.
     "resp_plan": t.PlanResponseFrame,
+    "resp_plan_trace": t.PlanResponseFrame,
     "resp_reason": t.ReasonResponseFrame,
+    "resp_reason_trace": t.ReasonResponseFrame,
     "resp_link": t.LinkResponse,
     # Transaction responses.
     "resp_txn_begin": t.TxnBeginResponse,
@@ -247,9 +249,9 @@ def test_frame_round_trip(name):
 
 
 def test_all_cases_present():
-    """The corpus has 72 .bin/.json pairs; every one must be covered."""
+    """The corpus has 74 .bin/.json pairs; every one must be covered."""
     index = _load_index()
-    assert len(index) == 72, f"expected 72 corpus cases, index has {len(index)}"
+    assert len(index) == 74, f"expected 74 corpus cases, index has {len(index)}"
     covered = set(PAYLOAD_TYPES) | set(FRAME_PAYLOAD_TYPES)
     names = {c["name"] for c in index}
     missing = names - covered

@@ -69,13 +69,13 @@
     "name": "req_plan_act_as",
     "opcode": "0x0022",
     "kind": "request",
-    "payload_len": 233
+    "payload_len": 240
   },
   {
     "name": "req_reason_act_as",
     "opcode": "0x0023",
     "kind": "request",
-    "payload_len": 211
+    "payload_len": 218
   },
   {
     "name": "req_entity_create",
@@ -114,6 +114,24 @@
     "payload_len": 113
   },
   {
+    "name": "req_memory_list",
+    "opcode": "0x0027",
+    "kind": "request",
+    "payload_len": 155
+  },
+  {
+    "name": "req_memory_inspect",
+    "opcode": "0x0028",
+    "kind": "request",
+    "payload_len": 28
+  },
+  {
+    "name": "req_graph_fetch",
+    "opcode": "0x0163",
+    "kind": "request",
+    "payload_len": 106
+  },
+  {
     "name": "resp_welcome",
     "opcode": "0x0081",
     "kind": "response",
@@ -141,7 +159,7 @@
     "name": "resp_encode_trace",
     "opcode": "0x00A0",
     "kind": "response",
-    "payload_len": 1624
+    "payload_len": 1682
   },
   {
     "name": "resp_recall",
@@ -153,7 +171,7 @@
     "name": "resp_recall_trace",
     "opcode": "0x00A1",
     "kind": "response",
-    "payload_len": 421
+    "payload_len": 690
   },
   {
     "name": "resp_forget",
@@ -228,6 +246,24 @@
     "payload_len": 470
   },
   {
+    "name": "resp_memory_list",
+    "opcode": "0x00A7",
+    "kind": "response",
+    "payload_len": 321
+  },
+  {
+    "name": "resp_memory_inspect",
+    "opcode": "0x00A8",
+    "kind": "response",
+    "payload_len": 523
+  },
+  {
+    "name": "resp_graph_fetch",
+    "opcode": "0x01E3",
+    "kind": "response",
+    "payload_len": 634
+  },
+  {
     "name": "resp_plan",
     "opcode": "0x00A2",
     "kind": "response",
@@ -238,6 +274,18 @@
     "opcode": "0x00A3",
     "kind": "response",
     "payload_len": 182
+  },
+  {
+    "name": "resp_plan_trace",
+    "opcode": "0x00A2",
+    "kind": "response",
+    "payload_len": 606
+  },
+  {
+    "name": "resp_reason_trace",
+    "opcode": "0x00A3",
+    "kind": "response",
+    "payload_len": 990
   },
   {
     "name": "resp_link",
@@ -375,7 +423,7 @@
     "name": "frame_encode",
     "opcode": "0x0020",
     "kind": "frame",
-    "payload_len": 141
+    "payload_len": 134
   },
   {
     "name": "frame_encode_vector_direct",
@@ -394,41 +442,5 @@
     "opcode": "0x00A1",
     "kind": "frame",
     "payload_len": 109
-  },
-  {
-    "name": "req_memory_list",
-    "opcode": "0x0027",
-    "kind": "request",
-    "payload_len": 155
-  },
-  {
-    "name": "resp_memory_list",
-    "opcode": "0x00A7",
-    "kind": "response",
-    "payload_len": 321
-  },
-  {
-    "name": "req_memory_inspect",
-    "opcode": "0x0028",
-    "kind": "request",
-    "payload_len": 28
-  },
-  {
-    "name": "resp_memory_inspect",
-    "opcode": "0x00A8",
-    "kind": "response",
-    "payload_len": 523
-  },
-  {
-    "name": "req_graph_fetch",
-    "opcode": "0x0163",
-    "kind": "request",
-    "payload_len": 84
-  },
-  {
-    "name": "resp_graph_fetch",
-    "opcode": "0x01E3",
-    "kind": "response",
-    "payload_len": 270
   }
 ]

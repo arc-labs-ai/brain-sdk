@@ -187,7 +187,9 @@ fn payload_cases_round_trip() {
 
     // Cognitive read-side responses.
     check_payload::<PlanResponseFrame>("resp_plan");
+    check_payload::<PlanResponseFrame>("resp_plan_trace");
     check_payload::<ReasonResponseFrame>("resp_reason");
+    check_payload::<ReasonResponseFrame>("resp_reason_trace");
     check_payload::<LinkResponse>("resp_link");
 
     // Transaction responses.

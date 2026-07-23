@@ -52,6 +52,7 @@ async fn plan_between_two_memories_round_trips() {
         context_filter: None,
         request_id: None,
         txn_id: None,
+        trace: false,
     };
     // A path may or may not exist between two unlinked memories; either way the
     // server answers with a well-formed step list rather than erroring.
@@ -86,6 +87,7 @@ async fn plan_to_text_goal_with_astar_round_trips() {
         context_filter: Some(vec![1]),
         request_id: None,
         txn_id: None,
+        trace: false,
     };
     let _steps = client.plan(&req).await.expect("plan to text goal");
     client.close().await.expect("close");
@@ -119,6 +121,7 @@ async fn plan_rejects_budget_over_max_traversal_depth() {
         context_filter: None,
         request_id: None,
         txn_id: None,
+        trace: false,
     };
     let err = client.plan(&over).await.expect_err("over-depth budget is rejected");
     let msg = err.to_string();

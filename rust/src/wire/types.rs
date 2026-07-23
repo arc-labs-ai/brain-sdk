@@ -67,6 +67,7 @@ pub enum StageKind {
     AutoEdge = 0,
     TemporalEdge = 1,
     Extractor = 2,
+    Hype = 3,
 }
 
 // ===========================================================================
@@ -397,6 +398,11 @@ pub struct EncodeTraceStatement {
     pub predicate: String,
     pub object_name: String,
     pub confidence: f32,
+    /// When the statement's EVENT happened, in unix nanos — the reified
+    /// Time slot of an Event-kind statement. Absent from the wire map for
+    /// a statement with no event time.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub event_at_unix_nanos: Option<u64>,
 }
 
 /// One relation artifact in an `EncodeTrace`.
@@ -486,6 +492,11 @@ pub struct EncodeGraphEdge {
     pub predicate: String,
     pub kind: String,
     pub confidence: f32,
+    /// When the EVENT this edge records happened, in unix nanos —
+    /// denormalised from the backing statement. Absent from the wire map
+    /// for an undated statement and for every non-statement edge kind.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub event_at_unix_nanos: Option<u64>,
 }
 
 /// The knowledge graph an ENCODE produced — nodes + directed edges.
@@ -586,6 +597,10 @@ pub struct RecallTrace {
     pub filter_chain: RecallTraceFilterChain,
     pub rerank: Option<RecallTraceRerank>,
     pub total_latency_ms: f64,
+    /// Full-detail mode only: per-fused-item score breakdown by
+    /// contributing lane. `None` when trace detail wasn't requested or
+    /// fusion produced nothing.
+    pub fusion: Option<RecallTraceFusion>,
 }
 
 /// What one retriever lane did during a traced RECALL.
@@ -597,6 +612,19 @@ pub struct RecallTraceRetriever {
     pub status_detail: String,
     pub latency_ms: f64,
     pub candidate_count: u32,
+    /// Only populated in full-detail mode: the raw candidates this lane
+    /// contributed before fusion, in the lane's own rank order.
+    pub candidates: Vec<RecallTraceCandidate>,
+}
+
+/// One retriever-lane candidate surfaced in full-detail trace mode.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallTraceCandidate {
+    pub memory_id: WireMemoryId,
+    /// Full-detail mode only; truncated server-side.
+    pub text: String,
+    /// This lane's raw score for this item.
+    pub score: f32,
 }
 
 /// Terminal status of a retriever lane in a RECALL trace.
@@ -611,8 +639,37 @@ pub enum RecallTraceRetrieverStatus {
     Failure = 3,
 }
 
+/// Kind of a [`RecallTraceDroppedId`], disambiguating which id-space the
+/// paired `id` belongs to. Mirrors the pipeline-internal `RankedItemId`,
+/// which the supersession/as-of filter steps and the final limit truncation
+/// can drop items from — unlike the type/temporal/confidence/tombstone
+/// steps, supersession, as-of, and limit can drop `Statement` and
+/// `Relation` items, not just `Memory` ones, so a plain (untagged)
+/// `WireMemoryId` can't represent what those three steps removed.
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum RankedItemKindWire {
+    Memory = 0,
+    Statement = 1,
+    Entity = 2,
+    Relation = 3,
+}
+
+/// One id a filter-chain step dropped, tagged with which id-space it came
+/// from. Used where a step can drop non-`Memory` items (supersession,
+/// as-of, and the final limit truncation all operate on the fused
+/// `RankedItemId` set, which includes `Statement`/`Relation`/`Entity`
+/// alongside `Memory`).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallTraceDroppedId {
+    pub kind: RankedItemKindWire,
+    pub id: u128,
+}
+
 /// Filter-chain survivor counts after each step.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecallTraceFilterChain {
     pub before: u32,
     pub after_type: u32,
@@ -622,14 +679,62 @@ pub struct RecallTraceFilterChain {
     pub after_supersession: u32,
     pub after_as_of: u32,
     pub after_limit: u32,
+    /// Only populated in full-detail mode: which memory ids were removed
+    /// by this specific filter step (empty = nothing dropped here).
+    pub dropped_by_type: Vec<WireMemoryId>,
+    /// Only populated in full-detail mode: which memory ids were removed
+    /// by this specific filter step (empty = nothing dropped here).
+    pub dropped_by_temporal: Vec<WireMemoryId>,
+    /// Only populated in full-detail mode: which memory ids were removed
+    /// by this specific filter step (empty = nothing dropped here).
+    pub dropped_by_confidence: Vec<WireMemoryId>,
+    /// Only populated in full-detail mode: which memory ids were removed
+    /// by this specific filter step (empty = nothing dropped here).
+    pub dropped_by_tombstone: Vec<WireMemoryId>,
+    /// Only populated in full-detail mode: which ids were removed by
+    /// supersession, kind-tagged since this step drops `Statement` and
+    /// `Relation` items, not just `Memory` ones (empty = nothing dropped
+    /// here).
+    pub dropped_by_supersession: Vec<RecallTraceDroppedId>,
+    /// Only populated in full-detail mode: which ids the bi-temporal
+    /// as-of filter removed, kind-tagged since this step drops `Statement`
+    /// items (empty = nothing dropped here).
+    pub dropped_by_as_of: Vec<RecallTraceDroppedId>,
+    /// Only populated in full-detail mode: which ids the final `limit`
+    /// truncation removed, kind-tagged since the truncated tail can
+    /// contain any item kind (empty = nothing dropped here).
+    pub dropped_by_limit: Vec<RecallTraceDroppedId>,
 }
 
 /// Outcome of the cross-encoder rerank stage in a RECALL trace.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecallTraceRerank {
     pub applied: bool,
     pub candidates: u32,
     pub latency_ms: f64,
+    /// Full-detail mode only: the fused (pre-rerank) order, so the client
+    /// can show exactly what the cross-encoder moved.
+    pub before_order: Vec<WireMemoryId>,
+    /// Full-detail mode only: the post-rerank order, so the client can show
+    /// exactly what the cross-encoder moved.
+    pub after_order: Vec<WireMemoryId>,
+}
+
+/// Per-fused-item RRF score plus the per-lane component scores that
+/// contributed to it, surfaced on a `RecallTrace` when the request opted
+/// into tracing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallTraceFusion {
+    pub items: Vec<RecallTraceFusionItem>,
+}
+
+/// One fused item's RRF score plus the per-lane component scores that
+/// contributed to it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallTraceFusionItem {
+    pub memory_id: WireMemoryId,
+    pub rrf_score: f32,
+    pub lane_scores: Vec<(RetrieverNameWire, f32)>,
 }
 
 /// A single recalled memory.
@@ -709,6 +814,11 @@ pub struct EnrichedStatement {
     pub predicate: String,
     pub object_label: String,
     pub confidence: f32,
+    /// When the statement's EVENT happened, in unix nanos — the reified
+    /// Time slot of an Event-kind statement. Absent from the wire map for
+    /// a statement with no event time.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub event_at_unix_nanos: Option<u64>,
 }
 
 /// A typed relation attached to a recall hit by [`GraphEnrichment`], flattened
@@ -939,7 +1049,11 @@ pub struct GraphNode {
     pub type_qname: String,
 }
 
-/// One graph edge. `kind`: 0 = Relation, 1 = Fact, 2 = HasStatement, 3 = Mentions.
+/// One graph edge. `kind`: 0 = Relation, 1 = Fact, 2 = HasStatement,
+/// 3 = Mentions, 4..=11 = the memory↔memory builtin kinds in `EdgeKind` order
+/// (`4 + EdgeKind as u8`), i.e. 4 = Caused, 5 = FollowedBy, 6 = DerivedFrom,
+/// 7 = SimilarTo, 8 = Contradicts, 9 = Supports, 10 = References, 11 = PartOf.
+/// The kind byte alone identifies the link — there is no companion field.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GraphEdge {
     #[serde(with = "serde_bytes")]
@@ -954,7 +1068,8 @@ pub struct GraphEdge {
 /// GRAPH_FETCH (`0x0163`) — a paginated export of the caller's whole
 /// `(namespace, agent)` typed graph as a node/edge set. Default layer is the
 /// concept map (entity nodes + Relation/Fact edges); `include_statements` adds
-/// value-object statement nodes, `include_memories` adds source-memory nodes.
+/// value-object statement nodes, `include_memories` adds source-memory nodes,
+/// `include_memory_edges` adds the stored memory↔memory links between them.
 /// The cursor is opaque, signed over the layer toggles.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GraphFetchRequest {
@@ -966,6 +1081,12 @@ pub struct GraphFetchRequest {
     pub include_statements: bool,
     /// Emit source memory nodes + their `Mentions` edges.
     pub include_memories: bool,
+    /// Emit the stored memory↔memory edges (`SimilarTo`, `FollowedBy`, …)
+    /// incident to the page's memory nodes. Requires `include_memories` —
+    /// setting it alone is rejected, because the edges would have no rendered
+    /// endpoints. A far endpoint outside the page is emitted as a memory node
+    /// so no edge dangles.
+    pub include_memory_edges: bool,
     /// Include tombstoned statements/relations. Default false.
     pub include_tombstoned: bool,
     /// Effective identity this export runs as. `None` (omitted on the wire)
@@ -1030,6 +1151,14 @@ pub struct PlanRequest {
     pub request_id: Option<WireUuid>,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
+    /// Opt-in per-stage observability. When `true`, the final response frame
+    /// carries a populated `trace: PlanTrace` describing every node the
+    /// bidirectional BFS visited (in both directions) and every meeting
+    /// point found, including the ones dropped by the `max_paths` cap. When
+    /// `false` (the default) the field is absent and the plan pays nothing.
+    /// Mirrors `RecallRequest.trace`.
+    #[serde(default)]
+    pub trace: bool,
     /// Effective identity this plan runs as. `None` (omitted on the wire)
     /// means the op runs as the connection's own key-bound identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -1077,6 +1206,69 @@ pub struct PlanResponseFrame {
     pub steps: Vec<PlanStep>,
     pub is_final: bool,
     pub plan_status: Option<PlanStatus>,
+    /// Per-stage bidirectional-search trace. Populated only on the final
+    /// frame and only when the request set `trace = true`; `None` otherwise
+    /// (and omitted from the wire map so `trace = false` plans pay
+    /// nothing). Mirrors `RecallResponseFrame.trace`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trace: Option<PlanTrace>,
+}
+
+/// Per-stage observability for one PLAN, surfaced on the final frame when
+/// the request opted in with `trace = true`. `trace = true` means full
+/// detail — there is no separate knob — so every field below is populated
+/// whenever this struct is present at all. Surfaces the full bidirectional
+/// BFS visited-map contents from both directions (not just a scalar
+/// explored-node count) and every meeting point found, flagging which
+/// survived the `max_paths` cap.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlanTrace {
+    /// Every node the bidirectional BFS visited, in both directions.
+    pub explored: Vec<PlanTraceNode>,
+    /// Every meeting point the BFS found, flagging which ones survived the
+    /// `max_paths` cap and made it into the returned path(s).
+    pub meeting_points: Vec<PlanTraceMeetingPoint>,
+}
+
+/// Which direction of the bidirectional BFS a `PlanTraceNode` was visited
+/// from. Integer discriminant on the wire.
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum PlanTraceDirection {
+    /// Visited by the forward search, rooted at `start`.
+    Forward = 0,
+    /// Visited by the backward search, rooted at `goal`.
+    Backward = 1,
+}
+
+/// One node the bidirectional BFS visited, from either direction.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlanTraceNode {
+    pub memory_id: WireMemoryId,
+    pub text: String,
+    pub direction: PlanTraceDirection,
+    pub depth: u32,
+    /// The edge this node was reached through. `None` for the root
+    /// (`start` in the forward direction, `goal` in the backward
+    /// direction).
+    pub parent_edge: Option<WireMemoryId>,
+    /// The goal-proximity alignment score computed for this node, when one
+    /// was computed.
+    pub alignment_score: Option<f32>,
+}
+
+/// One meeting point the bidirectional BFS found where the forward and
+/// backward frontiers connected.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlanTraceMeetingPoint {
+    pub memory_id: WireMemoryId,
+    pub text: String,
+    /// `true` when this meeting point survived the `max_paths` cap and
+    /// contributed a path to the response; `false` when it was found but
+    /// dropped by the cap.
+    pub included_in_result: bool,
 }
 
 // ===========================================================================
@@ -1103,6 +1295,15 @@ pub struct ReasonRequest {
     pub request_id: Option<WireUuid>,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
+    /// Opt-in per-stage observability. When `true`, the final response frame
+    /// carries a populated `trace: ReasonTrace` describing the full
+    /// base-candidate set, every edge the outward walk considered (and why
+    /// each was pruned), the un-collapsed per-item score components, and
+    /// whether topic-alignment centroid computation ran. When `false` (the
+    /// default) the field is absent and the reason pays nothing. Mirrors
+    /// `RecallRequest.trace`.
+    #[serde(default)]
+    pub trace: bool,
     /// Effective identity this reason runs as. `None` (omitted on the wire)
     /// means the op runs as the connection's own key-bound identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -1149,6 +1350,126 @@ pub struct ReasonResponseFrame {
     pub inferences: Vec<InferenceStep>,
     pub is_final: bool,
     pub reason_status: Option<ReasonStatus>,
+    /// Per-stage read-pipeline trace. Populated only on the final frame and
+    /// only when the request set `trace = true`; `None` otherwise (and
+    /// omitted from the wire map so `trace = false` reasons pay nothing).
+    /// Mirrors `RecallResponseFrame.trace`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trace: Option<ReasonTrace>,
+}
+
+/// Per-stage observability for one REASON, surfaced on the final frame when
+/// the request opted in with `trace = true`. `trace = true` means full
+/// detail — there is no separate knob — so every field below is populated
+/// whenever this struct is present at all. Mirrors `RecallTrace`'s
+/// per-stage-detail precedent, applied to the outward evidence walk instead
+/// of the retriever fan-out.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTrace {
+    /// The full HNSW hit set the base observation resolved to, not just the
+    /// subset that seeded the walk.
+    pub base: ReasonTraceBase,
+    /// Everything the outward evidence walk touched: considered edges and
+    /// every prune reason, one bucket per prune point.
+    pub walk: ReasonTraceWalk,
+    /// Un-collapsed score components for every surviving evidence item.
+    pub scoring: Vec<ReasonTraceScoreBreakdown>,
+    /// Whether topic-alignment centroid computation ran, and why not when
+    /// it didn't.
+    pub centroid: ReasonTraceCentroid,
+}
+
+/// The base observation's resolved candidate set, before any evidence walk.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTraceBase {
+    pub candidates: Vec<ReasonTraceCandidate>,
+}
+
+/// One base-candidate hit surfaced in a REASON trace.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTraceCandidate {
+    pub memory_id: WireMemoryId,
+    pub text: String,
+    pub score: f32,
+}
+
+/// Everything the outward evidence walk considered and every reason an edge
+/// or item was pruned before becoming a surviving `InferenceStep`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTraceWalk {
+    /// Every edge the walk visited at each node, before any pruning — the
+    /// direct analogue of `RecallTraceRetriever.candidates`.
+    pub considered: Vec<ReasonTraceEdgeCandidate>,
+    /// Edges pruned by the edge-kind filter.
+    pub dropped_by_edge_kind: Vec<ReasonTraceEdgeCandidate>,
+    /// Edges pruned because the target memory was tombstoned.
+    pub dropped_by_tombstone: Vec<ReasonTraceIdWithText>,
+    /// Edges pruned because the target memory was already visited.
+    pub dropped_by_visited: Vec<ReasonTraceIdWithText>,
+    /// Evidence items pruned by `confidence_threshold`.
+    pub dropped_by_confidence: Vec<ReasonTraceScoredId>,
+    /// Supporting-evidence items dropped by the per-inference trim cap.
+    pub dropped_by_max_supporting: Vec<ReasonTraceIdWithText>,
+    /// Contradicting-evidence items dropped by the per-inference trim cap.
+    pub dropped_by_max_contradicting: Vec<ReasonTraceIdWithText>,
+}
+
+/// One edge the outward walk visited, considered or dropped.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTraceEdgeCandidate {
+    pub memory_id: WireMemoryId,
+    pub text: String,
+    pub edge_kind: EdgeKindWire,
+    pub depth: u32,
+    pub from_memory_id: WireMemoryId,
+    pub raw_score: f32,
+}
+
+/// A memory id plus its stored text, with no other payload — the shared
+/// shape for the walk's plain id-dropped buckets (tombstone / visited /
+/// trim-cap) so an opaque id is never surfaced without the content that
+/// explains the drop.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTraceIdWithText {
+    pub memory_id: WireMemoryId,
+    pub text: String,
+}
+
+/// A memory id paired with the score it was dropped at.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTraceScoredId {
+    pub memory_id: WireMemoryId,
+    pub text: String,
+    pub score: f32,
+}
+
+/// The un-collapsed multiplicative score components combined into one
+/// `InferenceStep.confidence` value.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTraceScoreBreakdown {
+    pub memory_id: WireMemoryId,
+    pub text: String,
+    pub base_similarity: f32,
+    pub decay: f32,
+    pub weight_product: f32,
+    pub alignment: f32,
+    /// Structural-fit nudge from VSA analogical inference (bind/bundle/
+    /// `analogy_query` over the item's statement-graph triple against the
+    /// observation's own triple). Neutral `1.0` when no triple is
+    /// resolvable for the item — a re-rank nudge only, never a gate.
+    pub analogical_fit: f32,
+    pub final_score: f32,
+}
+
+/// Whether topic-alignment centroid computation ran for this REASON. The
+/// server's centroid step silently skips several paths (singleton base,
+/// text-only observation, missing text, embed error); this makes that
+/// outcome visible on the wire instead of a debug-log-only signal.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasonTraceCentroid {
+    pub computed: bool,
+    /// Populated when `computed = false`; empty otherwise.
+    pub skipped_reason: Option<String>,
 }
 
 // ===========================================================================
@@ -1889,6 +2210,18 @@ pub struct StageExtractorPayload {
     pub error_message: String,
 }
 
+/// [`StagePayload::Hype`] body: hypothetical questions generated for the new
+/// memory (write-time HyPE), embedded and inserted into the memory HNSW
+/// index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StageHypePayload {
+    /// How many hypothetical questions were embedded, persisted, and
+    /// inserted into the memory HNSW index.
+    pub questions_written: u32,
+    /// LLM micro-USD spent generating the questions (`0` on a cache hit).
+    pub cost_micro_usd: u64,
+}
+
 /// Per-stage detail sidecar on `StageCompleted` events. Externally-tagged
 /// enum (CBOR map keyed by the variant name), matching the server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1896,6 +2229,7 @@ pub enum StagePayload {
     AutoEdge(StageAutoEdgePayload),
     TemporalEdge(StageTemporalEdgePayload),
     Extractor(StageExtractorPayload),
+    Hype(StageHypePayload),
 }
 
 /// Vector-similarity subscription filter.
@@ -1916,6 +2250,11 @@ pub struct SubscriptionFilter {
     /// empty = all agents on the shard.
     #[serde(with = "crate::wire::cbor::opt_vec_byte_array16")]
     pub agents: Option<Vec<WireUuid>>,
+    /// Subset of memory ids whose events the subscriber wants. `None` or
+    /// empty = all memories. Lets a client scope a subscription to a single
+    /// in-flight write (e.g. to watch that write's async derivation stages
+    /// complete) without seeing unrelated traffic on a busy shard.
+    pub memory_ids: Option<Vec<WireMemoryId>>,
 }
 
 /// SUBSCRIBE (`0x0030`). Opens a long-lived push stream; the server emits
@@ -1927,6 +2266,12 @@ pub struct SubscribeRequest {
     pub include_history: bool,
     pub from_lsn: Option<u64>,
     pub max_inflight: u32,
+    /// Effective identity this subscription runs as, on behalf of the
+    /// authenticated connection principal. `None` (the common case, and
+    /// omitted on the wire) means the op runs as the connection's own
+    /// key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// Side-channel payload on an `EdgeAdded` / `EdgeRemoved` / `EdgeSuperseded`

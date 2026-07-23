@@ -999,6 +999,7 @@ fn edge_cognitive_types_round_trip() {
         context_filter: Some(vec![1, 2, 3]),
         request_id: Some(id(4)),
         txn_id: None,
+        trace: false,
     });
     round_trip(&PlanRequest {
         act_as: None,
@@ -1016,6 +1017,7 @@ fn edge_cognitive_types_round_trip() {
         context_filter: None,
         request_id: None,
         txn_id: Some(id(5)),
+        trace: false,
     });
     round_trip(&PlanResponseFrame {
         steps: vec![PlanStep {
@@ -1028,6 +1030,7 @@ fn edge_cognitive_types_round_trip() {
         }],
         is_final: true,
         plan_status: Some(PlanStatus::GoalReached),
+        trace: None,
     });
     round_trip(&PlanStep {
         step_index: 1,
@@ -1048,6 +1051,7 @@ fn edge_cognitive_types_round_trip() {
         budget_wall_time_ms: 2_000,
         request_id: Some(id(6)),
         txn_id: None,
+        trace: false,
     });
     round_trip(&ReasonRequest {
         act_as: None,
@@ -1059,6 +1063,7 @@ fn edge_cognitive_types_round_trip() {
         budget_wall_time_ms: 1,
         request_id: None,
         txn_id: Some(id(7)),
+        trace: false,
     });
     round_trip(&ReasonResponseFrame {
         inferences: vec![InferenceStep {
@@ -1071,6 +1076,7 @@ fn edge_cognitive_types_round_trip() {
         }],
         is_final: true,
         reason_status: Some(ReasonStatus::Complete),
+        trace: None,
     });
     round_trip(&InferenceStep {
         step_index: 1,
@@ -1179,6 +1185,7 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
             }],
             is_final: false,
             plan_status: None,
+            trace: None,
         }),
     );
     write_frame(&mut sock, &mid).await.expect("write plan mid");
@@ -1197,6 +1204,7 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
             }],
             is_final: true,
             plan_status: Some(PlanStatus::GoalReached),
+            trace: None,
         },
     )
     .await;
@@ -1231,6 +1239,7 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
             ],
             is_final: true,
             reason_status: Some(ReasonStatus::Complete),
+            trace: None,
         },
     )
     .await;
@@ -1292,6 +1301,7 @@ async fn edge_cognitive_verbs_over_connection() {
         context_filter: None,
         request_id: Some(rid()),
         txn_id: None,
+        trace: false,
     };
     let steps = client.plan(&plan_req).await.expect("plan");
     assert_eq!(steps.len(), 2);
@@ -1310,6 +1320,7 @@ async fn edge_cognitive_verbs_over_connection() {
             budget_wall_time_ms: 2_000,
             request_id: Some(rid()),
             txn_id: None,
+            trace: false,
         })
         .await
         .expect("reason");

@@ -19,6 +19,17 @@ plus uncommitted brain work not yet on a commit — the content-dedup opt-out
 the ENCODE-trace graph artifact (which grew `resp_encode_trace` to 1624 bytes).
 Update the hash above to the committing revision once that work lands.
 
+Also uncommitted: the RECALL trace per-item detail mode (`RecallTrace`
+gained `fusion: Option<RecallTraceFusion>`; `RecallTraceRetriever` gained
+`candidates: Vec<RecallTraceCandidate>`; `RecallTraceFilterChain` gained
+seven `dropped_by_*: Vec<WireMemoryId>` fields and lost its `Copy` derive;
+`RecallTraceRerank` gained `before_order`/`after_order: Vec<WireMemoryId>`
+and lost its `Copy` derive), which grew `resp_recall_trace` to 624 bytes.
+All new fields are empty `Vec`s / `None` in this pinned case — the fixture
+still only exercises the existing count-only trace shape; a dedicated
+full-detail-populated case (non-empty candidates/dropped-ids/order/fusion)
+has not been added yet.
+
 The read/write wire reshape it captures (RECALL answer-shape: answer_kind +
 values + RecallValue; RECALL request subject_name/mode/max_results/as_of;
 ENCODE request occurred_at + allow_duplicates, kind/salience/edges/dedup
@@ -32,6 +43,14 @@ regenerates these exact bytes (zero diff), and the un-`bless`ed run passes
 as the acceptance gate. The bytes are the CBOR wire format (post rkyv->CBOR
 migration), with 16-byte ids encoded as CBOR byte strings even through
 Option/Vec (the P1-6 fix).
+
+Also uncommitted: the memory↔memory layer on GRAPH_FETCH. `GraphFetchRequest`
+gained `include_memory_edges: bool` (between `include_memories` and
+`include_tombstoned`), growing `req_graph_fetch` to 106 bytes, and
+`GraphEdgeKindWire` gained eight flat variants `Caused = 4` … `PartOf = 11`
+(`4 + EdgeKind as u8`) so one kind byte names the link — which grew
+`resp_graph_fetch` to 634 bytes as the fixture now carries memory nodes and
+their edges. Only the graph pair was re-vendored in this pass.
 
 COVERAGE.
 The corpus pins a representative payload for the handshake, the cognitive

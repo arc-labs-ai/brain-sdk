@@ -222,6 +222,7 @@ describe("PLAN round-trip", () => {
       contextFilter: [1n, 2n],
       requestId: ID16(0x01),
       txnId: null,
+      trace: false,
       actAs: null,
     });
     rt(encodePlan, decodePlan, {
@@ -232,6 +233,7 @@ describe("PLAN round-trip", () => {
       contextFilter: null,
       requestId: null,
       txnId: null,
+      trace: true,
       actAs: null,
     });
   });
@@ -273,6 +275,7 @@ describe("REASON round-trip", () => {
       budgetWallTimeMs: 2000,
       requestId: ID16(0x02),
       txnId: null,
+      trace: false,
       actAs: null,
     });
     rt(encodeReasonResponse, decodeReasonResponse, {
@@ -501,16 +504,19 @@ describe("SUBSCRIBE round-trip", () => {
         kinds: [MemoryKindWire.Semantic],
         similarTo: { referenceMemoryId: 5n, threshold: 0.75 },
         agents: [ID16(0x01)],
+        memoryIds: [42n, 43n],
       },
       includeHistory: true,
       fromLsn: 100n,
       maxInflight: 64,
+      actAs: { namespace: "acme", agentId: ID16(0x02) },
     });
     rt(encodeSubscribe, decodeSubscribe, {
-      filter: { contexts: null, kinds: null, similarTo: null, agents: null },
+      filter: { contexts: null, kinds: null, similarTo: null, agents: null, memoryIds: null },
       includeHistory: false,
       fromLsn: null,
       maxInflight: 8,
+      actAs: null,
     });
   });
 
@@ -616,6 +622,31 @@ describe("SUBSCRIBE round-trip", () => {
           relationCount: 1,
           auditStatus: StageAuditStatus.Succeeded,
           errorMessage: "",
+        },
+      },
+    };
+    rt(encodeSubscriptionEvent, decodeSubscriptionEvent, ev);
+  });
+
+  it("stage-completed event (hype stage)", () => {
+    const ev: SubscriptionEvent = {
+      eventType: EventType.StageCompleted,
+      memoryId: 42n,
+      contextId: 1n,
+      text: "",
+      kind: MemoryKindWire.Episodic,
+      salience: 0.0,
+      timestampUnixNanos: 1n,
+      lsn: 2n,
+      graphPayload: null,
+      edgePayload: null,
+      stageKind: StageKind.Hype,
+      stageOutcome: StageOutcome.Ok,
+      stagePayload: {
+        kind: "Hype",
+        value: {
+          questionsWritten: 4,
+          costMicroUsd: 1200n,
         },
       },
     };

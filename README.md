@@ -1,6 +1,6 @@
 # brain-sdk
 
-First-party client SDKs for the [Brain](https://github.com/brain-db-io/brain-db) memory database, in **Rust**, **Python**, and **TypeScript**. (`brain-sdk` is the repo; the published packages are named `brain-db-sdk` / `@brain-db/sdk` — see the table below.)
+First-party client SDKs for the [Brain](https://github.com/arc-labs-ai/brain-db) memory database, in **Rust**, **Python**, and **TypeScript**. (`brain-sdk` is the repo; the published packages are named `brain-db-sdk` / `@brain-db/sdk` — see the table below.)
 
 Brain ships no client of its own — its public interface is a binary wire protocol over TCP: a 32-byte `BRN0` frame header plus CBOR payloads. Each SDK here re-implements that protocol independently and hand-written, so a Brain server can be driven from any of the three languages without a server-side dependency.
 

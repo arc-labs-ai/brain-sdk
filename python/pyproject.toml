@@ -30,8 +30,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/brain-db-io/brain-sdk"
-Repository = "https://github.com/brain-db-io/brain-sdk"
+Homepage = "https://github.com/arc-labs-ai/brain-sdk"
+Repository = "https://github.com/arc-labs-ai/brain-sdk"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
