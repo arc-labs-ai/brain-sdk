@@ -1713,10 +1713,17 @@ export interface RecallTraceRetriever {
   candidates: RecallTraceCandidate[];
 }
 
-/** One retriever-lane candidate surfaced in full-detail trace mode. */
+/** One retriever-lane candidate surfaced in full-detail trace mode. The graph
+ * lane surfaces typed items (entities / relations), so `itemId` is interpreted
+ * against `kind`. */
 export interface RecallTraceCandidate {
-  memoryId: bigint;
-  /** Full-detail mode only; truncated server-side. */
+  /** Raw id of the surfaced item — a memory, statement, entity, or relation id
+   * depending on `kind`. */
+  itemId: bigint;
+  /** How to interpret `itemId`. */
+  kind: RankedItemKindWire;
+  /** A human-readable label — memory text, entity name, or a rendered
+   * statement/relation. Full-detail mode only; truncated server-side. */
   text: string;
   /** This lane's raw score for this item. */
   score: number;
@@ -1813,7 +1820,8 @@ export interface RecallTrace {
 
 function encodeRecallTraceCandidate(c: RecallTraceCandidate): Map<string, unknown> {
   return new Map<string, unknown>([
-    ["memory_id", c.memoryId],
+    ["item_id", c.itemId],
+    ["kind", c.kind as number],
     ["text", c.text],
     ["score", f32(c.score)],
   ]);
@@ -1822,7 +1830,8 @@ function encodeRecallTraceCandidate(c: RecallTraceCandidate): Map<string, unknow
 function decodeRecallTraceCandidate(value: unknown): RecallTraceCandidate {
   const c = asMap(value);
   return {
-    memoryId: asBig(field(c, "memory_id")),
+    itemId: asBig(field(c, "item_id")),
+    kind: asNum(field(c, "kind")) as RankedItemKindWire,
     text: asStr(field(c, "text")),
     score: asNum(field(c, "score")),
   };

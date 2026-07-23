@@ -1544,22 +1544,28 @@ class RecallTraceRetriever:
 
 @dataclass
 class RecallTraceCandidate:
-    """One retriever-lane candidate surfaced in full-detail trace mode: its memory id, text (truncated server-side), and this lane's raw score."""
+    """One retriever-lane candidate surfaced in full-detail trace mode. The
+    graph lane surfaces typed items (entities / relations), so ``item_id`` is
+    interpreted against ``kind`` (a ``RankedItemKindWire`` discriminant).
+    ``text`` is a human-readable label (memory text, entity name, or a rendered
+    statement/relation), truncated server-side; ``score`` is the lane's raw score."""
 
-    memory_id: int  # u128
+    item_id: int  # u128 — memory / statement / entity / relation id, per kind
+    kind: int  # RankedItemKindWire: 0 memory · 1 statement · 2 entity · 3 relation
     text: str
     score: float  # f32
 
     def to_map(self) -> dict:
         return {
-            "memory_id": self.memory_id,
+            "item_id": self.item_id,
+            "kind": self.kind,
             "text": self.text,
             "score": round_f32(self.score),
         }
 
     @classmethod
     def from_map(cls, m: dict) -> "RecallTraceCandidate":
-        return cls(m["memory_id"], m["text"], m["score"])
+        return cls(m["item_id"], m["kind"], m["text"], m["score"])
 
 
 class RankedItemKindWire:
