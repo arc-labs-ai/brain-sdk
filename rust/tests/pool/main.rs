@@ -13,8 +13,8 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload,
-    MemoryKindWire, ServerFeatures, WaitMode, WelcomePayload,
+    AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload, MemoryKindWire,
+    ServerFeatures, SpacePermissions, WaitMode, WelcomePayload,
 };
 use brain_db_sdk::{new_id, Auth, Pool};
 
@@ -53,7 +53,7 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -127,7 +127,9 @@ async fn pool_spreads_requests_across_all_members() {
         }
     });
 
-    let pool = Pool::connect(addr, SIZE, Auth::Token(b"test-token".to_vec())).await.expect("pool connect");
+    let pool = Pool::connect(addr, SIZE, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("pool connect");
     assert_eq!(pool.size(), SIZE);
 
     // Three round-robin encodes should touch three distinct sockets, so the

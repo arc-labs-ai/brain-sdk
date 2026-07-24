@@ -14,46 +14,43 @@ use std::time::Duration;
 
 use tokio::net::TcpStream;
 
-use crate::mux::HandshakeOutcome;
 use crate::error::{BrainError, Result};
+use crate::mux::HandshakeOutcome;
 use crate::mux::{MuxConnection, Subscription};
 use crate::wire::cbor::{f32_slice_to_le_bytes, from_cbor_bytes, to_cbor_bytes};
 use crate::wire::opcode::Opcode;
 use crate::wire::types::{
-    AgentPermissions, AnswerKindWire, AuthCredentials, AuthMethod, AuthPayload, EncodeRequest,
-    EncodeResponse, EntityCreateRequest, EntityCreateResponse, EntityGetRequest, EntityGetResponse,
+    AnswerKindWire, AuthCredentials, AuthMethod, AuthPayload, EncodeRequest, EncodeResponse,
+    EncodeVectorDirectRequest, EntityCreateRequest, EntityCreateResponse, EntityGetRequest,
+    EntityGetResponse, EntityListItem, EntityListRequest, EntityListResponseFrame,
     EntityMergeRequest, EntityMergeResponse, EntityRenameRequest, EntityRenameResponse,
-    EntityTombstoneRequest, EntityTombstoneResponse, EntityUnmergeRequest, EntityUnmergeResponse,
-    EntityUpdateRequest, EntityUpdateResponse,
-    EntityListItem, EntityListRequest, EntityListResponseFrame, EntityResolveRequest,
-    EntityResolveResponse, ExtractorListRequest, ExtractorListResponseFrame, ForgetRequest,
-    ForgetResponse, GetCapabilitiesRequest,
-    GetCapabilitiesResponse, GraphEdge, GraphFetchRequest, GraphFetchResponseFrame, GraphNode,
-    HelloCapabilities, HelloPayload, InferenceStep, LinkRequest,
-    LinkResponse, MaterializeProceduralRequest, MaterializeProceduralResponse, MemoryResult,
+    EntityResolveRequest, EntityResolveResponse, EntityTombstoneRequest, EntityTombstoneResponse,
+    EntityUnmergeRequest, EntityUnmergeResponse, EntityUpdateRequest, EntityUpdateResponse,
+    ExtractorListRequest, ExtractorListResponseFrame, ForgetRequest, ForgetResponse,
+    GetCapabilitiesRequest, GetCapabilitiesResponse, GraphEdge, GraphFetchRequest,
+    GraphFetchResponseFrame, GraphNode, HelloCapabilities, HelloPayload, InferenceStep,
+    LinkRequest, LinkResponse, MaterializeProceduralRequest, MaterializeProceduralResponse,
     MemoryInspectRequest, MemoryInspectResponse, MemoryListItem, MemoryListRequest,
-    MemoryListResponseFrame,
-    MtlsClaim, PlanRequest, PlanResponseFrame, PlanStep,
+    MemoryListResponseFrame, MemoryResult, MtlsClaim, PlanRequest, PlanResponseFrame, PlanStep,
+    QueryExplainRequest, QueryExplainResponse, QueryTraceRequest, QueryTraceResponse,
     ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame, RelationCreateRequest,
-    RelationCreateResponse, RelationListFromRequest, RelationListFromResponseFrame,
-    RelationListToRequest, RelationListToResponseFrame, RelationView, SchemaGetRequest,
-    RelationGetRequest, RelationGetResponse, RelationSupersedeRequest, RelationSupersedeResponse,
-    RelationTombstoneRequest, RelationTombstoneResponse, RelationTraverseRequest,
-    RelationTraverseResponseFrame, TraversalPathWire, QueryExplainRequest, QueryExplainResponse,
-    QueryTraceRequest, QueryTraceResponse,
-    EncodeVectorDirectRequest,
-    SchemaGetResponse, SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame,
-    SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse,
-    ServerFeatures, StatementCreateRequest, StatementCreateResponse, StatementGetRequest,
-    StatementGetResponse, StatementHistoryRequest, StatementHistoryResponseFrame,
-    StatementListRequest, StatementListResponseFrame, StatementRetractRequest,
-    StatementRetractResponse, StatementSupersedeRequest, StatementSupersedeResponse,
-    StatementTombstoneRequest, StatementTombstoneResponse, StatementView,
-    SpaceCreateRequest, SpaceCreateResponse, SpaceDeleteRequest, SpaceDeleteResponse,
-    SpaceListRequest, SpaceListResponse, SessionCreateRequest, SessionCreateResponse,
+    RelationCreateResponse, RelationGetRequest, RelationGetResponse, RelationListFromRequest,
+    RelationListFromResponseFrame, RelationListToRequest, RelationListToResponseFrame,
+    RelationSupersedeRequest, RelationSupersedeResponse, RelationTombstoneRequest,
+    RelationTombstoneResponse, RelationTraverseRequest, RelationTraverseResponseFrame,
+    RelationView, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
+    SchemaListResponseFrame, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
+    SchemaValidateResponse, ServerFeatures, SessionCreateRequest, SessionCreateResponse,
     SessionDeleteRequest, SessionDeleteResponse, SessionListRequest, SessionListResponse,
-    SubscribeRequest, TxnAbortRequest, TxnAbortResponse, TxnBeginRequest, TxnBeginResponse,
-    TxnCommitRequest, TxnCommitResponse, UnlinkRequest, UnlinkResponse,
+    SpaceCreateRequest, SpaceCreateResponse, SpaceDeleteRequest, SpaceDeleteResponse,
+    SpaceListRequest, SpaceListResponse, SpacePermissions, StatementCreateRequest,
+    StatementCreateResponse, StatementGetRequest, StatementGetResponse, StatementHistoryRequest,
+    StatementHistoryResponseFrame, StatementListRequest, StatementListResponseFrame,
+    StatementRetractRequest, StatementRetractResponse, StatementSupersedeRequest,
+    StatementSupersedeResponse, StatementTombstoneRequest, StatementTombstoneResponse,
+    StatementView, SubscribeRequest, TraversalPathWire, TxnAbortRequest, TxnAbortResponse,
+    TxnBeginRequest, TxnBeginResponse, TxnCommitRequest, TxnCommitResponse, UnlinkRequest,
+    UnlinkResponse,
 };
 
 /// Default `client_id` advertised in HELLO.
@@ -128,16 +125,16 @@ impl ClientConfig {
     }
 }
 
-/// The session the server granted at handshake time.
+/// The connection the server granted at handshake time.
 #[derive(Clone, Debug)]
-pub struct SessionInfo {
+pub struct ConnectionInfo {
     pub space_id: [u8; 16],
     pub server_id: String,
     pub chosen_version: u8,
     /// Per-connection identifier the server minted at WELCOME.
     pub connection_id: [u8; 16],
     pub bound_shard_id: u16,
-    pub permissions: AgentPermissions,
+    pub permissions: SpacePermissions,
     /// Owning tenant the server bound this connection to (server-derived from
     /// auth). Empty when the connection resolves to the reserved `brain`
     /// system namespace. Read-only — the client never sends a namespace.
@@ -173,7 +170,7 @@ impl RecallAnswer {
 /// take `&self` and are safe to call concurrently from many tasks.
 pub struct BrainClient {
     conn: MuxConnection<TcpStream>,
-    session: SessionInfo,
+    connection: ConnectionInfo,
 }
 
 impl BrainClient {
@@ -217,7 +214,7 @@ impl BrainClient {
         let (conn, HandshakeOutcome { welcome, auth_ok }) =
             MuxConnection::handshake(stream, hello, auth, config.request_timeout).await?;
 
-        let session = SessionInfo {
+        let connection = ConnectionInfo {
             space_id: auth_ok.space_id,
             server_id: welcome.server_id,
             chosen_version: welcome.chosen_version,
@@ -227,19 +224,19 @@ impl BrainClient {
             namespace: auth_ok.namespace,
             server_features: welcome.server_features,
         };
-        Ok(Self { conn, session })
+        Ok(Self { conn, connection })
     }
 
-    /// The negotiated session.
+    /// The negotiated connection.
     #[must_use]
-    pub fn session(&self) -> &SessionInfo {
-        &self.session
+    pub fn connection(&self) -> &ConnectionInfo {
+        &self.connection
     }
 
     /// The space id this connection acts as.
     #[must_use]
     pub fn space_id(&self) -> [u8; 16] {
-        self.session.space_id
+        self.connection.space_id
     }
 
     /// The owning tenant the server bound this connection to (server-derived
@@ -247,7 +244,7 @@ impl BrainClient {
     /// system namespace. Read-only — the client never sends a namespace.
     #[must_use]
     pub fn namespace(&self) -> &str {
-        &self.session.namespace
+        &self.connection.namespace
     }
 
     /// Store a memory from text (ENCODE).
@@ -514,10 +511,7 @@ impl BrainClient {
 
     /// Fetch one relation by id (RELATION_GET). `follow_supersession` returns
     /// the current chain head when the id has been superseded.
-    pub async fn get_relation(
-        &self,
-        request: &RelationGetRequest,
-    ) -> Result<RelationGetResponse> {
+    pub async fn get_relation(&self, request: &RelationGetRequest) -> Result<RelationGetResponse> {
         self.unary(
             Opcode::RelationGetReq,
             Opcode::RelationGetResp,
@@ -600,10 +594,7 @@ impl BrainClient {
     }
 
     /// Run a query and return its per-stage execution trace (QUERY_TRACE).
-    pub async fn query_trace(
-        &self,
-        request: &QueryTraceRequest,
-    ) -> Result<QueryTraceResponse> {
+    pub async fn query_trace(&self, request: &QueryTraceRequest) -> Result<QueryTraceResponse> {
         self.unary(
             Opcode::QueryTraceReq,
             Opcode::QueryTraceResp,
@@ -1090,10 +1081,7 @@ impl BrainClient {
     /// Provision the caller's effective space explicitly (SPACE_CREATE).
     /// Idempotent: a create for an existing space returns the existing row
     /// with `created = false`.
-    pub async fn create_space(
-        &self,
-        request: &SpaceCreateRequest,
-    ) -> Result<SpaceCreateResponse> {
+    pub async fn create_space(&self, request: &SpaceCreateRequest) -> Result<SpaceCreateResponse> {
         self.unary(
             Opcode::SpaceCreateReq,
             Opcode::SpaceCreateResp,
@@ -1117,10 +1105,7 @@ impl BrainClient {
 
     /// Erase the caller's effective space and every row under it
     /// (SPACE_DELETE). Hard/immediate GDPR erasure.
-    pub async fn delete_space(
-        &self,
-        request: &SpaceDeleteRequest,
-    ) -> Result<SpaceDeleteResponse> {
+    pub async fn delete_space(&self, request: &SpaceDeleteRequest) -> Result<SpaceDeleteResponse> {
         self.unary(
             Opcode::SpaceDeleteReq,
             Opcode::SpaceDeleteResp,
@@ -1147,10 +1132,7 @@ impl BrainClient {
 
     /// List one space's sessions newest-first (SESSION_LIST). A first-class
     /// end-user feature — the client's session picker reads this.
-    pub async fn list_sessions(
-        &self,
-        request: &SessionListRequest,
-    ) -> Result<SessionListResponse> {
+    pub async fn list_sessions(&self, request: &SessionListRequest) -> Result<SessionListResponse> {
         self.unary(
             Opcode::SessionListReq,
             Opcode::SessionListResp,

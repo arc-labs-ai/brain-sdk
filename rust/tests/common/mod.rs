@@ -84,9 +84,13 @@ impl It {
         let mut sock = TcpStream::connect(self.admin)
             .await
             .expect("connect admin plane");
-        sock.write_all(req.as_bytes()).await.expect("write mint request");
+        sock.write_all(req.as_bytes())
+            .await
+            .expect("write mint request");
         let mut raw = Vec::new();
-        sock.read_to_end(&mut raw).await.expect("read mint response");
+        sock.read_to_end(&mut raw)
+            .await
+            .expect("read mint response");
         let text = String::from_utf8_lossy(&raw);
 
         let status = text

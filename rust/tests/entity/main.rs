@@ -20,7 +20,7 @@ fn create(name: &str) -> EntityCreateRequest {
         canonical_name: name.to_string(),
         aliases: vec![],
         attributes_blob: vec![],
-            session_id: 0,
+        session_id: 0,
         request_id: new_id(),
     }
 }
@@ -32,7 +32,11 @@ async fn update_then_rename_then_tombstone() {
     };
     let (client, _agent) = it.connect_fresh().await;
 
-    let id = client.create_entity(&create("Ada")).await.expect("create").entity_id;
+    let id = client
+        .create_entity(&create("Ada"))
+        .await
+        .expect("create")
+        .entity_id;
 
     // UPDATE replaces name + aliases + attributes wholesale.
     let updated = client
@@ -73,8 +77,14 @@ async fn update_then_rename_then_tombstone() {
         .await
         .expect("get after rename")
         .entity;
-    assert_eq!(fetched.canonical_name, "Countess Lovelace", "rename persisted");
-    assert!(fetched.aliases.iter().any(|a| a == "Ada Lovelace"), "alias persisted");
+    assert_eq!(
+        fetched.canonical_name, "Countess Lovelace",
+        "rename persisted"
+    );
+    assert!(
+        fetched.aliases.iter().any(|a| a == "Ada Lovelace"),
+        "alias persisted"
+    );
 
     // TOMBSTONE retires it with an audit reason.
     let ts = client
@@ -109,7 +119,11 @@ async fn merge_then_unmerge() {
     };
     let (client, _agent) = it.connect_fresh().await;
 
-    let survivor = client.create_entity(&create("NYC")).await.expect("create a").entity_id;
+    let survivor = client
+        .create_entity(&create("NYC"))
+        .await
+        .expect("create a")
+        .entity_id;
     let merged = client
         .create_entity(&create("New York City"))
         .await
@@ -128,7 +142,10 @@ async fn merge_then_unmerge() {
         })
         .await
         .expect("merge");
-    assert!(m.grace_period_seconds > 0, "merge is reversible for a window");
+    assert!(
+        m.grace_period_seconds > 0,
+        "merge is reversible for a window"
+    );
 
     // UNMERGE undoes it within that window.
     let u = client
@@ -138,6 +155,9 @@ async fn merge_then_unmerge() {
         })
         .await
         .expect("unmerge");
-    assert_eq!(u.restored_entity_id, merged, "the folded entity is restored");
+    assert_eq!(
+        u.restored_entity_id, merged,
+        "the folded entity is restored"
+    );
     client.close().await.expect("close");
 }

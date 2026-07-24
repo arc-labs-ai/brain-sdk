@@ -38,10 +38,15 @@ async fn explain_returns_a_plan() {
     let (client, _agent) = it.connect_fresh().await;
 
     let resp = client
-        .query_explain(&QueryExplainRequest { query: query("coffee") })
+        .query_explain(&QueryExplainRequest {
+            query: query("coffee"),
+        })
         .await
         .expect("query_explain");
-    assert!(!resp.plan_text.is_empty(), "explain returns a non-empty plan");
+    assert!(
+        !resp.plan_text.is_empty(),
+        "explain returns a non-empty plan"
+    );
     assert!(resp.estimated_cost_ms >= 0.0);
     client.close().await.expect("close");
 }
@@ -58,10 +63,15 @@ async fn trace_returns_an_execution_trace() {
         .expect("encode");
 
     let resp = client
-        .query_trace(&QueryTraceRequest { query: query("coffee") })
+        .query_trace(&QueryTraceRequest {
+            query: query("coffee"),
+        })
         .await
         .expect("query_trace");
-    assert!(!resp.trace_text.is_empty(), "trace returns a non-empty trace");
+    assert!(
+        !resp.trace_text.is_empty(),
+        "trace returns a non-empty trace"
+    );
     assert!(resp.total_latency_ms >= 0.0);
     client.close().await.expect("close");
 }

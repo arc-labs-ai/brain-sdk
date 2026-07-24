@@ -14,7 +14,7 @@ pub use client::{BrainHttpClient, DEFAULT_BASE_URL, DEFAULT_TIMEOUT};
 pub use error::BrainHttpError;
 pub use retry::HttpRetryPolicy;
 pub use types::{
-    Capabilities, Endpoint, EncodeInput, EncodeResult, ForgetInput, ForgetResult, InferenceStep,
+    Capabilities, EncodeInput, EncodeResult, Endpoint, ForgetInput, ForgetResult, InferenceStep,
     LinkInput, LinkResult, MemoryHit, Permissions, PlanInput, PlanResult, PlanStep, ReasonInput,
     ReasonResult, RecallInput, RecallResult, UnlinkInput, UnlinkResult, Whoami,
 };

@@ -10,11 +10,10 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, EntityCreateRequest, EntityCreateResponse,
-    EvidenceRefWire, HelloPayload, MaterializeProceduralRequest,
-    MaterializeProceduralResponse,
-    RelationCreateRequest, RelationCreateResponse, SchemaUploadRequest,
-    SchemaUploadResponse, ServerFeatures, StatementCreateRequest, StatementCreateResponse,
+    AuthOkPayload, AuthPayload, EntityCreateRequest, EntityCreateResponse, EvidenceRefWire,
+    HelloPayload, MaterializeProceduralRequest, MaterializeProceduralResponse,
+    RelationCreateRequest, RelationCreateResponse, SchemaUploadRequest, SchemaUploadResponse,
+    ServerFeatures, SpacePermissions, StatementCreateRequest, StatementCreateResponse,
     StatementKindWire, StatementObjectWire, StatementValueWire, WelcomePayload,
 };
 use brain_db_sdk::{Auth, BrainClient};
@@ -55,7 +54,7 @@ async fn serve_graph(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -171,7 +170,9 @@ async fn typed_graph_verbs_round_trip() {
         serve_graph(sock).await;
     });
 
-    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
 
     let entity = client
         .create_entity(&EntityCreateRequest {
@@ -216,7 +217,7 @@ async fn typed_graph_verbs_round_trip() {
             from_entity: entity.entity_id,
             to_entity: ENTITY_ID,
             properties_blob: vec![],
-        session_id: 0,
+            session_id: 0,
             evidence: EvidenceRefWire::Inline(vec![]),
             extractor_id: 0,
             confidence: 0.8,
@@ -562,7 +563,7 @@ async fn serve_read(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -797,7 +798,9 @@ async fn read_side_verbs_over_connection() {
         serve_read(sock).await;
     });
 
-    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
 
     let caps = client
         .capabilities(&GetCapabilitiesRequest {})
@@ -1116,7 +1119,7 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -1260,7 +1263,9 @@ async fn edge_cognitive_verbs_over_connection() {
         serve_edge_cognitive(sock).await;
     });
 
-    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
 
     let linked = client
         .link(&LinkRequest {
@@ -1399,7 +1404,7 @@ async fn serve_txn(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -1474,7 +1479,9 @@ async fn txn_verbs_over_connection() {
         serve_txn(sock).await;
     });
 
-    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
 
     let begun = client
         .txn_begin(&TxnBeginRequest {

@@ -12,9 +12,9 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AnswerKindWire, AuthOkPayload, AuthPayload, ForgetRequest, ForgetResponse,
-    HelloPayload, MemoryKindWire, MemoryResult, RecallRequest, RecallResponseFrame, ServerFeatures,
-    WelcomePayload,
+    AnswerKindWire, AuthOkPayload, AuthPayload, ForgetRequest, ForgetResponse, HelloPayload,
+    MemoryKindWire, MemoryResult, RecallRequest, RecallResponseFrame, ServerFeatures,
+    SpacePermissions, WelcomePayload,
 };
 use brain_db_sdk::{Auth, BrainClient, ForgetBuilder, RecallBuilder};
 
@@ -47,7 +47,7 @@ async fn serve_recall_forget(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -157,7 +157,9 @@ async fn recall_streams_and_flattens_then_forget() {
         serve_recall_forget(sock).await;
     });
 
-    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
 
     // RECALL: builder defaults + the two streamed frames flatten in order.
     let answer = client

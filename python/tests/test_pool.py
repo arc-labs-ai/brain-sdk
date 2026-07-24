@@ -17,7 +17,7 @@ from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    AgentPermissions,
+    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     EncodeRequest,
@@ -65,7 +65,7 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
     auth_ok = AuthOkPayload(
         space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
-        permissions=AgentPermissions(
+        permissions=SpacePermissions(
             can_encode=True,
             can_recall=True,
             can_plan=True,

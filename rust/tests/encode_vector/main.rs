@@ -46,7 +46,10 @@ async fn encode_vector_direct_round_trips() {
         txn_id: None,
         deduplicate: false,
     };
-    let resp = client.encode_vector_direct(&req).await.expect("encode_vector_direct");
+    let resp = client
+        .encode_vector_direct(&req)
+        .await
+        .expect("encode_vector_direct");
     // Same durability contract as ENCODE: a returned response is WAL-durable.
     assert!(resp.lsn > 0, "direct-vector encode assigns a durable LSN");
     client.close().await.expect("close");

@@ -280,7 +280,7 @@ class AuthPayload:
 
 
 @dataclass
-class AgentPermissions:
+class SpacePermissions:
     """The per-verb capability grants the server resolved for the authenticated agent."""
 
     can_encode: bool
@@ -307,7 +307,7 @@ class AgentPermissions:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> "AgentPermissions":
+    def from_map(cls, m: dict) -> "SpacePermissions":
         return cls(
             m["can_encode"],
             m["can_recall"],
@@ -383,7 +383,7 @@ class AuthOkPayload:
 
     space_id: bytes  # 16-byte byte string (derived storage id)
     bound_shard_id: int
-    permissions: AgentPermissions
+    permissions: SpacePermissions
     # Owning tenant the connection resolved to (server-derived from auth).
     # Empty when the connection resolves to the reserved `brain` system
     # namespace. Read-only — the client never sends a namespace.
@@ -404,7 +404,7 @@ class AuthOkPayload:
         return cls(
             m["space_id"],
             m["bound_shard_id"],
-            AgentPermissions.from_map(m["permissions"]),
+            SpacePermissions.from_map(m["permissions"]),
             # Tolerate older servers that don't emit the field yet.
             m.get("namespace", ""),
             m["server_time_unix_nanos"],

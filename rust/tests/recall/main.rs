@@ -31,7 +31,11 @@ async fn recall_finds_what_was_encoded() {
     })
     .await;
 
-    assert_ne!(answer.answer_kind, AnswerKindWire::None, "recall found something");
+    assert_ne!(
+        answer.answer_kind,
+        AnswerKindWire::None,
+        "recall found something"
+    );
     assert!(
         answer.memories().iter().any(|m| m.memory_id == stored),
         "the freshly-encoded memory is among the recall hits"
@@ -52,7 +56,10 @@ async fn recall_respects_max_results_cap() {
     }
 
     // Wait until at least one is visible, then assert the cap holds.
-    let rec = RecallBuilder::new("coffee").max_results(3).include_text(true).build();
+    let rec = RecallBuilder::new("coffee")
+        .max_results(3)
+        .include_text(true)
+        .build();
     let answer = common::recall_until(&client, &rec, |a| !a.is_empty()).await;
     assert!(!answer.is_empty(), "at least one coffee fact is recalled");
     assert!(

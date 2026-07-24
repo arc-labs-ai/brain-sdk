@@ -58,7 +58,10 @@ async fn supersede_builds_a_history_chain() {
     let (client, _agent) = it.connect_fresh().await;
     let subject = subject_entity(&client).await;
 
-    let first = client.create_statement(&fact(subject, "brain")).await.expect("create");
+    let first = client
+        .create_statement(&fact(subject, "brain"))
+        .await
+        .expect("create");
 
     // SUPERSEDE revises the claim; both stay linked on one chain.
     let superseded = client
@@ -69,7 +72,10 @@ async fn supersede_builds_a_history_chain() {
         })
         .await
         .expect("supersede");
-    assert_eq!(superseded.chain_root, first.chain_root, "same supersession chain");
+    assert_eq!(
+        superseded.chain_root, first.chain_root,
+        "same supersession chain"
+    );
     assert!(superseded.version >= 2, "the revision is a later version");
 
     // HISTORY walks every version on that chain.
@@ -80,7 +86,11 @@ async fn supersede_builds_a_history_chain() {
         })
         .await
         .expect("history");
-    assert!(history.len() >= 2, "history carries both versions, got {}", history.len());
+    assert!(
+        history.len() >= 2,
+        "history carries both versions, got {}",
+        history.len()
+    );
 
     // Deep check: the chain actually holds *both* object values we wrote, not
     // just two rows — proving supersede revised content rather than duplicating.
@@ -91,8 +101,14 @@ async fn supersede_builds_a_history_chain() {
             _ => None,
         })
         .collect();
-    assert!(objects.iter().any(|o| o == "brain"), "history retains the original object");
-    assert!(objects.iter().any(|o| o == "brain-db"), "history retains the revised object");
+    assert!(
+        objects.iter().any(|o| o == "brain"),
+        "history retains the original object"
+    );
+    assert!(
+        objects.iter().any(|o| o == "brain-db"),
+        "history retains the revised object"
+    );
     client.close().await.expect("close");
 }
 
@@ -104,7 +120,10 @@ async fn tombstone_and_retract_are_accepted() {
     let (client, _agent) = it.connect_fresh().await;
     let subject = subject_entity(&client).await;
 
-    let a = client.create_statement(&fact(subject, "one")).await.expect("create a");
+    let a = client
+        .create_statement(&fact(subject, "one"))
+        .await
+        .expect("create a");
     let ts = client
         .tombstone_statement(&StatementTombstoneRequest {
             statement_id: a.statement_id,
@@ -116,7 +135,10 @@ async fn tombstone_and_retract_are_accepted() {
         .expect("tombstone");
     assert!(ts.tombstoned_at_unix_nanos > 0);
 
-    let b = client.create_statement(&fact(subject, "two")).await.expect("create b");
+    let b = client
+        .create_statement(&fact(subject, "two"))
+        .await
+        .expect("create b");
     let rt = client
         .retract_statement(&StatementRetractRequest {
             statement_id: b.statement_id,

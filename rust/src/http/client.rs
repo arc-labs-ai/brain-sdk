@@ -91,47 +91,56 @@ impl BrainHttpClient {
 
     /// Store a memory. Idempotent (stable server-side request id) — retried.
     pub async fn encode(&self, input: &EncodeInput) -> Result<EncodeResult, BrainHttpError> {
-        self.send(reqwest::Method::POST, "/v1/memories", Some(input), true).await
+        self.send(reqwest::Method::POST, "/v1/memories", Some(input), true)
+            .await
     }
 
     /// Recall memories for a cue.
     pub async fn recall(&self, input: &RecallInput) -> Result<RecallResult, BrainHttpError> {
-        self.send(reqwest::Method::POST, "/v1/recall", Some(input), false).await
+        self.send(reqwest::Method::POST, "/v1/recall", Some(input), false)
+            .await
     }
 
     /// Forget a memory.
     pub async fn forget(&self, input: &ForgetInput) -> Result<ForgetResult, BrainHttpError> {
-        self.send(reqwest::Method::DELETE, "/v1/memories", Some(input), false).await
+        self.send(reqwest::Method::DELETE, "/v1/memories", Some(input), false)
+            .await
     }
 
     /// Create/overwrite a directed edge between two memories.
     pub async fn link(&self, input: &LinkInput) -> Result<LinkResult, BrainHttpError> {
-        self.send(reqwest::Method::POST, "/v1/links", Some(input), false).await
+        self.send(reqwest::Method::POST, "/v1/links", Some(input), false)
+            .await
     }
 
     /// Remove a directed edge (idempotent).
     pub async fn unlink(&self, input: &UnlinkInput) -> Result<UnlinkResult, BrainHttpError> {
-        self.send(reqwest::Method::DELETE, "/v1/links", Some(input), false).await
+        self.send(reqwest::Method::DELETE, "/v1/links", Some(input), false)
+            .await
     }
 
     /// Plan a path from a start state to a goal state.
     pub async fn plan(&self, input: &PlanInput) -> Result<PlanResult, BrainHttpError> {
-        self.send(reqwest::Method::POST, "/v1/plan", Some(input), false).await
+        self.send(reqwest::Method::POST, "/v1/plan", Some(input), false)
+            .await
     }
 
     /// Infer over the graph from an observation.
     pub async fn reason(&self, input: &ReasonInput) -> Result<ReasonResult, BrainHttpError> {
-        self.send(reqwest::Method::POST, "/v1/reason", Some(input), false).await
+        self.send(reqwest::Method::POST, "/v1/reason", Some(input), false)
+            .await
     }
 
     /// The identity Brain resolves from the credential. Idempotent GET — retried.
     pub async fn whoami(&self) -> Result<Whoami, BrainHttpError> {
-        self.send::<(), _>(reqwest::Method::GET, "/v1/whoami", None, true).await
+        self.send::<(), _>(reqwest::Method::GET, "/v1/whoami", None, true)
+            .await
     }
 
     /// What the connected shard supports. Idempotent GET — retried.
     pub async fn capabilities(&self) -> Result<Capabilities, BrainHttpError> {
-        self.send::<(), _>(reqwest::Method::GET, "/v1/capabilities", None, true).await
+        self.send::<(), _>(reqwest::Method::GET, "/v1/capabilities", None, true)
+            .await
     }
 
     /// Send with the retry policy applied when `idempotent`. Non-idempotent
@@ -195,7 +204,10 @@ impl BrainHttpClient {
             )
         })?;
         if !status.is_success() {
-            return Err((BrainHttpError::from_body(status.as_u16(), &text), retry_after));
+            return Err((
+                BrainHttpError::from_body(status.as_u16(), &text),
+                retry_after,
+            ));
         }
         serde_json::from_str(&text).map_err(|e| {
             (

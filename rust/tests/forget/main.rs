@@ -22,7 +22,9 @@ async fn soft_forget_removes_from_recall() {
 
     // First wait until it is actually recallable, so the post-forget assertion
     // is meaningful (not vacuously true because the index lagged).
-    let rec = RecallBuilder::new("When is the meeting?").include_text(true).build();
+    let rec = RecallBuilder::new("When is the meeting?")
+        .include_text(true)
+        .build();
     let before = common::recall_until(&client, &rec, |a| {
         a.memories().iter().any(|m| m.memory_id == id)
     })

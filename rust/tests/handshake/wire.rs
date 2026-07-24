@@ -19,8 +19,8 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload,
-    MemoryKindWire, ServerFeatures, StageKind, WaitMode, WelcomePayload,
+    AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload, MemoryKindWire,
+    ServerFeatures, SpacePermissions, StageKind, WaitMode, WelcomePayload,
 };
 use brain_db_sdk::{new_id, Auth, BrainClient, BrainError, ClientConfig};
 
@@ -62,7 +62,7 @@ async fn serve_one(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 3,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -146,9 +146,11 @@ async fn connect_handshake_encode_round_trip_against_mock_server() {
         serve_one(sock).await;
     });
 
-    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
 
-    let session = client.session();
+    let session = client.connection();
     assert_eq!(session.chosen_version, 1);
     assert_eq!(session.server_id, "mock-brain");
     assert_eq!(session.bound_shard_id, 3);
@@ -220,10 +222,11 @@ async fn live_server_handshake() {
     };
     let addr: SocketAddr = addr.parse().expect("BRAIN_TEST_ADDR must be host:port");
 
-    let client = BrainClient::connect_with(addr, ClientConfig::new(Auth::Token(b"test-token".to_vec())))
-        .await
-        .expect("connect to live server");
-    assert_eq!(client.session().chosen_version, 1);
-    assert!(client.session().permissions.can_encode);
+    let client =
+        BrainClient::connect_with(addr, ClientConfig::new(Auth::Token(b"test-token".to_vec())))
+            .await
+            .expect("connect to live server");
+    assert_eq!(client.connection().chosen_version, 1);
+    assert!(client.connection().permissions.can_encode);
     client.close().await.expect("bye");
 }

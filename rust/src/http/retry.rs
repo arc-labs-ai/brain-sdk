@@ -103,7 +103,10 @@ mod tests {
         assert!(HttpRetryPolicy::is_retryable_status(0));
         assert!(HttpRetryPolicy::is_retryable_status(503));
         for s in [400, 401, 404, 409, 429, 500, 502, 504] {
-            assert!(!HttpRetryPolicy::is_retryable_status(s), "{s} must not retry");
+            assert!(
+                !HttpRetryPolicy::is_retryable_status(s),
+                "{s} must not retry"
+            );
         }
     }
 

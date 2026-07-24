@@ -55,7 +55,10 @@ async fn get_supersede_tombstone() {
     let a = entity(&client, "Ada").await;
     let b = entity(&client, "Babbage").await;
 
-    let rel = client.create_relation(&relation(a, b)).await.expect("create relation");
+    let rel = client
+        .create_relation(&relation(a, b))
+        .await
+        .expect("create relation");
 
     // GET the relation back by id.
     let got = client
@@ -100,7 +103,10 @@ async fn traverse_from_entity() {
     let (client, _agent) = it.connect_fresh().await;
     let a = entity(&client, "Ada").await;
     let b = entity(&client, "Babbage").await;
-    client.create_relation(&relation(a, b)).await.expect("create relation");
+    client
+        .create_relation(&relation(a, b))
+        .await
+        .expect("create relation");
 
     // Walk the relation graph from `a`; with one edge a→b we expect a path.
     let paths = client

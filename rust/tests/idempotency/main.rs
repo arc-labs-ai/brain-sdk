@@ -27,7 +27,10 @@ async fn repeated_encode_is_idempotent() {
         first.memory_id, second.memory_id,
         "same request_id must return the same memory, not a second row"
     );
-    assert_eq!(first.lsn, second.lsn, "the retry replays the cached response");
+    assert_eq!(
+        first.lsn, second.lsn,
+        "the retry replays the cached response"
+    );
     client.close().await.expect("close");
 }
 
@@ -44,7 +47,7 @@ async fn repeated_create_entity_is_idempotent() {
         canonical_name: "Idempotent Ada".to_string(),
         aliases: vec![],
         attributes_blob: vec![],
-            session_id: 0,
+        session_id: 0,
         request_id: new_id(),
     };
     let first = client.create_entity(&req).await.expect("first create");

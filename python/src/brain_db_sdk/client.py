@@ -19,7 +19,7 @@ from .errors import ProtocolError
 from .mux import MuxConnection, Subscription
 from .wire.opcode import Opcode
 from .wire.types import (
-    AgentPermissions,
+    SpacePermissions,
     AnswerKind,
     AuthCredentials,
     AuthMethod,
@@ -208,7 +208,7 @@ class SessionInfo:
     chosen_version: int
     connection_id: bytes
     bound_shard_id: int
-    permissions: AgentPermissions
+    permissions: SpacePermissions
     # Owning tenant the server bound this connection to (server-derived from
     # auth). Empty when the connection resolves to the reserved `brain` system
     # namespace. Read-only — the client never sends a namespace.
@@ -273,7 +273,7 @@ class BrainClient:
         # form so callers get attribute access.
         permissions = outcome.auth_ok.permissions
         if isinstance(permissions, dict):
-            permissions = AgentPermissions.from_map(permissions)
+            permissions = SpacePermissions.from_map(permissions)
         session = SessionInfo(
             space_id=outcome.auth_ok.space_id,
             server_id=outcome.welcome.server_id,

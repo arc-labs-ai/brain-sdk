@@ -10,8 +10,8 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, ErrorCategoryWire, ErrorCodeWire, ErrorResponse,
-    ForgetRequest, ForgetResponse, HelloPayload, ServerFeatures, WelcomePayload,
+    AuthOkPayload, AuthPayload, ErrorCategoryWire, ErrorCodeWire, ErrorResponse, ForgetRequest,
+    ForgetResponse, HelloPayload, ServerFeatures, SpacePermissions, WelcomePayload,
 };
 use brain_db_sdk::{with_retry, Auth, BrainClient, ForgetBuilder, RetryPolicy};
 
@@ -44,7 +44,7 @@ async fn serve_forget_then_recover(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -115,7 +115,9 @@ async fn with_retry_recovers_a_resource_exhausted_forget() {
         serve_forget_then_recover(sock).await;
     });
 
-    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
 
     // One stable request so the retry resends the same request_id. Now that the
     // verbs take `&self`, the free `with_retry` combinator wraps them directly.
@@ -159,7 +161,7 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
         let auth_ok = AuthOkPayload {
             space_id: SERVER_AGENT,
             bound_shard_id: 0,
-            permissions: AgentPermissions {
+            permissions: SpacePermissions {
                 can_act_as: false,
                 can_encode: true,
                 can_recall: true,
@@ -192,7 +194,9 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
         }
     });
 
-    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec())).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
     let req = ForgetBuilder::new(1).build();
     let policy = RetryPolicy::new(2, std::time::Duration::ZERO, std::time::Duration::ZERO);
     let result = with_retry(&policy, || client.forget(&req)).await;

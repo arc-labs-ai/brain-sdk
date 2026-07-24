@@ -16,7 +16,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("whoami       {} {}", who.namespace, who.space_id);
 
     let caps = brain.capabilities().await?;
-    println!("capabilities vector_dim={} llm={}", caps.vector_dim, caps.llm_extractor);
+    println!(
+        "capabilities vector_dim={} llm={}",
+        caps.vector_dim, caps.llm_extractor
+    );
 
     let enc = brain
         .encode(&EncodeInput {
@@ -24,7 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         })
         .await?;
-    println!("encode       {} dedup={}", enc.memory_id, enc.was_deduplicated);
+    println!(
+        "encode       {} dedup={}",
+        enc.memory_id, enc.was_deduplicated
+    );
 
     let rec = brain
         .recall(&RecallInput {

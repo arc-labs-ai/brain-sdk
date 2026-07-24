@@ -14,9 +14,9 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, ClientPongRequest, EncodeRequest, EncodeResponse,
-    HelloCapabilities, HelloPayload, MemoryKindWire, ServerFeatures, ServerPingResponse, WaitMode,
-    WelcomePayload,
+    AuthOkPayload, AuthPayload, ClientPongRequest, EncodeRequest, EncodeResponse,
+    HelloCapabilities, HelloPayload, MemoryKindWire, ServerFeatures, ServerPingResponse,
+    SpacePermissions, WaitMode, WelcomePayload,
 };
 
 /// The agent id the mock server assigns from the credential.
@@ -54,7 +54,7 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -253,7 +253,7 @@ async fn serve_subscription(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,
@@ -455,7 +455,7 @@ async fn serve_keepalive(mut sock: TcpStream) {
     let auth_ok = AuthOkPayload {
         space_id: SERVER_AGENT,
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
             can_act_as: false,
             can_encode: true,
             can_recall: true,

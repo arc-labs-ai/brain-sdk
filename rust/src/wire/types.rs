@@ -110,7 +110,7 @@ pub struct MtlsClaim {
 
 /// Agent permissions confirmed in AUTH_OK.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct AgentPermissions {
+pub struct SpacePermissions {
     pub can_encode: bool,
     pub can_recall: bool,
     pub can_plan: bool,
@@ -171,7 +171,7 @@ pub struct AuthOkPayload {
     #[serde(with = "serde_bytes")]
     pub space_id: WireUuid,
     pub bound_shard_id: u16,
-    pub permissions: AgentPermissions,
+    pub permissions: SpacePermissions,
     /// Owning tenant the connection resolved to (server-derived from auth).
     /// Empty when the connection resolves to the reserved `brain` system
     /// namespace. The client only surfaces this — it never sends a namespace.
@@ -224,7 +224,14 @@ pub struct EdgeRequest {
 /// so a single `wait` knob controls both. On a read there is no async to wait
 /// for, so `trace` is a pure observability toggle with no timing effect.
 #[derive(
-    Clone, Copy, Debug, Default, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
 )]
 #[repr(u8)]
 pub enum WaitMode {

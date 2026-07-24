@@ -58,7 +58,10 @@ async fn plan_between_two_memories_round_trips() {
     // server answers with a well-formed step list rather than erroring.
     let steps = client.plan(&req).await.expect("plan by memory id");
     for (i, step) in steps.iter().enumerate() {
-        assert_eq!(step.step_index as usize, i, "steps are contiguously indexed");
+        assert_eq!(
+            step.step_index as usize, i,
+            "steps are contiguously indexed"
+        );
     }
     client.close().await.expect("close");
 }
@@ -123,7 +126,10 @@ async fn plan_rejects_budget_over_max_traversal_depth() {
         txn_id: None,
         trace: false,
     };
-    let err = client.plan(&over).await.expect_err("over-depth budget is rejected");
+    let err = client
+        .plan(&over)
+        .await
+        .expect_err("over-depth budget is rejected");
     let msg = err.to_string();
     assert!(
         msg.contains("max_steps") || msg.contains("max_traversal_depth"),

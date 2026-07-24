@@ -23,7 +23,7 @@ from brain_db_sdk.wire.cbor import from_cbor, to_cbor
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    AgentPermissions,
+    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     EncodeResponse,
@@ -226,7 +226,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> None:
     auth_ok = AuthOkPayload(
         space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
-        permissions=AgentPermissions(True, True, True, True, True, True),
+        permissions=SpacePermissions(True, True, True, True, True, True),
         namespace="",
         server_time_unix_nanos=1,
     )
