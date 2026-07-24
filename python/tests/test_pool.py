@@ -49,7 +49,7 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xAB" * 16,
+        connection_id=b"\xAB" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -63,7 +63,7 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
     auth_frame = read_frame(sock, buf)
     decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -94,8 +94,8 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
             salience=0.5,
             auto_edges_added=0,
             lsn=1,
-            agent_id=SERVER_AGENT_ID,
-            context_id=req.context_id,
+            space_id=SERVER_AGENT_ID,
+            session_id=req.session_id,
             kind=MemoryKind.SEMANTIC,
             created_at_unix_nanos=1,
             edges_out_count=0,
@@ -109,7 +109,7 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
 def _request() -> EncodeRequest:
     return EncodeRequest(
         text="pooled",
-        context_id=1,
+        session_id=1,
         request_id=new_id(),
         txn_id=None,
         occurred_at_unix_nanos=None,

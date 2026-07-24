@@ -27,21 +27,21 @@ from .wire.types import (
 
 @dataclass
 class EncodeBuilder:
-    """Builder for an ENCODE request. Stores one text memory in context 0;
+    """Builder for an ENCODE request. Stores one text memory in session 0;
     the server owns the embedding, kind classification, salience, and edges.
     ``occurred_at`` optionally records when the event the text describes
     happened (distinct from the ingest time)."""
 
     text: str
-    context_id: int = 0
+    session_id: int = 0
     occurred_at_unix_nanos: Optional[int] = None
     act_as_identity: Optional[ActAs] = None
     wait_mode: int = WaitMode.ACK
     allow_dups: bool = False
 
-    def context(self, context_id: int) -> "EncodeBuilder":
-        """Store the memory under a specific context id instead of the default 0."""
-        self.context_id = context_id
+    def session(self, session_id: int) -> "EncodeBuilder":
+        """Store the memory under a specific session id instead of the default 0."""
+        self.session_id = session_id
         return self
 
     def occurred_at(self, occurred_at_unix_nanos: Optional[int]) -> "EncodeBuilder":
@@ -65,17 +65,18 @@ class EncodeBuilder:
         self.wait_mode = WaitMode.DERIVED
         return self
 
-    def act_as(self, namespace: str, agent_id: bytes) -> "EncodeBuilder":
-        """Run this encode as the effective identity ``(namespace, agent_id)``
-        on behalf of the connection principal. Requires the connection's key to
-        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
-        Per-request, so one pooled client can serve many tenants."""
-        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
+    def act_as(self, namespace: str, space_id: str) -> "EncodeBuilder":
+        """Run this encode as the effective identity ``(namespace, space_id)``
+        on behalf of the connection principal. ``space_id`` is the human-readable
+        structured space string (empty selects the key-bound space). Requires the
+        connection's key to hold ``can_act_as``; otherwise the server rejects with
+        ``ActAsDenied``. Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, space_id=space_id)
         return self
 
     def allow_duplicates(self, allow: bool = True) -> "EncodeBuilder":
         """Opt out of content dedup and force a distinct memory. By default
-        Brain dedupes byte-identical text on ``(agent_id, context_id,
+        Brain dedupes byte-identical text on ``(space_id, session_id,
         BLAKE3(text))`` and returns the existing memory (``was_deduplicated =
         True``) without writing. Call this when the same text is a genuinely
         distinct observation that must coexist (e.g. the same fact re-stated at
@@ -87,7 +88,7 @@ class EncodeBuilder:
         """Finish into a wire :class:`EncodeRequest`, minting a fresh id."""
         return EncodeRequest(
             text=self.text,
-            context_id=self.context_id,
+            session_id=self.session_id,
             request_id=new_id(),
             txn_id=None,
             occurred_at_unix_nanos=self.occurred_at_unix_nanos,
@@ -99,7 +100,7 @@ class EncodeBuilder:
 
 @dataclass
 class RecallBuilder:
-    """Builder for a RECALL request. Returns up to 10 of the agent's own
+    """Builder for a RECALL request. Returns up to 10 of the space's own
     memories with text and edges included; the server runs one unified recall
     path. ``subject`` names the entity a fact lookup is about; ``as_of``
     queries the graph as it stood at a record time (bi-temporal travel)."""
@@ -108,7 +109,7 @@ class RecallBuilder:
     subject_name: str = ""
     max_results: int = 10
     confidence_threshold: float = 0.0
-    context_filter: Optional[list[int]] = None
+    session_filter: Optional[list[int]] = None
     age_bound_unix_nanos: Optional[int] = None
     as_of_record_time_unix_nanos: Optional[int] = None
     kind_filter: Optional[list[int]] = None
@@ -140,9 +141,9 @@ class RecallBuilder:
         self.confidence_threshold = threshold
         return self
 
-    def contexts(self, contexts: list[int]) -> "RecallBuilder":
-        """Restrict recall to memories in these context ids."""
-        self.context_filter = list(contexts)
+    def sessions(self, sessions: list[int]) -> "RecallBuilder":
+        """Restrict recall to memories in these session ids."""
+        self.session_filter = list(sessions)
         return self
 
     def kinds(self, kinds: list[int]) -> "RecallBuilder":
@@ -178,12 +179,13 @@ class RecallBuilder:
         self.trace_enabled = trace
         return self
 
-    def act_as(self, namespace: str, agent_id: bytes) -> "RecallBuilder":
-        """Run this recall as the effective identity ``(namespace, agent_id)``
-        on behalf of the connection principal. Requires the connection's key to
-        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
-        Per-request, so one pooled client can serve many tenants."""
-        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
+    def act_as(self, namespace: str, space_id: str) -> "RecallBuilder":
+        """Run this recall as the effective identity ``(namespace, space_id)``
+        on behalf of the connection principal. ``space_id`` is the human-readable
+        structured space string (empty selects the key-bound space). Requires the
+        connection's key to hold ``can_act_as``; otherwise the server rejects with
+        ``ActAsDenied``. Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, space_id=space_id)
         return self
 
     def build(self) -> RecallRequest:
@@ -193,7 +195,7 @@ class RecallBuilder:
             subject_name=self.subject_name,
             max_results=self.max_results,
             confidence_threshold=self.confidence_threshold,
-            context_filter=self.context_filter,
+            session_filter=self.session_filter,
             age_bound_unix_nanos=self.age_bound_unix_nanos,
             as_of_record_time_unix_nanos=self.as_of_record_time_unix_nanos,
             kind_filter=self.kind_filter,
@@ -228,12 +230,13 @@ class ForgetBuilder:
         self.mode = mode
         return self
 
-    def act_as(self, namespace: str, agent_id: bytes) -> "ForgetBuilder":
-        """Run this forget as the effective identity ``(namespace, agent_id)``
-        on behalf of the connection principal. Requires the connection's key to
-        hold ``can_act_as``; otherwise the server rejects with ``ActAsDenied``.
-        Per-request, so one pooled client can serve many tenants."""
-        self.act_as_identity = ActAs(namespace=namespace, agent_id=agent_id)
+    def act_as(self, namespace: str, space_id: str) -> "ForgetBuilder":
+        """Run this forget as the effective identity ``(namespace, space_id)``
+        on behalf of the connection principal. ``space_id`` is the human-readable
+        structured space string (empty selects the key-bound space). Requires the
+        connection's key to hold ``can_act_as``; otherwise the server rejects with
+        ``ActAsDenied``. Per-request, so one pooled client can serve many tenants."""
+        self.act_as_identity = ActAs(namespace=namespace, space_id=space_id)
         return self
 
     def build(self) -> ForgetRequest:

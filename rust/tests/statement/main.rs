@@ -23,6 +23,7 @@ async fn subject_entity(client: &brain_db_sdk::BrainClient) -> WireUuid {
             canonical_name: "Ada".to_string(),
             aliases: vec![],
             attributes_blob: vec![],
+            session_id: 0,
             request_id: new_id(),
         })
         .await
@@ -44,6 +45,7 @@ fn fact(subject: WireUuid, object: &str) -> StatementCreateRequest {
         valid_to_unix_nanos: u64::MAX,
         event_at_unix_nanos: 0,
         schema_version: 1,
+        session_id: 0,
         request_id: new_id(),
     }
 }

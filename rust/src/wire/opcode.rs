@@ -66,6 +66,22 @@ pub enum Opcode {
     TxnAbort = 0x0042,
     TxnAbortResp = 0x00C2,
 
+    // Space registry (per-tenant isolation unit).
+    SpaceCreateReq = 0x0070,
+    SpaceCreateResp = 0x00F0,
+    SpaceListReq = 0x0071,
+    SpaceListResp = 0x00F1,
+    SpaceDeleteReq = 0x0072,
+    SpaceDeleteResp = 0x00F2,
+
+    // Session registry (conversation/run grouping within a space).
+    SessionCreateReq = 0x0073,
+    SessionCreateResp = 0x00F3,
+    SessionListReq = 0x0074,
+    SessionListResp = 0x00F4,
+    SessionDeleteReq = 0x0075,
+    SessionDeleteResp = 0x00F5,
+
     // Error.
     Error = 0x00FF,
 
@@ -191,6 +207,20 @@ mod tests {
         assert_eq!(Opcode::EncodeVectorDirectReq.as_u16(), 0x002A);
         assert_eq!(Opcode::Error.as_u16(), 0x00FF);
         assert_eq!(Opcode::MaterializeProceduralReq.as_u16(), 0x0164);
+
+        // Space + session registry.
+        assert_eq!(Opcode::SpaceCreateReq.as_u16(), 0x0070);
+        assert_eq!(Opcode::SpaceCreateResp.as_u16(), 0x00F0);
+        assert_eq!(Opcode::SpaceListReq.as_u16(), 0x0071);
+        assert_eq!(Opcode::SpaceListResp.as_u16(), 0x00F1);
+        assert_eq!(Opcode::SpaceDeleteReq.as_u16(), 0x0072);
+        assert_eq!(Opcode::SpaceDeleteResp.as_u16(), 0x00F2);
+        assert_eq!(Opcode::SessionCreateReq.as_u16(), 0x0073);
+        assert_eq!(Opcode::SessionCreateResp.as_u16(), 0x00F3);
+        assert_eq!(Opcode::SessionListReq.as_u16(), 0x0074);
+        assert_eq!(Opcode::SessionListResp.as_u16(), 0x00F4);
+        assert_eq!(Opcode::SessionDeleteReq.as_u16(), 0x0075);
+        assert_eq!(Opcode::SessionDeleteResp.as_u16(), 0x00F5);
 
         // Subscriptions.
         assert_eq!(Opcode::SubscribeReq.as_u16(), 0x0030);

@@ -201,6 +201,20 @@ fn payload_cases_round_trip() {
     check_payload::<GetCapabilitiesResponse>("resp_get_capabilities");
     check_payload::<SubscriptionEvent>("resp_subscribe_event");
 
+    // Space + session registry ops (tenancy wire contract).
+    check_payload::<SpaceCreateRequest>("req_space_create");
+    check_payload::<SpaceListRequest>("req_space_list");
+    check_payload::<SpaceDeleteRequest>("req_space_delete");
+    check_payload::<SpaceCreateResponse>("resp_space_create");
+    check_payload::<SpaceListResponse>("resp_space_list");
+    check_payload::<SpaceDeleteResponse>("resp_space_delete");
+    check_payload::<SessionCreateRequest>("req_session_create");
+    check_payload::<SessionListRequest>("req_session_list");
+    check_payload::<SessionDeleteRequest>("req_session_delete");
+    check_payload::<SessionCreateResponse>("resp_session_create");
+    check_payload::<SessionListResponse>("resp_session_list");
+    check_payload::<SessionDeleteResponse>("resp_session_delete");
+
     // Extractor introspection.
     check_payload::<ExtractorListRequest>("req_extractor_list");
     check_payload::<ExtractorListResponseFrame>("resp_extractor_list");

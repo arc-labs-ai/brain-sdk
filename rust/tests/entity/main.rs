@@ -20,6 +20,7 @@ fn create(name: &str) -> EntityCreateRequest {
         canonical_name: name.to_string(),
         aliases: vec![],
         attributes_blob: vec![],
+            session_id: 0,
         request_id: new_id(),
     }
 }

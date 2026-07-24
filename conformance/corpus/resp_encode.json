@@ -4,7 +4,7 @@
   "salience": 0.5,
   "auto_edges_added": 1,
   "lsn": 42,
-  "agent_id": [
+  "space_id": [
     34,
     34,
     34,
@@ -22,7 +22,7 @@
     34,
     34
   ],
-  "context_id": 1,
+  "session_id": 1,
   "kind": 0,
   "created_at_unix_nanos": 1700000000000000000,
   "edges_out_count": 1,

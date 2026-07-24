@@ -49,6 +49,9 @@ use crate::wire::types::{
     StatementListRequest, StatementListResponseFrame, StatementRetractRequest,
     StatementRetractResponse, StatementSupersedeRequest, StatementSupersedeResponse,
     StatementTombstoneRequest, StatementTombstoneResponse, StatementView,
+    SpaceCreateRequest, SpaceCreateResponse, SpaceDeleteRequest, SpaceDeleteResponse,
+    SpaceListRequest, SpaceListResponse, SessionCreateRequest, SessionCreateResponse,
+    SessionDeleteRequest, SessionDeleteResponse, SessionListRequest, SessionListResponse,
     SubscribeRequest, TxnAbortRequest, TxnAbortResponse, TxnBeginRequest, TxnBeginResponse,
     TxnCommitRequest, TxnCommitResponse, UnlinkRequest, UnlinkResponse,
 };
@@ -58,7 +61,7 @@ const DEFAULT_CLIENT_ID: &str = "brain-db-sdk-rust";
 
 /// How the client authenticates after WELCOME. Auth is mandatory: there is no
 /// anonymous mode. The credential is the connection's whole identity — the
-/// server resolves `(namespace, agent, permissions)` from it and refuses any
+/// server resolves `(namespace, space, permissions)` from it and refuses any
 /// connection it cannot resolve.
 #[derive(Clone, Debug)]
 pub enum Auth {
@@ -98,7 +101,7 @@ pub struct ClientConfig {
     /// Capabilities advertised in HELLO.
     pub capabilities: HelloCapabilities,
     /// How to authenticate after WELCOME. Mandatory — the credential is the
-    /// connection's identity; the server assigns the agent and namespace.
+    /// connection's identity; the server assigns the space and namespace.
     pub auth: Auth,
     /// Deadline for the TCP connect. `None` waits indefinitely.
     pub connect_timeout: Option<Duration>,
@@ -128,10 +131,11 @@ impl ClientConfig {
 /// The session the server granted at handshake time.
 #[derive(Clone, Debug)]
 pub struct SessionInfo {
-    pub agent_id: [u8; 16],
+    pub space_id: [u8; 16],
     pub server_id: String,
     pub chosen_version: u8,
-    pub session_id: [u8; 16],
+    /// Per-connection identifier the server minted at WELCOME.
+    pub connection_id: [u8; 16],
     pub bound_shard_id: u16,
     pub permissions: AgentPermissions,
     /// Owning tenant the server bound this connection to (server-derived from
@@ -203,7 +207,7 @@ impl BrainClient {
             client_id: config.client_id,
             supported_versions: config.supported_versions,
             capabilities: config.capabilities,
-            client_session_token: None,
+            client_connection_token: None,
         };
         let auth = AuthPayload {
             method: config.auth.method(),
@@ -214,10 +218,10 @@ impl BrainClient {
             MuxConnection::handshake(stream, hello, auth, config.request_timeout).await?;
 
         let session = SessionInfo {
-            agent_id: auth_ok.agent_id,
+            space_id: auth_ok.space_id,
             server_id: welcome.server_id,
             chosen_version: welcome.chosen_version,
-            session_id: welcome.session_id,
+            connection_id: welcome.connection_id,
             bound_shard_id: auth_ok.bound_shard_id,
             permissions: auth_ok.permissions,
             namespace: auth_ok.namespace,
@@ -232,10 +236,10 @@ impl BrainClient {
         &self.session
     }
 
-    /// The agent id this connection acts as.
+    /// The space id this connection acts as.
     #[must_use]
-    pub fn agent_id(&self) -> [u8; 16] {
-        self.session.agent_id
+    pub fn space_id(&self) -> [u8; 16] {
+        self.session.space_id
     }
 
     /// The owning tenant the server bound this connection to (server-derived
@@ -795,7 +799,7 @@ impl BrainClient {
 
     /// List memories (MEMORY_LIST), flattening every streamed frame's `items`
     /// into one ordered list. This is a pure paginated enumeration of the
-    /// caller's `(namespace, agent)` memories — no query, no ranking. For the
+    /// caller's `(namespace, space)` memories — no query, no ranking. For the
     /// raw streamed frames (cursors, cumulative counts, `is_final`), use
     /// [`Self::memory_list_frames`].
     pub async fn memory_list(&self, request: &MemoryListRequest) -> Result<Vec<MemoryListItem>> {
@@ -1078,6 +1082,95 @@ impl BrainClient {
             Opcode::TxnAbort,
             Opcode::TxnAbortResp,
             "TXN_ABORT_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Provision the caller's effective space explicitly (SPACE_CREATE).
+    /// Idempotent: a create for an existing space returns the existing row
+    /// with `created = false`.
+    pub async fn create_space(
+        &self,
+        request: &SpaceCreateRequest,
+    ) -> Result<SpaceCreateResponse> {
+        self.unary(
+            Opcode::SpaceCreateReq,
+            Opcode::SpaceCreateResp,
+            "SPACE_CREATE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// List the caller's namespace's spaces (SPACE_LIST). `cross_shard_complete`
+    /// is `false` while the listing covers only the caller's shard.
+    pub async fn list_spaces(&self, request: &SpaceListRequest) -> Result<SpaceListResponse> {
+        self.unary(
+            Opcode::SpaceListReq,
+            Opcode::SpaceListResp,
+            "SPACE_LIST_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Erase the caller's effective space and every row under it
+    /// (SPACE_DELETE). Hard/immediate GDPR erasure.
+    pub async fn delete_space(
+        &self,
+        request: &SpaceDeleteRequest,
+    ) -> Result<SpaceDeleteResponse> {
+        self.unary(
+            Opcode::SpaceDeleteReq,
+            Opcode::SpaceDeleteResp,
+            "SPACE_DELETE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Provision a session under the caller's effective space explicitly
+    /// (SESSION_CREATE). Idempotent.
+    pub async fn create_session(
+        &self,
+        request: &SessionCreateRequest,
+    ) -> Result<SessionCreateResponse> {
+        self.unary(
+            Opcode::SessionCreateReq,
+            Opcode::SessionCreateResp,
+            "SESSION_CREATE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// List one space's sessions newest-first (SESSION_LIST). A first-class
+    /// end-user feature — the client's session picker reads this.
+    pub async fn list_sessions(
+        &self,
+        request: &SessionListRequest,
+    ) -> Result<SessionListResponse> {
+        self.unary(
+            Opcode::SessionListReq,
+            Opcode::SessionListResp,
+            "SESSION_LIST_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Delete a session's memories + graph rows (SESSION_DELETE). Soft by
+    /// default (7-day grace); `hard = true` zeroes immediately. The default
+    /// session (`session_id = 0`) is non-deletable.
+    pub async fn delete_session(
+        &self,
+        request: &SessionDeleteRequest,
+    ) -> Result<SessionDeleteResponse> {
+        self.unary(
+            Opcode::SessionDeleteReq,
+            Opcode::SessionDeleteResp,
+            "SESSION_DELETE_RESP",
             request,
         )
         .await

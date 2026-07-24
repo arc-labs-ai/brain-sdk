@@ -37,7 +37,7 @@ async function handshake(chan: FrameChannel): Promise<void> {
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: new Uint8Array(16).fill(0xee),
+    connectionId: new Uint8Array(16).fill(0xee),
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 1 << 20,
@@ -51,7 +51,7 @@ async function handshake(chan: FrameChannel): Promise<void> {
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,

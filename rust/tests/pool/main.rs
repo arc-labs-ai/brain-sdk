@@ -37,7 +37,7 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -51,7 +51,7 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -86,8 +86,8 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
             salience: 0.5,
             auto_edges_added: 0,
             lsn: 1,
-            agent_id: SERVER_AGENT,
-            context_id: req.context_id,
+            space_id: SERVER_AGENT,
+            session_id: req.session_id,
             kind: MemoryKindWire::Semantic,
             created_at_unix_nanos: 1,
             edges_out_count: 0,
@@ -104,7 +104,7 @@ fn request() -> EncodeRequest {
     EncodeRequest {
         act_as: None,
         text: "pooled".to_string(),
-        context_id: 1,
+        session_id: 1,
         request_id: new_id(),
         txn_id: None,
         occurred_at_unix_nanos: None,

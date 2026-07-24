@@ -29,7 +29,7 @@ async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u
 
 /// Handshake, then read TWO ENCODE requests before answering either — and
 /// answer them in reverse receipt order. Each response echoes the request's
-/// `context_id` as its `memory_id` so the client can verify routing.
+/// `session_id` as its `memory_id` so the client can verify routing.
 async fn serve_two_concurrent(mut sock: TcpStream) {
     let mut buf = Vec::new();
 
@@ -38,7 +38,7 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -52,7 +52,7 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -99,15 +99,15 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
     assert_eq!(bye.opcode, Opcode::Bye as u16);
 }
 
-fn encode_response(req: &EncodeRequest, agent_id: [u8; 16]) -> EncodeResponse {
+fn encode_response(req: &EncodeRequest, space_id: [u8; 16]) -> EncodeResponse {
     EncodeResponse {
-        memory_id: u128::from(req.context_id),
+        memory_id: u128::from(req.session_id),
         was_deduplicated: false,
         salience: 0.5,
         auto_edges_added: 0,
         lsn: 1,
-        agent_id,
-        context_id: req.context_id,
+        space_id,
+        session_id: req.session_id,
         kind: MemoryKindWire::Semantic,
         created_at_unix_nanos: 1,
         edges_out_count: 0,
@@ -118,11 +118,11 @@ fn encode_response(req: &EncodeRequest, agent_id: [u8; 16]) -> EncodeResponse {
     }
 }
 
-fn encode_request(context_id: u64) -> EncodeRequest {
+fn encode_request(session_id: u64) -> EncodeRequest {
     EncodeRequest {
         act_as: None,
-        text: format!("memory {context_id}"),
-        context_id,
+        text: format!("memory {session_id}"),
+        session_id,
         request_id: new_id(),
         txn_id: None,
         occurred_at_unix_nanos: None,
@@ -149,7 +149,7 @@ async fn two_requests_in_flight_route_back_correctly() {
             compression_zstd: false,
             server_push: false,
         },
-        client_session_token: None,
+        client_connection_token: None,
     };
     let auth = AuthPayload {
         method: brain_db_sdk::wire::types::AuthMethod::Token,
@@ -186,9 +186,9 @@ async fn two_requests_in_flight_route_back_correctly() {
     // Despite the server replying in reverse order, each response routed back
     // to the request whose context it echoes.
     assert_eq!(ra.memory_id, 100);
-    assert_eq!(ra.context_id, 100);
+    assert_eq!(ra.session_id, 100);
     assert_eq!(rb.memory_id, 200);
-    assert_eq!(rb.context_id, 200);
+    assert_eq!(rb.session_id, 200);
 
     conn.send_bye().await.expect("bye");
     server.await.expect("server task");
@@ -214,7 +214,7 @@ fn sample_event(lsn: u64) -> SubscriptionEvent {
     SubscriptionEvent {
         event_type: EventType::Encoded,
         memory_id: u128::from(lsn),
-        context_id: 1,
+        session_id: 1,
         text: format!("event {lsn}"),
         kind: MemoryKindWire::Semantic,
         salience: 0.5,
@@ -237,7 +237,7 @@ async fn serve_subscription(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -251,7 +251,7 @@ async fn serve_subscription(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -322,10 +322,10 @@ async fn serve_subscription(mut sock: TcpStream) {
 fn subscribe_types_round_trip() {
     let req = SubscribeRequest {
         filter: SubscriptionFilter {
-            contexts: Some(vec![1, 2]),
+            session_filter: Some(vec![1, 2]),
             kinds: Some(vec![MemoryKindWire::Semantic]),
             similar_to: None,
-            agents: Some(vec![[7u8; 16]]),
+            spaces: Some(vec![[7u8; 16]]),
             memory_ids: Some(vec![123]),
         },
         include_history: true,
@@ -369,7 +369,7 @@ async fn subscription_drains_events_unsubscribes_and_leaks_no_route() {
             compression_zstd: false,
             server_push: true,
         },
-        client_session_token: None,
+        client_connection_token: None,
     };
     let auth = AuthPayload {
         method: brain_db_sdk::wire::types::AuthMethod::Token,
@@ -383,10 +383,10 @@ async fn subscription_drains_events_unsubscribes_and_leaks_no_route() {
     let mut sub = conn
         .subscribe(&SubscribeRequest {
             filter: SubscriptionFilter {
-                contexts: None,
+                session_filter: None,
                 kinds: None,
                 similar_to: None,
-                agents: None,
+                spaces: None,
                 memory_ids: None,
             },
             include_history: false,
@@ -439,7 +439,7 @@ async fn serve_keepalive(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -453,7 +453,7 @@ async fn serve_keepalive(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -514,7 +514,7 @@ async fn server_ping_is_answered_with_client_pong() {
             compression_zstd: false,
             server_push: false,
         },
-        client_session_token: None,
+        client_connection_token: None,
     };
     let auth = AuthPayload {
         method: brain_db_sdk::wire::types::AuthMethod::Token,

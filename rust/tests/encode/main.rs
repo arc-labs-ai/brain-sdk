@@ -35,7 +35,7 @@ async fn encode_carries_context_and_event_time() {
     // occurred_at is the memory's real-world event time; context groups a
     // session/thread. Both are optional ENCODE params.
     let req = EncodeBuilder::new("We shipped v1 on launch day.")
-        .context(42)
+        .session(42)
         .occurred_at(1_700_000_000_000_000_000)
         .build();
     let resp = client.encode(&req).await.expect("encode with params");

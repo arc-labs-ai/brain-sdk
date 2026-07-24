@@ -64,7 +64,7 @@ async function serveOne(sock: net.Socket): Promise<void> {
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: SESSION_ID,
+    connectionId: SESSION_ID,
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 16 * 1024 * 1024,
@@ -86,7 +86,7 @@ async function serveOne(sock: net.Socket): Promise<void> {
   decodeAuth(authFrame.payload);
 
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 3,
     permissions: {
       canEncode: true,
@@ -117,8 +117,8 @@ async function serveOne(sock: net.Socket): Promise<void> {
     salience: 0.75,
     autoEdgesAdded: 0,
     lsn: 42n,
-    agentId: SERVER_AGENT_ID,
-    contextId: enc.contextId,
+    spaceId: SERVER_AGENT_ID,
+    sessionId: enc.sessionId,
     kind: MemoryKindWire.Semantic,
     createdAtUnixNanos: 1_700_000_000_000_000_001n,
     edgesOutCount: 0,
@@ -141,7 +141,7 @@ async function serveOne(sock: net.Socket): Promise<void> {
 function sampleEncodeRequest(): EncodeRequest {
   return {
     text: "the user prefers dark mode",
-    contextId: 9n,
+    sessionId: 9n,
     requestId: newId(),
     txnId: null,
     occurredAtUnixNanos: null,
@@ -156,17 +156,17 @@ describe("connection / handshake", () => {
     try {
       const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
-      const s = client.session;
+      const s = client.connection;
       expect(s.chosenVersion).toBe(1);
       expect(s.serverId).toBe("mock-brain");
       expect(s.boundShardId).toBe(3);
-      expect([...s.sessionId]).toEqual([...SESSION_ID]);
+      expect([...s.connectionId]).toEqual([...SESSION_ID]);
       expect(s.permissions.canEncode).toBe(true);
       expect(s.permissions.canAdmin).toBe(false);
       expect(s.serverFeatures.maxConcurrentStreams).toBe(256);
 
       // The client adopts the server-assigned agent id (it sent none of its own).
-      expect([...client.agentId]).toEqual([...SERVER_AGENT_ID]);
+      expect([...client.spaceId]).toEqual([...SERVER_AGENT_ID]);
       // The namespace AUTH_OK carried is surfaced read-only on the client.
       expect(client.namespace).toBe("acme");
       expect(s.namespace).toBe("acme");
@@ -175,8 +175,8 @@ describe("connection / handshake", () => {
       const resp = await client.encode(req);
       expect(resp.memoryId).toBe(MEMORY_ID);
       expect(resp.lsn).toBe(42n);
-      expect(resp.contextId).toBe(req.contextId);
-      expect([...resp.agentId]).toEqual([...client.agentId]);
+      expect(resp.sessionId).toBe(req.sessionId);
+      expect([...resp.spaceId]).toEqual([...client.spaceId]);
       expect(resp.pendingStages).toEqual([StageKind.AutoEdge, StageKind.Extractor]);
 
       await client.close();
@@ -193,7 +193,7 @@ describe("connection / handshake", () => {
       const welcome: WelcomePayload = {
         serverId: "mock-brain",
         chosenVersion: 99, // never offered by the client
-        sessionId: new Uint8Array(16),
+        connectionId: new Uint8Array(16),
         capabilities: hello.capabilities,
         serverFeatures: {
           maxPayloadSize: 0,
@@ -230,8 +230,8 @@ describe("connection / handshake", () => {
     const host = liveAddr!.slice(0, idx);
     const port = Number(liveAddr!.slice(idx + 1));
     const client = await BrainClient.connect(host, port, { auth: TEST_AUTH });
-    expect(client.session.chosenVersion).toBe(1);
-    expect(client.session.permissions.canEncode).toBe(true);
+    expect(client.connection.chosenVersion).toBe(1);
+    expect(client.connection.permissions.canEncode).toBe(true);
     await client.close();
   });
 });

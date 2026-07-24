@@ -17,7 +17,31 @@ import { MuxConnection, type Subscription } from "./mux.js";
 import type { Frame } from "./wire/frame.js";
 import { Opcode } from "./wire/opcode.js";
 import {
-  type AgentPermissions,
+  type SpacePermissions,
+  type SpaceCreateRequest,
+  type SpaceCreateResponse,
+  type SpaceListRequest,
+  type SpaceListResponse,
+  type SpaceDeleteRequest,
+  type SpaceDeleteResponse,
+  type SessionCreateRequest,
+  type SessionCreateResponse,
+  type SessionListRequest,
+  type SessionListResponse,
+  type SessionDeleteRequest,
+  type SessionDeleteResponse,
+  encodeSpaceCreate,
+  decodeSpaceCreateResponse,
+  encodeSpaceList,
+  decodeSpaceListResponse,
+  encodeSpaceDelete,
+  decodeSpaceDeleteResponse,
+  encodeSessionCreate,
+  decodeSessionCreateResponse,
+  encodeSessionList,
+  decodeSessionListResponse,
+  encodeSessionDelete,
+  decodeSessionDeleteResponse,
   type AuthCredentials,
   AuthMethod,
   type AuthPayload,
@@ -226,7 +250,7 @@ export function newId(): Uint8Array {
 /**
  * How the client authenticates after WELCOME. Auth is mandatory: there is no
  * anonymous mode. The credential is the connection's whole identity — the
- * server resolves `(namespace, agent, permissions)` from it and refuses any
+ * server resolves `(namespace, space, permissions)` from it and refuses any
  * connection it cannot resolve.
  */
 export type Auth =
@@ -288,14 +312,16 @@ function withDefaults(config: ClientConfig): ResolvedConfig {
   };
 }
 
-/** The session the server granted at handshake time. */
-export interface SessionInfo {
-  agentId: Uint8Array;
+/** The connection grant the server issued at handshake time. */
+export interface ConnectionInfo {
+  /** 16-byte resolved space id the server assigned to this connection. */
+  spaceId: Uint8Array;
   serverId: string;
   chosenVersion: number;
-  sessionId: Uint8Array;
+  /** 16-byte connection id the server minted for this handshake. */
+  connectionId: Uint8Array;
   boundShardId: number;
-  permissions: AgentPermissions;
+  permissions: SpacePermissions;
   /** Owning tenant the server bound this connection to (server-derived from
    * auth). Empty when the connection resolves to the reserved `brain` system
    * namespace. Read-only — the client never sends a namespace. */
@@ -311,7 +337,7 @@ export interface SessionInfo {
 export class BrainClient {
   private constructor(
     private readonly conn: MuxConnection,
-    public readonly session: SessionInfo,
+    public readonly connection: ConnectionInfo,
   ) {}
 
   /**
@@ -329,7 +355,7 @@ export class BrainClient {
       clientId: cfg.clientId,
       supportedVersions: cfg.supportedVersions,
       capabilities: cfg.capabilities,
-      clientSessionToken: null,
+      clientConnectionToken: null,
     };
     const { method, credentials } = authToWire(cfg.auth);
     const auth: AuthPayload = { method, credentials };
@@ -339,22 +365,22 @@ export class BrainClient {
       requestTimeoutMs: cfg.requestTimeoutMs,
     });
     const { welcome, authOk } = outcome;
-    const session: SessionInfo = {
-      agentId: authOk.agentId,
+    const connection: ConnectionInfo = {
+      spaceId: authOk.spaceId,
       serverId: welcome.serverId,
       chosenVersion: welcome.chosenVersion,
-      sessionId: welcome.sessionId,
+      connectionId: welcome.connectionId,
       boundShardId: authOk.boundShardId,
       permissions: authOk.permissions,
       namespace: authOk.namespace,
       serverFeatures: welcome.serverFeatures,
     };
-    return new BrainClient(conn, session);
+    return new BrainClient(conn, connection);
   }
 
-  /** The agent id this connection acts as, as the server assigned it. */
-  get agentId(): Uint8Array {
-    return this.session.agentId;
+  /** The resolved space id this connection acts as, as the server assigned it. */
+  get spaceId(): Uint8Array {
+    return this.connection.spaceId;
   }
 
   /**
@@ -363,7 +389,7 @@ export class BrainClient {
    * — the client never sends a namespace.
    */
   get namespace(): string {
-    return this.session.namespace;
+    return this.connection.namespace;
   }
 
   /**
@@ -470,6 +496,76 @@ export class BrainClient {
     );
     this.expect(frame.opcode, Opcode.MemoryInspectResp, "MEMORY_INSPECT_RESP");
     return decodeMemoryInspectResponse(frame.payload);
+  }
+
+  /**
+   * Provision the caller's effective space explicitly (SPACE_CREATE).
+   * Idempotent: a create for an existing space returns the existing row with
+   * `created = false`.
+   */
+  async spaceCreate(request: SpaceCreateRequest): Promise<SpaceCreateResponse> {
+    const frame = await this.conn.requestOne(Opcode.SpaceCreateReq, encodeSpaceCreate(request));
+    this.expect(frame.opcode, Opcode.SpaceCreateResp, "SPACE_CREATE_RESP");
+    return decodeSpaceCreateResponse(frame.payload);
+  }
+
+  /**
+   * List the caller's namespace's spaces (SPACE_LIST). `crossShardComplete` is
+   * `false` while the listing covers only the caller shard — treat it as a
+   * partial result.
+   */
+  async spaceList(request: SpaceListRequest): Promise<SpaceListResponse> {
+    const frame = await this.conn.requestOne(Opcode.SpaceListReq, encodeSpaceList(request));
+    this.expect(frame.opcode, Opcode.SpaceListResp, "SPACE_LIST_RESP");
+    return decodeSpaceListResponse(frame.payload);
+  }
+
+  /**
+   * GDPR-erase the caller's effective space (SPACE_DELETE): remove every row
+   * under `(namespace, space)`. Hard and immediate.
+   */
+  async spaceDelete(request: SpaceDeleteRequest): Promise<SpaceDeleteResponse> {
+    const frame = await this.conn.requestOne(Opcode.SpaceDeleteReq, encodeSpaceDelete(request));
+    this.expect(frame.opcode, Opcode.SpaceDeleteResp, "SPACE_DELETE_RESP");
+    return decodeSpaceDeleteResponse(frame.payload);
+  }
+
+  /**
+   * Provision a session under the caller's effective space (SESSION_CREATE).
+   * Idempotent: a create for an existing session returns the existing row with
+   * `created = false`.
+   */
+  async sessionCreate(request: SessionCreateRequest): Promise<SessionCreateResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.SessionCreateReq,
+      encodeSessionCreate(request),
+    );
+    this.expect(frame.opcode, Opcode.SessionCreateResp, "SESSION_CREATE_RESP");
+    return decodeSessionCreateResponse(frame.payload);
+  }
+
+  /**
+   * List one `(namespace, space)`'s sessions newest-first (SESSION_LIST).
+   * A first-class end-user feature for enumerating a space's conversations/runs.
+   */
+  async sessionList(request: SessionListRequest): Promise<SessionListResponse> {
+    const frame = await this.conn.requestOne(Opcode.SessionListReq, encodeSessionList(request));
+    this.expect(frame.opcode, Opcode.SessionListResp, "SESSION_LIST_RESP");
+    return decodeSessionListResponse(frame.payload);
+  }
+
+  /**
+   * Remove a session's memories + graph rows (SESSION_DELETE). Defaults to soft
+   * (7-day grace); set `hard = true` to zero immediately. The default session
+   * (`sessionId = 0`) is non-deletable.
+   */
+  async sessionDelete(request: SessionDeleteRequest): Promise<SessionDeleteResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.SessionDeleteReq,
+      encodeSessionDelete(request),
+    );
+    this.expect(frame.opcode, Opcode.SessionDeleteResp, "SESSION_DELETE_RESP");
+    return decodeSessionDeleteResponse(frame.payload);
   }
 
   /**

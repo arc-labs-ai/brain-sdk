@@ -4,14 +4,16 @@ The TypeScript client for the Brain memory database. Speaks Brain's BRN0 wire
 protocol directly; no dependency on Brain's internal code. Async by design.
 
 **Status: typed-graph verbs (Phase 6).** The wire codec (Phase 1) is **verified
-byte-for-byte against the shared conformance corpus** (all 38 `.bin`/`.json`
+byte-for-byte against the shared conformance corpus** (all 86 `.bin`/`.json`
 cases re-encode to identical bytes). On top of it, an async connection layer (a
 `FrameChannel` transport turning a socket's byte stream into whole frames, a
 `Connection` running the handshake HELLO → WELCOME → AUTH → AUTH_OK and
-request/response, a `BrainClient` holding the negotiated session), the three v1
-verbs with ergonomic builders (`encode()`, `recall()` streaming to EOS /
+request/response, a `BrainClient` holding the negotiated connection grant), the
+three v1 verbs with ergonomic builders (`encode()`, `recall()` streaming to EOS /
 `recallFrames()`, `forget()`), a `withRetry` helper + `RetryPolicy` (exponential
-backoff, server `retryAfterMs`), and the typed-graph verbs: `createEntity()`,
+backoff, server `retryAfterMs`), the space + session registry verbs
+(`spaceCreate()`, `spaceList()`, `spaceDelete()`, `sessionCreate()`,
+`sessionList()`, `sessionDelete()`), and the typed-graph verbs: `createEntity()`,
 `createStatement()`, `createRelation()`, `uploadSchema()`, and
 `materializeProcedural()`. `BrainClient` is built on a `MuxConnection`: a single
 `data` pump demultiplexes responses by `streamId`, so **every verb is
@@ -23,10 +25,15 @@ The full build plan is in the repo-root [`PLAN.md`](../PLAN.md); the layered
 architecture is in [`ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ```typescript
-import { BrainClient } from "@brain-db/sdk";
+import { BrainClient, newId } from "@brain-db/sdk";
 
 const client = await BrainClient.connect("127.0.0.1", 7878);
-console.log(client.session.serverId, client.session.chosenVersion);
+console.log(client.connection.serverId, client.connection.chosenVersion);
+
+// Group memories into a session within the connection's space, then list them.
+await client.sessionCreate({ sessionId: 7n, title: "project alpha", requestId: newId(), actAs: null });
+const { sessions } = await client.sessionList({ limit: 50, actAs: null });
+
 await client.close();
 ```
 
@@ -50,7 +57,7 @@ src/
   errors.ts     client error taxonomy (BrainError + subclasses)
   transport.ts  async FrameChannel: whole-frame reads + write over a socket
   connection.ts handshake + one-at-a-time request/response
-  client.ts     high-level BrainClient: connect, handshake, session, encode
+  client.ts     high-level BrainClient: connect, handshake, connection grant, verbs
 ```
 
 ## HTTP tier

@@ -95,7 +95,7 @@ async function handshake(chan: FrameChannel): Promise<void> {
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: new Uint8Array(16).fill(0xab),
+    connectionId: new Uint8Array(16).fill(0xab),
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 1 << 20,
@@ -109,7 +109,7 @@ async function handshake(chan: FrameChannel): Promise<void> {
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -142,8 +142,8 @@ async function serve(sock: net.Socket): Promise<void> {
     salience: 0.5,
     autoEdgesAdded: 0,
     lsn: 1n,
-    agentId: SERVER_AGENT_ID,
-    contextId: 0n,
+    spaceId: SERVER_AGENT_ID,
+    sessionId: 0n,
     kind: MemoryKindWire.Semantic,
     createdAtUnixNanos: 5n,
     edgesOutCount: 0,
@@ -241,7 +241,7 @@ describe("relation lifecycle + query variant verbs", () => {
         text: "pre-embedded",
         vector: [0.5, -0.25, 1.0],
         modelFingerprint: new Uint8Array(16).fill(0x01),
-        contextId: 0n,
+        sessionId: 0n,
         kind: MemoryKindWire.Semantic,
         salienceHint: 0.5,
         edges: [],
@@ -271,6 +271,7 @@ describe("relation lifecycle + query variant verbs", () => {
           confidence: 0.9,
           validFromUnixNanos: 0n,
           validToUnixNanos: 0xffffffffffffffffn,
+          sessionId: 0n,
           requestId: newId(),
           actAs: null,
         },

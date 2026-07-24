@@ -31,7 +31,7 @@ import {
 // Wire id helpers.
 // ---------------------------------------------------------------------------
 
-/** 16-byte UUID-shaped identifier (agent id, request id, statement id, ...). */
+/** 16-byte UUID-shaped identifier (space id, request id, statement id, ...). */
 export type WireUuid = Uint8Array;
 
 function field(map: Map<string, unknown>, name: string): unknown {
@@ -220,8 +220,8 @@ export interface HelloPayload {
   clientId: string;
   supportedVersions: number[];
   capabilities: HelloCapabilities;
-  /** Reserved for session resumption; null encodes as CBOR null. */
-  clientSessionToken: Uint8Array | null;
+  /** Reserved for v2 connection resumption; null encodes as CBOR null. */
+  clientConnectionToken: Uint8Array | null;
 }
 
 /** Encode a HELLO (`0x0001`) handshake request. */
@@ -231,7 +231,7 @@ export function encodeHello(p: HelloPayload): Uint8Array {
       ["client_id", p.clientId],
       ["supported_versions", p.supportedVersions],
       ["capabilities", encodeCapabilities(p.capabilities)],
-      ["client_session_token", p.clientSessionToken],
+      ["client_connection_token", p.clientConnectionToken],
     ]),
   );
 }
@@ -243,7 +243,7 @@ export function decodeHello(bytes: Uint8Array): HelloPayload {
     clientId: asStr(field(m, "client_id")),
     supportedVersions: asArray(field(m, "supported_versions")).map(asNum),
     capabilities: decodeCapabilities(field(m, "capabilities")),
-    clientSessionToken: asOptBytes(field(m, "client_session_token")),
+    clientConnectionToken: asOptBytes(field(m, "client_connection_token")),
   };
 }
 
@@ -255,11 +255,11 @@ export interface ServerFeatures {
   authMethods: AuthMethod[];
 }
 
-/** WELCOME (`0x0081`): the server's handshake reply — chosen version, session id, echoed capabilities, and server features. */
+/** WELCOME (`0x0081`): the server's handshake reply — chosen version, connection id, echoed capabilities, and server features. */
 export interface WelcomePayload {
   serverId: string;
   chosenVersion: number;
-  sessionId: Uint8Array;
+  connectionId: Uint8Array;
   capabilities: HelloCapabilities;
   serverFeatures: ServerFeatures;
 }
@@ -271,7 +271,7 @@ export function encodeWelcome(p: WelcomePayload): Uint8Array {
     new Map<string, unknown>([
       ["server_id", p.serverId],
       ["chosen_version", p.chosenVersion],
-      ["session_id", p.sessionId],
+      ["connection_id", p.connectionId],
       ["capabilities", encodeCapabilities(p.capabilities)],
       [
         "server_features",
@@ -293,7 +293,7 @@ export function decodeWelcome(bytes: Uint8Array): WelcomePayload {
   return {
     serverId: asStr(field(m, "server_id")),
     chosenVersion: asNum(field(m, "chosen_version")),
-    sessionId: asBytes(field(m, "session_id")),
+    connectionId: asBytes(field(m, "connection_id")),
     capabilities: decodeCapabilities(field(m, "capabilities")),
     serverFeatures: {
       maxPayloadSize: asNum(field(sf, "max_payload_size")),
@@ -349,8 +349,8 @@ function decodeCredentials(value: unknown): AuthCredentials {
 
 /**
  * An AUTH frame. The credential is the connection's whole identity — the
- * server resolves `(namespace, agent, permissions)` from it and assigns the
- * agent id. The client never sends an agent id.
+ * server resolves `(namespace, space, permissions)` from it and assigns the
+ * space id. The client never sends a space id.
  */
 export interface AuthPayload {
   method: AuthMethod;
@@ -377,7 +377,7 @@ export function decodeAuth(bytes: Uint8Array): AuthPayload {
 }
 
 /** The capability grants the server resolved from the credential (encode/recall/plan/reason/forget/admin/act-as). */
-export interface AgentPermissions {
+export interface SpacePermissions {
   canEncode: boolean;
   canRecall: boolean;
   canPlan: boolean;
@@ -386,15 +386,15 @@ export interface AgentPermissions {
   canAdmin: boolean;
   /** Authorizes running an op on behalf of another identity via the
    * per-request `act_as` field. Held only by a trusted service principal
-   * (an edge/gateway); a normal agent's key never carries it. */
+   * (an edge/gateway); a normal space's key never carries it. */
   canActAs: boolean;
 }
 
-/** AUTH_OK (`0x0082`): the server's post-auth grant — assigned agent id, bound shard, permissions, resolved namespace, and server clock. */
+/** AUTH_OK (`0x0082`): the server's post-auth grant — assigned space id, bound shard, permissions, resolved namespace, and server clock. */
 export interface AuthOkPayload {
-  agentId: WireUuid;
+  spaceId: WireUuid;
   boundShardId: number;
-  permissions: AgentPermissions;
+  permissions: SpacePermissions;
   /** Owning tenant the connection resolved to (server-derived from auth).
    * Empty when the connection resolves to the reserved `brain` system
    * namespace. Read-only — the client never sends a namespace. */
@@ -407,7 +407,7 @@ export function encodeAuthOk(p: AuthOkPayload): Uint8Array {
   const perm = p.permissions;
   return toCbor(
     new Map<string, unknown>([
-      ["agent_id", p.agentId],
+      ["space_id", p.spaceId],
       ["bound_shard_id", p.boundShardId],
       [
         "permissions",
@@ -432,7 +432,7 @@ export function decodeAuthOk(bytes: Uint8Array): AuthOkPayload {
   const m = asMap(fromCbor(bytes));
   const perm = asMap(field(m, "permissions"));
   return {
-    agentId: asBytes(field(m, "agent_id")),
+    spaceId: asBytes(field(m, "space_id")),
     boundShardId: asNum(field(m, "bound_shard_id")),
     permissions: {
       canEncode: asBool(field(perm, "can_encode")),
@@ -545,7 +545,7 @@ export function decodeClientPong(bytes: Uint8Array): ClientPongRequest {
 
 /**
  * Per-request effective-identity selector carried on data-plane op requests.
- * When present, the op runs as this `(namespace, agentId)` on behalf of the
+ * When present, the op runs as this `(namespace, spaceId)` on behalf of the
  * authenticated connection principal; when absent the op runs as the
  * connection's own key-bound identity.
  *
@@ -553,20 +553,24 @@ export function decodeClientPong(bytes: Uint8Array): ClientPongRequest {
  * `namespace` lies within its granted allowlist — otherwise the op is rejected
  * with `ActAsDenied`. This is the wire form only; the trust model is enforced
  * by the server, not by this codec. On the wire the map is
- * `{ namespace: <text>, agent_id: <16-byte string> }`, and the whole field is
+ * `{ namespace: <text>, space_id: <text> }`, where `space_id` is the
+ * human-readable structured space string (e.g. `"support-bot:user123"`); an
+ * empty string selects the key-bound space. The server derives the 16-byte
+ * storage id from `(namespace, space_id)` at ingress. The whole field is
  * CBOR-omitted when absent so requests without an effective identity stay
  * byte-identical to the pre-`act_as` goldens.
  */
 export interface ActAs {
   namespace: string;
-  /** 16-byte effective agent id (CBOR byte string, key `agent_id`). */
-  agentId: WireUuid;
+  /** Effective space, as the human-readable structured space string (CBOR
+   * text string, key `space_id`). Empty selects the key-bound space. */
+  spaceId: string;
 }
 
 function encodeActAs(a: ActAs): Map<string, unknown> {
   return new Map<string, unknown>([
     ["namespace", a.namespace],
-    ["agent_id", a.agentId],
+    ["space_id", a.spaceId],
   ]);
 }
 
@@ -574,7 +578,7 @@ function decodeActAs(value: unknown): ActAs {
   const m = asMap(value);
   return {
     namespace: asStr(field(m, "namespace")),
-    agentId: asBytes(field(m, "agent_id")),
+    spaceId: asStr(field(m, "space_id")),
   };
 }
 
@@ -596,6 +600,453 @@ function requestMapWithActAs(
 /** Read the optional `act_as` selector from a decoded request map. */
 function decodeOptActAs(m: Map<string, unknown>): ActAs | null {
   return m.has("act_as") ? decodeActAs(m.get("act_as")) : null;
+}
+
+// ---------------------------------------------------------------------------
+// SPACE registry (SPACE_CREATE / SPACE_LIST / SPACE_DELETE).
+//
+// Non-admin, scoped to the caller's `(namespace, space)`. The effective space
+// is echoed on every response as `space_id` — the human-readable structured
+// space string from the registry (a CBOR text string), not the derived
+// 16-byte storage id. Optional fields (`metadata`, `act_as`) are CBOR-omitted
+// when null, mirroring the server's `skip_serializing_if = Option::is_none`.
+// ---------------------------------------------------------------------------
+
+/** One space row in a {@link SpaceListResponse}. */
+export interface SpaceView {
+  /** Human-readable structured space string (e.g. `"support-bot:user123"`). */
+  spaceId: string;
+  createdAtUnixNanos: bigint;
+  lastActiveUnixNanos: bigint;
+  memoryCount: bigint;
+  sessionCount: number;
+}
+
+function encodeSpaceView(v: SpaceView): Map<string, unknown> {
+  return new Map<string, unknown>([
+    ["space_id", v.spaceId],
+    ["created_at_unix_nanos", v.createdAtUnixNanos],
+    ["last_active_unix_nanos", v.lastActiveUnixNanos],
+    ["memory_count", v.memoryCount],
+    ["session_count", v.sessionCount],
+  ]);
+}
+
+function decodeSpaceView(value: unknown): SpaceView {
+  const m = asMap(value);
+  return {
+    spaceId: asStr(field(m, "space_id")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    lastActiveUnixNanos: asBig(field(m, "last_active_unix_nanos")),
+    memoryCount: asBig(field(m, "memory_count")),
+    sessionCount: asNum(field(m, "session_count")),
+  };
+}
+
+/** SPACE_CREATE (`0x0070`): explicitly provision the caller's effective space;
+ * idempotent (a create for an existing space returns the existing row). */
+export interface SpaceCreateRequest {
+  /** Opaque caller metadata blob (quota hints, labels). `null` for a bare
+   * provision — CBOR-omitted when null. */
+  metadata: Uint8Array | null;
+  requestId: WireUuid;
+  /** Effective identity this create runs as. `null` (CBOR-omitted) runs as
+   * the connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a SPACE_CREATE (`0x0070`) request. */
+export function encodeSpaceCreate(p: SpaceCreateRequest): Uint8Array {
+  const entries: [string, unknown][] = [];
+  if (p.metadata !== null) entries.push(["metadata", Array.from(p.metadata)]);
+  entries.push(["request_id", p.requestId]);
+  return toCbor(requestMapWithActAs(entries, p.actAs));
+}
+
+/** Decode a SPACE_CREATE (`0x0070`) request payload. */
+export function decodeSpaceCreate(bytes: Uint8Array): SpaceCreateRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    metadata: m.has("metadata")
+      ? Uint8Array.from(asArray(field(m, "metadata")).map(asNum))
+      : null,
+    requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** SPACE_CREATE_RESP (`0x00F0`): the resolved space plus its registry counters. */
+export interface SpaceCreateResponse {
+  /** Human-readable structured space string this create resolved to. */
+  spaceId: string;
+  /** `false` on an idempotent replay of an existing space. */
+  created: boolean;
+  createdAtUnixNanos: bigint;
+  lastActiveUnixNanos: bigint;
+  memoryCount: bigint;
+  sessionCount: number;
+}
+
+/** Encode a SPACE_CREATE_RESP (`0x00F0`) payload. */
+export function encodeSpaceCreateResponse(p: SpaceCreateResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["space_id", p.spaceId],
+      ["created", p.created],
+      ["created_at_unix_nanos", p.createdAtUnixNanos],
+      ["last_active_unix_nanos", p.lastActiveUnixNanos],
+      ["memory_count", p.memoryCount],
+      ["session_count", p.sessionCount],
+    ]),
+  );
+}
+
+/** Decode a SPACE_CREATE_RESP (`0x00F0`) payload. */
+export function decodeSpaceCreateResponse(bytes: Uint8Array): SpaceCreateResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    spaceId: asStr(field(m, "space_id")),
+    created: asBool(field(m, "created")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    lastActiveUnixNanos: asBig(field(m, "last_active_unix_nanos")),
+    memoryCount: asBig(field(m, "memory_count")),
+    sessionCount: asNum(field(m, "session_count")),
+  };
+}
+
+/** SPACE_LIST (`0x0071`): list the caller's namespace's spaces. `limit == 0`
+ * means "no cap". */
+export interface SpaceListRequest {
+  limit: number;
+  /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a SPACE_LIST (`0x0071`) request. */
+export function encodeSpaceList(p: SpaceListRequest): Uint8Array {
+  return toCbor(requestMapWithActAs([["limit", p.limit]], p.actAs));
+}
+
+/** Decode a SPACE_LIST (`0x0071`) request payload. */
+export function decodeSpaceList(bytes: Uint8Array): SpaceListRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    limit: asNum(field(m, "limit")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** SPACE_LIST_RESP (`0x00F1`): the caller-shard's spaces. `crossShardComplete`
+ * is `false` until cross-shard scatter-gather lands — treat `false` as partial. */
+export interface SpaceListResponse {
+  spaces: SpaceView[];
+  crossShardComplete: boolean;
+}
+
+/** Encode a SPACE_LIST_RESP (`0x00F1`) payload. */
+export function encodeSpaceListResponse(p: SpaceListResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["spaces", p.spaces.map(encodeSpaceView)],
+      ["cross_shard_complete", p.crossShardComplete],
+    ]),
+  );
+}
+
+/** Decode a SPACE_LIST_RESP (`0x00F1`) payload. */
+export function decodeSpaceListResponse(bytes: Uint8Array): SpaceListResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    spaces: asArray(field(m, "spaces")).map(decodeSpaceView),
+    crossShardComplete: asBool(field(m, "cross_shard_complete")),
+  };
+}
+
+/** SPACE_DELETE (`0x0072`): GDPR erasure of the caller's effective space —
+ * removes every row under `(namespace, space)`. Hard/immediate. */
+export interface SpaceDeleteRequest {
+  requestId: WireUuid;
+  /** Effective identity this delete runs as. `null` (CBOR-omitted) runs as
+   * the connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a SPACE_DELETE (`0x0072`) request. */
+export function encodeSpaceDelete(p: SpaceDeleteRequest): Uint8Array {
+  return toCbor(requestMapWithActAs([["request_id", p.requestId]], p.actAs));
+}
+
+/** Decode a SPACE_DELETE (`0x0072`) request payload. */
+export function decodeSpaceDelete(bytes: Uint8Array): SpaceDeleteRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** SPACE_DELETE_RESP (`0x00F2`): the targeted space and cascade result. */
+export interface SpaceDeleteResponse {
+  /** Human-readable structured space string this delete targeted. */
+  spaceId: string;
+  /** `false` when the space had no registry row. */
+  existed: boolean;
+  memoriesForgotten: bigint;
+}
+
+/** Encode a SPACE_DELETE_RESP (`0x00F2`) payload. */
+export function encodeSpaceDeleteResponse(p: SpaceDeleteResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["space_id", p.spaceId],
+      ["existed", p.existed],
+      ["memories_forgotten", p.memoriesForgotten],
+    ]),
+  );
+}
+
+/** Decode a SPACE_DELETE_RESP (`0x00F2`) payload. */
+export function decodeSpaceDeleteResponse(bytes: Uint8Array): SpaceDeleteResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    spaceId: asStr(field(m, "space_id")),
+    existed: asBool(field(m, "existed")),
+    memoriesForgotten: asBig(field(m, "memories_forgotten")),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// SESSION registry (SESSION_CREATE / SESSION_LIST / SESSION_DELETE).
+//
+// A session is a conversation/run grouping within a space — soft grouping,
+// never an isolation boundary. `sessionId` is the client's opaque `u64`
+// (carried as a bigint, matching the ENCODE session field). Every SESSION_*
+// response echoes the resolved 16-byte `space_id` (CBOR byte string). Optional
+// `title` / `act_as` are CBOR-omitted when null.
+// ---------------------------------------------------------------------------
+
+/** One session row in a {@link SessionListResponse}. */
+export interface SessionView {
+  sessionId: bigint;
+  createdAtUnixNanos: bigint;
+  lastActiveUnixNanos: bigint;
+  /** Optional human label; `null` when unset (CBOR-omitted). */
+  title: string | null;
+  memoryCount: number;
+}
+
+function encodeSessionView(v: SessionView): Map<string, unknown> {
+  const m = new Map<string, unknown>([
+    ["session_id", v.sessionId],
+    ["created_at_unix_nanos", v.createdAtUnixNanos],
+    ["last_active_unix_nanos", v.lastActiveUnixNanos],
+  ]);
+  if (v.title !== null) m.set("title", v.title);
+  m.set("memory_count", v.memoryCount);
+  return m;
+}
+
+function decodeSessionView(value: unknown): SessionView {
+  const m = asMap(value);
+  return {
+    sessionId: asBig(field(m, "session_id")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    lastActiveUnixNanos: asBig(field(m, "last_active_unix_nanos")),
+    title: m.has("title") ? asStr(field(m, "title")) : null,
+    memoryCount: asNum(field(m, "memory_count")),
+  };
+}
+
+/** SESSION_CREATE (`0x0073`): provision a session under the caller's effective
+ * space explicitly; idempotent. */
+export interface SessionCreateRequest {
+  sessionId: bigint;
+  /** Optional human label; `null` (CBOR-omitted) leaves it unset. */
+  title: string | null;
+  requestId: WireUuid;
+  /** Effective identity this create runs as. `null` (CBOR-omitted) runs as
+   * the connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a SESSION_CREATE (`0x0073`) request. */
+export function encodeSessionCreate(p: SessionCreateRequest): Uint8Array {
+  const entries: [string, unknown][] = [["session_id", p.sessionId]];
+  if (p.title !== null) entries.push(["title", p.title]);
+  entries.push(["request_id", p.requestId]);
+  return toCbor(requestMapWithActAs(entries, p.actAs));
+}
+
+/** Decode a SESSION_CREATE (`0x0073`) request payload. */
+export function decodeSessionCreate(bytes: Uint8Array): SessionCreateRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    sessionId: asBig(field(m, "session_id")),
+    title: m.has("title") ? asStr(field(m, "title")) : null,
+    requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** SESSION_CREATE_RESP (`0x00F3`): the resolved space + session plus counters. */
+export interface SessionCreateResponse {
+  /** 16-byte resolved space id echo (CBOR byte string). */
+  spaceId: WireUuid;
+  sessionId: bigint;
+  /** `false` on an idempotent replay of an existing session. */
+  created: boolean;
+  createdAtUnixNanos: bigint;
+  lastActiveUnixNanos: bigint;
+  memoryCount: number;
+}
+
+/** Encode a SESSION_CREATE_RESP (`0x00F3`) payload. */
+export function encodeSessionCreateResponse(p: SessionCreateResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["space_id", p.spaceId],
+      ["session_id", p.sessionId],
+      ["created", p.created],
+      ["created_at_unix_nanos", p.createdAtUnixNanos],
+      ["last_active_unix_nanos", p.lastActiveUnixNanos],
+      ["memory_count", p.memoryCount],
+    ]),
+  );
+}
+
+/** Decode a SESSION_CREATE_RESP (`0x00F3`) payload. */
+export function decodeSessionCreateResponse(bytes: Uint8Array): SessionCreateResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    spaceId: asBytes(field(m, "space_id")),
+    sessionId: asBig(field(m, "session_id")),
+    created: asBool(field(m, "created")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    lastActiveUnixNanos: asBig(field(m, "last_active_unix_nanos")),
+    memoryCount: asNum(field(m, "memory_count")),
+  };
+}
+
+/** SESSION_LIST (`0x0074`): list one `(namespace, space)`'s sessions
+ * newest-first. `limit == 0` means "no cap". */
+export interface SessionListRequest {
+  limit: number;
+  /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
+   * connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a SESSION_LIST (`0x0074`) request. */
+export function encodeSessionList(p: SessionListRequest): Uint8Array {
+  return toCbor(requestMapWithActAs([["limit", p.limit]], p.actAs));
+}
+
+/** Decode a SESSION_LIST (`0x0074`) request payload. */
+export function decodeSessionList(bytes: Uint8Array): SessionListRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    limit: asNum(field(m, "limit")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** SESSION_LIST_RESP (`0x00F4`): one space's sessions, newest-first. */
+export interface SessionListResponse {
+  /** 16-byte resolved space id echo (CBOR byte string). */
+  spaceId: WireUuid;
+  sessions: SessionView[];
+}
+
+/** Encode a SESSION_LIST_RESP (`0x00F4`) payload. */
+export function encodeSessionListResponse(p: SessionListResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["space_id", p.spaceId],
+      ["sessions", p.sessions.map(encodeSessionView)],
+    ]),
+  );
+}
+
+/** Decode a SESSION_LIST_RESP (`0x00F4`) payload. */
+export function decodeSessionListResponse(bytes: Uint8Array): SessionListResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    spaceId: asBytes(field(m, "space_id")),
+    sessions: asArray(field(m, "sessions")).map(decodeSessionView),
+  };
+}
+
+/** SESSION_DELETE (`0x0075`): remove a session's memories + graph rows. Defaults
+ * to soft (7-day grace); `hard = true` zeroes immediately. The default session
+ * (`sessionId = 0`) is non-deletable. */
+export interface SessionDeleteRequest {
+  sessionId: bigint;
+  /** `true` ⇒ hard tombstone (immediate); `false` (default) ⇒ soft. Always
+   * present on the wire. */
+  hard: boolean;
+  requestId: WireUuid;
+  /** Effective identity this delete runs as. `null` (CBOR-omitted) runs as
+   * the connection's own key-bound identity. */
+  actAs: ActAs | null;
+}
+
+/** Encode a SESSION_DELETE (`0x0075`) request. */
+export function encodeSessionDelete(p: SessionDeleteRequest): Uint8Array {
+  return toCbor(
+    requestMapWithActAs(
+      [
+        ["session_id", p.sessionId],
+        ["hard", p.hard],
+        ["request_id", p.requestId],
+      ],
+      p.actAs,
+    ),
+  );
+}
+
+/** Decode a SESSION_DELETE (`0x0075`) request payload. */
+export function decodeSessionDelete(bytes: Uint8Array): SessionDeleteRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    sessionId: asBig(field(m, "session_id")),
+    hard: m.has("hard") ? asBool(field(m, "hard")) : false,
+    requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
+  };
+}
+
+/** SESSION_DELETE_RESP (`0x00F5`): the targeted space + session and cascade result. */
+export interface SessionDeleteResponse {
+  /** 16-byte resolved space id echo (CBOR byte string). */
+  spaceId: WireUuid;
+  sessionId: bigint;
+  /** `false` when the session had no registry row. */
+  existed: boolean;
+  memoriesForgotten: bigint;
+}
+
+/** Encode a SESSION_DELETE_RESP (`0x00F5`) payload. */
+export function encodeSessionDeleteResponse(p: SessionDeleteResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["space_id", p.spaceId],
+      ["session_id", p.sessionId],
+      ["existed", p.existed],
+      ["memories_forgotten", p.memoriesForgotten],
+    ]),
+  );
+}
+
+/** Decode a SESSION_DELETE_RESP (`0x00F5`) payload. */
+export function decodeSessionDeleteResponse(bytes: Uint8Array): SessionDeleteResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    spaceId: asBytes(field(m, "space_id")),
+    sessionId: asBig(field(m, "session_id")),
+    existed: asBool(field(m, "existed")),
+    memoriesForgotten: asBig(field(m, "memories_forgotten")),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -639,10 +1090,10 @@ export enum WaitMode {
   Derived = 1,
 }
 
-/** ENCODE (`0x0020`): store a memory from text, with context, edges, and an optional occurred-at stamp. */
+/** ENCODE (`0x0020`): store a memory from text, with session, edges, and an optional occurred-at stamp. */
 export interface EncodeRequest {
   text: string;
-  contextId: bigint;
+  sessionId: bigint;
   requestId: WireUuid;
   txnId: WireUuid | null;
   occurredAtUnixNanos: bigint | null;
@@ -656,7 +1107,7 @@ export interface EncodeRequest {
    * undefined (the server defaults to `Ack`). */
   wait?: WaitMode;
   /** Opt out of content dedup and force a distinct memory. Default `false`:
-   * Brain dedupes byte-identical text on `(agentId, contextId, BLAKE3(text))`
+   * Brain dedupes byte-identical text on `(spaceId, sessionId, BLAKE3(text))`
    * and returns the existing memory (`wasDeduplicated = true`) without writing.
    * Set `true` when the same text is a genuinely distinct observation that must
    * coexist (e.g. the same fact re-stated at a different `occurredAt`). Omitted
@@ -671,7 +1122,7 @@ export function encodeEncode(p: EncodeRequest): Uint8Array {
   const map = requestMapWithActAs(
     [
       ["text", p.text],
-      ["context_id", p.contextId],
+      ["session_id", p.sessionId],
       ["request_id", p.requestId],
       ["txn_id", p.txnId],
       ["occurred_at_unix_nanos", p.occurredAtUnixNanos],
@@ -688,7 +1139,7 @@ export function decodeEncode(bytes: Uint8Array): EncodeRequest {
   const m = asMap(fromCbor(bytes));
   return {
     text: asStr(field(m, "text")),
-    contextId: asBig(field(m, "context_id")),
+    sessionId: asBig(field(m, "session_id")),
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
     occurredAtUnixNanos: asOpt(field(m, "occurred_at_unix_nanos"), asBig),
@@ -704,7 +1155,7 @@ export interface EncodeVectorDirectRequest {
   /** Carried in the trailing raw f32 section, not the CBOR map. */
   vector: number[];
   modelFingerprint: Uint8Array;
-  contextId: bigint;
+  sessionId: bigint;
   kind: MemoryKindWire;
   salienceHint: number;
   edges: EdgeRequest[];
@@ -719,7 +1170,7 @@ export function encodeEncodeVectorDirect(p: EncodeVectorDirectRequest): Uint8Arr
     new Map<string, unknown>([
       ["text", p.text],
       ["model_fingerprint", p.modelFingerprint],
-      ["context_id", p.contextId],
+      ["session_id", p.sessionId],
       ["kind", p.kind as number],
       ["salience_hint", f32(p.salienceHint)],
       ["edges", p.edges.map(encodeEdge)],
@@ -744,7 +1195,7 @@ export function decodeEncodeVectorDirect(bytes: Uint8Array): EncodeVectorDirectR
     text: asStr(field(m, "text")),
     vector,
     modelFingerprint: asBytes(field(m, "model_fingerprint")),
-    contextId: asBig(field(m, "context_id")),
+    sessionId: asBig(field(m, "session_id")),
     kind: asNum(field(m, "kind")) as MemoryKindWire,
     salienceHint: asNum(field(m, "salience_hint")),
     edges: asArray(field(m, "edges")).map(decodeEdge),
@@ -761,8 +1212,9 @@ export interface EncodeResponse {
   salience: number;
   autoEdgesAdded: number;
   lsn: bigint;
-  agentId: WireUuid;
-  contextId: bigint;
+  /** 16-byte resolved space id echo (CBOR byte string). */
+  spaceId: WireUuid;
+  sessionId: bigint;
   kind: MemoryKindWire;
   createdAtUnixNanos: bigint;
   edgesOutCount: number;
@@ -782,8 +1234,8 @@ export function encodeEncodeResponse(p: EncodeResponse): Uint8Array {
     ["salience", f32(p.salience)],
     ["auto_edges_added", p.autoEdgesAdded],
     ["lsn", p.lsn],
-    ["agent_id", p.agentId],
-    ["context_id", p.contextId],
+    ["space_id", p.spaceId],
+    ["session_id", p.sessionId],
     ["kind", p.kind as number],
     ["created_at_unix_nanos", p.createdAtUnixNanos],
     ["edges_out_count", p.edgesOutCount],
@@ -804,8 +1256,8 @@ export function decodeEncodeResponse(bytes: Uint8Array): EncodeResponse {
     salience: asNum(field(m, "salience")),
     autoEdgesAdded: asNum(field(m, "auto_edges_added")),
     lsn: asBig(field(m, "lsn")),
-    agentId: asBytes(field(m, "agent_id")),
-    contextId: asBig(field(m, "context_id")),
+    spaceId: asBytes(field(m, "space_id")),
+    sessionId: asBig(field(m, "session_id")),
     kind: asNum(field(m, "kind")) as MemoryKindWire,
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
     edgesOutCount: asNum(field(m, "edges_out_count")),
@@ -1341,13 +1793,13 @@ export function decodeMemoryInspectResponse(bytes: Uint8Array): MemoryInspectRes
  */
 export type AnswerKind = "Single" | "Many" | "None";
 
-/** RECALL (`0x0021`): retrieve memories by cue, with subject, filters (kind/context/confidence/salience/time), and graph/text toggles. */
+/** RECALL (`0x0021`): retrieve memories by cue, with subject, filters (kind/session/confidence/salience/time), and graph/text toggles. */
 export interface RecallRequest {
   cueText: string;
   subjectName: string;
   maxResults: number;
   confidenceThreshold: number;
-  contextFilter: bigint[] | null;
+  sessionFilter: bigint[] | null;
   ageBoundUnixNanos: bigint | null;
   asOfRecordTimeUnixNanos: bigint | null;
   kindFilter: MemoryKindWire[] | null;
@@ -1376,7 +1828,7 @@ export function encodeRecall(p: RecallRequest): Uint8Array {
         ["subject_name", p.subjectName],
         ["max_results", p.maxResults],
         ["confidence_threshold", f32(p.confidenceThreshold)],
-        ["context_filter", p.contextFilter === null ? null : p.contextFilter],
+        ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
         ["age_bound_unix_nanos", p.ageBoundUnixNanos],
         ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
         ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k as number)],
@@ -1401,7 +1853,7 @@ export function decodeRecall(bytes: Uint8Array): RecallRequest {
     subjectName: asStr(field(m, "subject_name")),
     maxResults: asNum(field(m, "max_results")),
     confidenceThreshold: asNum(field(m, "confidence_threshold")),
-    contextFilter: asOpt(field(m, "context_filter"), (v) => asArray(v).map(asBig)),
+    sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
     ageBoundUnixNanos: asOpt(field(m, "age_bound_unix_nanos"), asBig),
     asOfRecordTimeUnixNanos: asOpt(field(m, "as_of_record_time_unix_nanos"), asBig),
     kindFilter: asOpt(field(m, "kind_filter"), (v) =>
@@ -1517,8 +1969,9 @@ export interface MemoryResult {
   confidence: number;
   salience: number;
   kind: MemoryKindWire;
-  agentId: WireUuid;
-  contextId: bigint;
+  /** 16-byte resolved space id echo (CBOR byte string). */
+  spaceId: WireUuid;
+  sessionId: bigint;
   createdAtUnixNanos: bigint;
   lastAccessedAtUnixNanos: bigint;
   edges: EdgeView[] | null;
@@ -1544,8 +1997,8 @@ function encodeMemoryResult(r: MemoryResult): Map<string, unknown> {
     ["confidence", f32(r.confidence)],
     ["salience", f32(r.salience)],
     ["kind", r.kind as number],
-    ["agent_id", r.agentId],
-    ["context_id", r.contextId],
+    ["space_id", r.spaceId],
+    ["session_id", r.sessionId],
     ["created_at_unix_nanos", r.createdAtUnixNanos],
     ["last_accessed_at_unix_nanos", r.lastAccessedAtUnixNanos],
     ["edges", r.edges === null ? null : r.edges.map(encodeEdgeView)],
@@ -1617,8 +2070,8 @@ function decodeMemoryResult(value: unknown): MemoryResult {
     confidence: asNum(field(m, "confidence")),
     salience: asNum(field(m, "salience")),
     kind: asNum(field(m, "kind")) as MemoryKindWire,
-    agentId: asBytes(field(m, "agent_id")),
-    contextId: asBig(field(m, "context_id")),
+    spaceId: asBytes(field(m, "space_id")),
+    sessionId: asBig(field(m, "session_id")),
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
     lastAccessedAtUnixNanos: asBig(field(m, "last_accessed_at_unix_nanos")),
     edges: asOpt(field(m, "edges"), (v) => asArray(v).map(decodeEdgeView)),
@@ -2257,6 +2710,7 @@ export interface EntityCreateRequest {
   canonicalName: string;
   aliases: string[];
   attributesBlob: Uint8Array;
+  sessionId: bigint;
   requestId: WireUuid;
   /** Effective identity this entity create runs as. `null` (CBOR-omitted)
    * runs as the connection's own key-bound identity. */
@@ -2272,6 +2726,7 @@ export function encodeEntityCreate(p: EntityCreateRequest): Uint8Array {
         ["canonical_name", p.canonicalName],
         ["aliases", p.aliases],
         ["attributes_blob", Array.from(p.attributesBlob)],
+        ["session_id", p.sessionId],
         ["request_id", p.requestId],
       ],
       p.actAs,
@@ -2287,6 +2742,7 @@ export function decodeEntityCreate(bytes: Uint8Array): EntityCreateRequest {
     canonicalName: asStr(field(m, "canonical_name")),
     aliases: asArray(field(m, "aliases")).map(asStr),
     attributesBlob: Uint8Array.from(asArray(field(m, "attributes_blob")).map(asNum)),
+    sessionId: asBig(field(m, "session_id")),
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
   };
@@ -2321,6 +2777,7 @@ export interface StatementCreateRequest {
   validToUnixNanos: bigint;
   eventAtUnixNanos: bigint;
   schemaVersion: number;
+  sessionId: bigint;
   requestId: WireUuid;
   /** Effective identity this statement create runs as. `null` (CBOR-omitted)
    * runs as the connection's own key-bound identity. */
@@ -2344,6 +2801,7 @@ function statementCreateMap(p: StatementCreateRequest): Map<string, unknown> {
       ["valid_to_unix_nanos", p.validToUnixNanos],
       ["event_at_unix_nanos", p.eventAtUnixNanos],
       ["schema_version", p.schemaVersion],
+      ["session_id", p.sessionId],
       ["request_id", p.requestId],
     ],
     p.actAs,
@@ -2370,6 +2828,7 @@ export function decodeStatementCreate(bytes: Uint8Array): StatementCreateRequest
     validToUnixNanos: asBig(field(m, "valid_to_unix_nanos")),
     eventAtUnixNanos: asBig(field(m, "event_at_unix_nanos")),
     schemaVersion: asNum(field(m, "schema_version")),
+    sessionId: asBig(field(m, "session_id")),
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
   };
@@ -2414,6 +2873,7 @@ export interface RelationCreateRequest {
   confidence: number;
   validFromUnixNanos: bigint;
   validToUnixNanos: bigint;
+  sessionId: bigint;
   requestId: WireUuid;
   /** Effective identity this relation create runs as. `null` (CBOR-omitted)
    * runs as the connection's own key-bound identity. */
@@ -2435,6 +2895,7 @@ function relationCreateMap(p: RelationCreateRequest): Map<string, unknown> {
       ["confidence", f32(p.confidence)],
       ["valid_from_unix_nanos", p.validFromUnixNanos],
       ["valid_to_unix_nanos", p.validToUnixNanos],
+      ["session_id", p.sessionId],
       ["request_id", p.requestId],
     ],
     p.actAs,
@@ -2454,6 +2915,7 @@ function relationCreateFromMap(m: Map<string, unknown>): RelationCreateRequest {
     confidence: asNum(field(m, "confidence")),
     validFromUnixNanos: asBig(field(m, "valid_from_unix_nanos")),
     validToUnixNanos: asBig(field(m, "valid_to_unix_nanos")),
+    sessionId: asBig(field(m, "session_id")),
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
   };
@@ -2712,10 +3174,11 @@ function queryFromMap(m: Map<string, unknown>): QueryRequest {
   };
 }
 
-/** MATERIALIZE_PROCEDURAL (`0x0164`): assemble a procedural-memory system block from the agent's top procedural statements. */
+/** MATERIALIZE_PROCEDURAL (`0x0164`): assemble a procedural-memory system block from the space's top procedural statements. */
 export interface MaterializeProceduralRequest {
-  agentId: WireUuid;
-  contextFilter: bigint;
+  /** 16-byte resolved space id (CBOR byte string). */
+  spaceId: WireUuid;
+  sessionFilter: bigint[] | null;
   topK: number;
   minConfidence: number;
   categories: string[];
@@ -2726,8 +3189,8 @@ export interface MaterializeProceduralRequest {
 export function encodeMaterializeProcedural(p: MaterializeProceduralRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
-      ["agent_id", p.agentId],
-      ["context_filter", p.contextFilter],
+      ["space_id", p.spaceId],
+      ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
       ["top_k", p.topK],
       ["min_confidence", f32(p.minConfidence)],
       ["categories", p.categories],
@@ -2740,8 +3203,8 @@ export function encodeMaterializeProcedural(p: MaterializeProceduralRequest): Ui
 export function decodeMaterializeProcedural(bytes: Uint8Array): MaterializeProceduralRequest {
   const m = asMap(fromCbor(bytes));
   return {
-    agentId: asBytes(field(m, "agent_id")),
-    contextFilter: asBig(field(m, "context_filter")),
+    spaceId: asBytes(field(m, "space_id")),
+    sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
     topK: asNum(field(m, "top_k")),
     minConfidence: asNum(field(m, "min_confidence")),
     categories: asArray(field(m, "categories")).map(asStr),
@@ -2974,7 +3437,7 @@ export enum MemoryListTimeAxis {
 
 /**
  * MEMORY_LIST (`0x0027`): a paginated keyset enumeration of the caller's
- * `(namespace, agent)` memories. Not RECALL — no query, no ranking. It walks
+ * `(namespace, space)` memories. Not RECALL — no query, no ranking. It walks
  * the tenant timeline in a stable order and returns a page plus an opaque
  * keyset cursor. Empty/zero fields mean "no filter".
  */
@@ -3056,6 +3519,9 @@ export function decodeMemoryList(bytes: Uint8Array): MemoryListRequest {
  * plus relationship-handle counts. */
 export interface MemoryListItem {
   memoryId: Uint8Array;
+  /** 16-byte resolved space id echo (CBOR byte string). */
+  spaceId: WireUuid;
+  sessionId: bigint;
   text: string;
   /** Raw memory-kind byte (0 = Episodic, 1 = Semantic, 2 = Consolidated). */
   kind: number;
@@ -3077,6 +3543,8 @@ export interface MemoryListItem {
 function encodeMemoryListItem(i: MemoryListItem): Map<string, unknown> {
   return new Map<string, unknown>([
     ["memory_id", i.memoryId],
+    ["space_id", i.spaceId],
+    ["session_id", i.sessionId],
     ["text", i.text],
     ["kind", i.kind],
     ["state", i.state],
@@ -3096,6 +3564,8 @@ function decodeMemoryListItem(value: unknown): MemoryListItem {
   const m = asMap(value);
   return {
     memoryId: asBytes(field(m, "memory_id")),
+    spaceId: asBytes(field(m, "space_id")),
+    sessionId: asBig(field(m, "session_id")),
     text: asStr(field(m, "text")),
     kind: asNum(field(m, "kind")),
     state: asNum(field(m, "state")),
@@ -3145,7 +3615,7 @@ export function decodeMemoryListResponse(bytes: Uint8Array): MemoryListResponseF
 }
 
 // ---------------------------------------------------------------------------
-// GRAPH_FETCH — full-agent typed-graph export.
+// GRAPH_FETCH — full-space typed-graph export.
 // ---------------------------------------------------------------------------
 
 /** One graph node. `id` is the 16-byte entity / statement / memory id; `kind`
@@ -3207,7 +3677,7 @@ function decodeGraphEdge(value: unknown): GraphEdge {
 
 /**
  * GRAPH_FETCH (`0x0163`): a paginated export of the caller's whole
- * `(namespace, agent)` typed graph as a node/edge set. Default layer is the
+ * `(namespace, space)` typed graph as a node/edge set. Default layer is the
  * concept map (entity nodes + Relation/Fact edges); `includeStatements` adds
  * value-object statement nodes, `includeMemories` adds source-memory nodes,
  * `includeMemoryEdges` adds the stored memory↔memory links between them.
@@ -3382,7 +3852,7 @@ export interface PlanRequest {
   goal: PlanState;
   budget: PlanBudget;
   strategyHint: PlanStrategy | null;
-  contextFilter: bigint[] | null;
+  sessionFilter: bigint[] | null;
   requestId: WireUuid | null;
   txnId: WireUuid | null;
   /** Opt-in per-stage observability. When `true`, the final PLAN_RESP frame
@@ -3406,7 +3876,7 @@ export function encodePlan(p: PlanRequest): Uint8Array {
         ["goal", encodePlanState(p.goal)],
         ["budget", encodePlanBudget(p.budget)],
         ["strategy_hint", p.strategyHint === null ? null : (p.strategyHint as number)],
-        ["context_filter", p.contextFilter === null ? null : p.contextFilter],
+        ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
         ["trace", p.trace],
@@ -3424,7 +3894,7 @@ export function decodePlan(bytes: Uint8Array): PlanRequest {
     goal: decodePlanState(field(m, "goal")),
     budget: decodePlanBudget(field(m, "budget")),
     strategyHint: asOpt(field(m, "strategy_hint"), (v) => asNum(v) as PlanStrategy),
-    contextFilter: asOpt(field(m, "context_filter"), (v) => asArray(v).map(asBig)),
+    sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
     requestId: asOptBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
     trace: m.has("trace") ? asBool(field(m, "trace")) : false,
@@ -3658,7 +4128,7 @@ export interface ReasonRequest {
   observation: ObservationInput;
   depth: number;
   confidenceThreshold: number;
-  contextFilter: bigint[] | null;
+  sessionFilter: bigint[] | null;
   maxInferences: number;
   budgetWallTimeMs: number;
   requestId: WireUuid | null;
@@ -3684,7 +4154,7 @@ export function encodeReason(p: ReasonRequest): Uint8Array {
         ["observation", encodeObservationInput(p.observation)],
         ["depth", p.depth],
         ["confidence_threshold", f32(p.confidenceThreshold)],
-        ["context_filter", p.contextFilter === null ? null : p.contextFilter],
+        ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
         ["max_inferences", p.maxInferences],
         ["budget_wall_time_ms", p.budgetWallTimeMs],
         ["request_id", p.requestId],
@@ -3703,7 +4173,7 @@ export function decodeReason(bytes: Uint8Array): ReasonRequest {
     observation: decodeObservationInput(field(m, "observation")),
     depth: asNum(field(m, "depth")),
     confidenceThreshold: asNum(field(m, "confidence_threshold")),
-    contextFilter: asOpt(field(m, "context_filter"), (v) => asArray(v).map(asBig)),
+    sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
     maxInferences: asNum(field(m, "max_inferences")),
     budgetWallTimeMs: asNum(field(m, "budget_wall_time_ms")),
     requestId: asOptBytes(field(m, "request_id")),
@@ -4564,7 +5034,7 @@ export function decodeEntityListResponse(bytes: Uint8Array): EntityListResponseF
 /** ENTITY_RESOLVE (`0x0136`): map a candidate name to an entity, optionally minting one on a miss. */
 export interface EntityResolveRequest {
   candidateName: string;
-  context: string;
+  resolutionContext: string;
   /** `0` = no hint; otherwise an entity type id. */
   entityTypeHint: number;
   allowCreate: boolean;
@@ -4572,7 +5042,7 @@ export interface EntityResolveRequest {
   /** Effective identity this resolve runs as, on behalf of the connection
    * principal. `null` (the common case, CBOR-omitted) runs as the
    * connection's own key-bound identity. Resolution is scoped to the
-   * effective `(namespace, agent)`. */
+   * effective `(namespace, space)`. */
   actAs: ActAs | null;
 }
 
@@ -4582,7 +5052,7 @@ export function encodeEntityResolve(p: EntityResolveRequest): Uint8Array {
     requestMapWithActAs(
       [
         ["candidate_name", p.candidateName],
-        ["context", p.context],
+        ["resolution_context", p.resolutionContext],
         ["entity_type_hint", p.entityTypeHint],
         ["allow_create", p.allowCreate],
         ["request_id", p.requestId],
@@ -4597,7 +5067,7 @@ export function decodeEntityResolve(bytes: Uint8Array): EntityResolveRequest {
   const m = asMap(fromCbor(bytes));
   return {
     candidateName: asStr(field(m, "candidate_name")),
-    context: asStr(field(m, "context")),
+    resolutionContext: asStr(field(m, "resolution_context")),
     entityTypeHint: asNum(field(m, "entity_type_hint")),
     allowCreate: asBool(field(m, "allow_create")),
     requestId: asBytes(field(m, "request_id")),
@@ -5347,7 +5817,7 @@ export interface RelationTraverseRequest {
   /** Effective identity this traversal runs as, on behalf of the connection
    * principal. `null` (the common case, CBOR-omitted) runs as the connection's
    * own key-bound identity. The walk is scoped to the effective
-   * `(namespace, agent)`. */
+   * `(namespace, space)`. */
   actAs: ActAs | null;
 }
 
@@ -5890,19 +6360,20 @@ export interface SimilarityFilter {
   threshold: number;
 }
 
-/** The predicate a SUBSCRIBE applies to the change feed: context, kind, similarity, agent, and memory-id scoping. */
+/** The predicate a SUBSCRIBE applies to the change feed: session, kind, similarity, space, and memory-id scoping. */
 export interface SubscriptionFilter {
-  contexts: bigint[] | null;
+  sessionFilter: bigint[] | null;
   kinds: MemoryKindWire[] | null;
   similarTo: SimilarityFilter | null;
-  agents: WireUuid[] | null;
+  /** Subset of 16-byte space ids whose events the subscriber wants. `null` or empty = all spaces on the shard. */
+  spaces: WireUuid[] | null;
   /** Subset of memory ids whose events the subscriber wants. `null` or empty = all memories. Scopes a subscription to a single in-flight write (e.g. to watch its async derivation stages complete). */
   memoryIds: bigint[] | null;
 }
 
 function encodeSubscriptionFilter(f: SubscriptionFilter): Map<string, unknown> {
   return new Map<string, unknown>([
-    ["contexts", f.contexts === null ? null : f.contexts],
+    ["session_filter", f.sessionFilter === null ? null : f.sessionFilter],
     ["kinds", f.kinds === null ? null : f.kinds.map((k) => k as number)],
     [
       "similar_to",
@@ -5913,7 +6384,7 @@ function encodeSubscriptionFilter(f: SubscriptionFilter): Map<string, unknown> {
             ["threshold", f32(f.similarTo.threshold)],
           ]),
     ],
-    ["agents", f.agents === null ? null : f.agents],
+    ["spaces", f.spaces === null ? null : f.spaces],
     ["memory_ids", f.memoryIds === null ? null : f.memoryIds],
   ]);
 }
@@ -5921,7 +6392,7 @@ function encodeSubscriptionFilter(f: SubscriptionFilter): Map<string, unknown> {
 function decodeSubscriptionFilter(value: unknown): SubscriptionFilter {
   const m = asMap(value);
   return {
-    contexts: asOpt(field(m, "contexts"), (v) => asArray(v).map(asBig)),
+    sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
     kinds: asOpt(field(m, "kinds"), (v) => asArray(v).map((k) => asNum(k) as MemoryKindWire)),
     similarTo: asOpt(field(m, "similar_to"), (v) => {
       const sf = asMap(v);
@@ -5930,7 +6401,7 @@ function decodeSubscriptionFilter(value: unknown): SubscriptionFilter {
         threshold: asNum(field(sf, "threshold")),
       };
     }),
-    agents: asOpt(field(m, "agents"), (v) => asArray(v).map(asBytes)),
+    spaces: asOpt(field(m, "spaces"), (v) => asArray(v).map(asBytes)),
     memoryIds: asOpt(field(m, "memory_ids"), (v) => asArray(v).map(asBig)),
   };
 }
@@ -6390,7 +6861,7 @@ function decodeGraphEventPayload(value: unknown): GraphEventPayload {
 export interface SubscriptionEvent {
   eventType: EventType;
   memoryId: bigint;
-  contextId: bigint;
+  sessionId: bigint;
   text: string;
   kind: MemoryKindWire;
   salience: number;
@@ -6409,7 +6880,7 @@ export function encodeSubscriptionEvent(p: SubscriptionEvent): Uint8Array {
     new Map<string, unknown>([
       ["event_type", p.eventType as number],
       ["memory_id", p.memoryId],
-      ["context_id", p.contextId],
+      ["session_id", p.sessionId],
       ["text", p.text],
       ["kind", p.kind as number],
       ["salience", f32(p.salience)],
@@ -6430,7 +6901,7 @@ export function decodeSubscriptionEvent(bytes: Uint8Array): SubscriptionEvent {
   return {
     eventType: asNum(field(m, "event_type")) as EventType,
     memoryId: asBig(field(m, "memory_id")),
-    contextId: asBig(field(m, "context_id")),
+    sessionId: asBig(field(m, "session_id")),
     text: asStr(field(m, "text")),
     kind: asNum(field(m, "kind")) as MemoryKindWire,
     salience: asNum(field(m, "salience")),

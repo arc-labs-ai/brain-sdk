@@ -42,8 +42,8 @@ function sampleResult(tag: number, text: string): MemoryResult {
     confidence: 0.8,
     salience: 0.5,
     kind: MemoryKindWire.Semantic,
-    agentId: new Uint8Array(16).fill(tag),
-    contextId: 0n,
+    spaceId: new Uint8Array(16).fill(tag),
+    sessionId: 0n,
     createdAtUnixNanos: 1n,
     lastAccessedAtUnixNanos: 1n,
     edges: null,
@@ -71,7 +71,7 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: new Uint8Array(16).fill(0xcd),
+    connectionId: new Uint8Array(16).fill(0xcd),
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 1 << 20,
@@ -85,7 +85,7 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,

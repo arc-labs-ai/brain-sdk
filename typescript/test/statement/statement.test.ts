@@ -22,6 +22,7 @@ async function subject(client: BrainClient): Promise<Uint8Array> {
     canonicalName: "Ada",
     aliases: [],
     attributesBlob: new Uint8Array(),
+    sessionId: 0n,
     requestId: newId(),
     actAs: null,
   });
@@ -41,6 +42,7 @@ function fact(subj: Uint8Array, obj: string): StatementCreateRequest {
     validToUnixNanos: 0xffffffffffffffffn,
     eventAtUnixNanos: 0n,
     schemaVersion: 1,
+    sessionId: 0n,
     requestId: newId(),
     actAs: null,
   };

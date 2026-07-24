@@ -40,7 +40,7 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: new Uint8Array(16).fill(0xab),
+    connectionId: new Uint8Array(16).fill(0xab),
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 1 << 20,
@@ -54,7 +54,7 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -86,8 +86,8 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
       salience: 0.5,
       autoEdgesAdded: 0,
       lsn: 1n,
-      agentId: SERVER_AGENT_ID,
-      contextId: req.contextId,
+      spaceId: SERVER_AGENT_ID,
+      sessionId: req.sessionId,
       kind: MemoryKindWire.Semantic,
       createdAtUnixNanos: 1n,
       edgesOutCount: 0,
@@ -107,7 +107,7 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
 function request(): EncodeRequest {
   return {
     text: "pooled",
-    contextId: 1n,
+    sessionId: 1n,
     requestId: newId(),
     txnId: null,
     occurredAtUnixNanos: null,

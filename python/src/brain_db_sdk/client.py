@@ -107,6 +107,20 @@ from .wire.types import (
     SchemaValidateRequest,
     SchemaValidateResponse,
     ServerFeatures,
+    SessionCreateRequest,
+    SessionCreateResponse,
+    SessionDeleteRequest,
+    SessionDeleteResponse,
+    SessionListRequest,
+    SessionListResponse,
+    SessionView,
+    SpaceCreateRequest,
+    SpaceCreateResponse,
+    SpaceDeleteRequest,
+    SpaceDeleteResponse,
+    SpaceListRequest,
+    SpaceListResponse,
+    SpaceView,
     StatementCreateRequest,
     StatementCreateResponse,
     StatementGetRequest,
@@ -149,7 +163,7 @@ def new_id() -> bytes:
 class Auth:
     """How the client authenticates after WELCOME. Auth is mandatory: there is
     no anonymous mode. The credential is the connection's whole identity — the
-    server resolves ``(namespace, agent, permissions)`` from it and refuses any
+    server resolves ``(namespace, space, permissions)`` from it and refuses any
     connection it cannot resolve."""
 
     method: AuthMethod
@@ -169,7 +183,7 @@ class Auth:
 @dataclass
 class ClientConfig:
     """Connection configuration. ``auth`` is mandatory — the credential is the
-    connection's identity and the server assigns the agent and namespace; a
+    connection's identity and the server assigns the space and namespace; a
     config cannot be built without one. The remaining fields default to a
     local/dev server: wire version 1, streaming advertised."""
 
@@ -189,10 +203,10 @@ class ClientConfig:
 class SessionInfo:
     """The session the server granted at handshake time."""
 
-    agent_id: bytes
+    space_id: bytes
     server_id: str
     chosen_version: int
-    session_id: bytes
+    connection_id: bytes
     bound_shard_id: int
     permissions: AgentPermissions
     # Owning tenant the server bound this connection to (server-derived from
@@ -241,7 +255,7 @@ class BrainClient:
             client_id=config.client_id,
             supported_versions=list(config.supported_versions),
             capabilities=config.capabilities,
-            client_session_token=None,
+            client_connection_token=None,
         )
         auth = AuthPayload(
             method=config.auth.method,
@@ -261,10 +275,10 @@ class BrainClient:
         if isinstance(permissions, dict):
             permissions = AgentPermissions.from_map(permissions)
         session = SessionInfo(
-            agent_id=outcome.auth_ok.agent_id,
+            space_id=outcome.auth_ok.space_id,
             server_id=outcome.welcome.server_id,
             chosen_version=outcome.welcome.chosen_version,
-            session_id=outcome.welcome.session_id,
+            connection_id=outcome.welcome.connection_id,
             bound_shard_id=outcome.auth_ok.bound_shard_id,
             permissions=permissions,
             namespace=outcome.auth_ok.namespace,
@@ -278,9 +292,9 @@ class BrainClient:
         return self._session
 
     @property
-    def agent_id(self) -> bytes:
-        """The agent id this connection acts as."""
-        return self._session.agent_id
+    def space_id(self) -> bytes:
+        """The space id (derived 16-byte storage id) this connection acts as."""
+        return self._session.space_id
 
     @property
     def namespace(self) -> str:
@@ -359,7 +373,7 @@ class BrainClient:
     def memory_list(self, request: MemoryListRequest) -> list[MemoryListItem]:
         """List memories (MEMORY_LIST), flattening every streamed frame's
         ``items`` into one ordered list. This is a pure paginated enumeration of
-        the caller's ``(namespace, agent)`` memories — no query, no ranking. For
+        the caller's ``(namespace, space)`` memories — no query, no ranking. For
         the raw streamed frames (cursors, cumulative counts, ``is_final``), use
         :meth:`memory_list_frames`."""
         items: list[MemoryListItem] = []
@@ -614,6 +628,58 @@ class BrainClient:
             Opcode.MATERIALIZE_PROCEDURAL_REQ,
             Opcode.MATERIALIZE_PROCEDURAL_RESP,
             MaterializeProceduralResponse,
+            request,
+        )
+
+    def create_space(self, request: SpaceCreateRequest) -> SpaceCreateResponse:
+        """Provision the caller's effective space explicitly (SPACE_CREATE).
+        Idempotent: a create for an existing space returns the existing row
+        with ``created=False``."""
+        return self._unary(
+            Opcode.SPACE_CREATE_REQ, Opcode.SPACE_CREATE_RESP, SpaceCreateResponse, request
+        )
+
+    def list_spaces(self, request: SpaceListRequest) -> SpaceListResponse:
+        """List the caller's namespace's spaces (SPACE_LIST). ``limit == 0``
+        means no cap; ``cross_shard_complete`` is False when the listing covers
+        only the caller-shard's spaces."""
+        return self._unary(
+            Opcode.SPACE_LIST_REQ, Opcode.SPACE_LIST_RESP, SpaceListResponse, request
+        )
+
+    def delete_space(self, request: SpaceDeleteRequest) -> SpaceDeleteResponse:
+        """GDPR-erase the caller's effective space (SPACE_DELETE): every row
+        under ``(namespace, space)``, hard and immediate."""
+        return self._unary(
+            Opcode.SPACE_DELETE_REQ, Opcode.SPACE_DELETE_RESP, SpaceDeleteResponse, request
+        )
+
+    def create_session(self, request: SessionCreateRequest) -> SessionCreateResponse:
+        """Provision a session under the caller's effective space
+        (SESSION_CREATE). Idempotent."""
+        return self._unary(
+            Opcode.SESSION_CREATE_REQ,
+            Opcode.SESSION_CREATE_RESP,
+            SessionCreateResponse,
+            request,
+        )
+
+    def list_sessions(self, request: SessionListRequest) -> SessionListResponse:
+        """List one space's sessions newest-first (SESSION_LIST). ``limit == 0``
+        means no cap. A first-class end-user feature for enumerating a space's
+        conversation/run groupings."""
+        return self._unary(
+            Opcode.SESSION_LIST_REQ, Opcode.SESSION_LIST_RESP, SessionListResponse, request
+        )
+
+    def delete_session(self, request: SessionDeleteRequest) -> SessionDeleteResponse:
+        """Delete a session's memories + graph rows (SESSION_DELETE). Soft
+        (7-day grace) by default; ``hard=True`` zeroes immediately. The default
+        session (``session_id = 0``) is non-deletable."""
+        return self._unary(
+            Opcode.SESSION_DELETE_REQ,
+            Opcode.SESSION_DELETE_RESP,
+            SessionDeleteResponse,
             request,
         )
 

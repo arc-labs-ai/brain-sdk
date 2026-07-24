@@ -10,7 +10,7 @@
  * `scripts/it-server.sh up` (see that script's header), then re-run.
  *
  * Auth is mandatory and the credential is the whole identity: every test mints
- * a fresh `brain_` token bound to `(namespace, agentId)` via the admin plane
+ * a fresh `brain_` token bound to `(namespace, spaceId)` via the admin plane
  * (`POST /v1/api-keys`) and connects with it, so isolation is real.
  */
 
@@ -57,8 +57,8 @@ function hex(id: Uint8Array): string {
   return Array.from(id, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Mint a FULL data-plane token bound to `(namespace, agentId)`. */
-export async function mint(t: ItTarget, agentId: Uint8Array): Promise<string> {
+/** Mint a FULL data-plane token bound to `(namespace, spaceId)`. */
+export async function mint(t: ItTarget, spaceId: Uint8Array): Promise<string> {
   const res = await fetch(`http://${t.adminHost}:${t.adminPort}/v1/api-keys`, {
     method: "POST",
     headers: {
@@ -66,7 +66,7 @@ export async function mint(t: ItTarget, agentId: Uint8Array): Promise<string> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      agent_id_hex: hex(agentId),
+      space_id_hex: hex(spaceId),
       namespace: t.namespace,
       permissions: ["FULL"],
     }),
@@ -78,9 +78,9 @@ export async function mint(t: ItTarget, agentId: Uint8Array): Promise<string> {
   return secret;
 }
 
-/** Mint a token for `agentId` and connect a client as that agent. */
-export async function connectAs(t: ItTarget, agentId: Uint8Array): Promise<BrainClient> {
-  const token = await mint(t, agentId);
+/** Mint a token for `spaceId` and connect a client as that agent. */
+export async function connectAs(t: ItTarget, spaceId: Uint8Array): Promise<BrainClient> {
+  const token = await mint(t, spaceId);
   const auth: Auth = { kind: "token", token: new TextEncoder().encode(token) };
   return BrainClient.connect(t.dataHost, t.dataPort, { auth });
 }
@@ -88,9 +88,9 @@ export async function connectAs(t: ItTarget, agentId: Uint8Array): Promise<Brain
 /** Mint + connect as a brand-new random agent. */
 export async function connectFresh(
   t: ItTarget,
-): Promise<{ client: BrainClient; agentId: Uint8Array }> {
-  const agentId = newId();
-  return { client: await connectAs(t, agentId), agentId };
+): Promise<{ client: BrainClient; spaceId: Uint8Array }> {
+  const spaceId = newId();
+  return { client: await connectAs(t, spaceId), spaceId };
 }
 
 /**

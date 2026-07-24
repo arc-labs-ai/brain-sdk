@@ -61,7 +61,7 @@ async function handshake(chan: FrameChannel): Promise<Uint8Array> {
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: new Uint8Array(16).fill(0xab),
+    connectionId: new Uint8Array(16).fill(0xab),
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 1 << 20,
@@ -75,7 +75,7 @@ async function handshake(chan: FrameChannel): Promise<Uint8Array> {
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -296,7 +296,7 @@ async function serveSubscription(sock: net.Socket): Promise<void> {
     encodeSubscriptionEvent({
       eventType: EventType.Encoded,
       memoryId: id,
-      contextId: 1n,
+      sessionId: 1n,
       text: `event ${id}`,
       kind: MemoryKindWire.Episodic,
       salience: 0.5,
@@ -345,7 +345,7 @@ describe("parity verbs over a mock server", () => {
 
       const resolved = await client.resolveEntity({
         candidateName: "Ada Lovelace",
-        context: "",
+        resolutionContext: "",
         entityTypeHint: 1,
         allowCreate: false,
         requestId: new Uint8Array(16),
@@ -389,7 +389,7 @@ describe("parity verbs over a mock server", () => {
         goal: { kind: "ByText", text: "goal" },
         budget: { maxSteps: 4, maxWallTimeMs: 100, maxBranchesExplored: 8 },
         strategyHint: null,
-        contextFilter: null,
+        sessionFilter: null,
         requestId: null,
         txnId: null,
         trace: false,
@@ -416,7 +416,7 @@ describe("parity verbs over a mock server", () => {
       const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
       const sub = await client.subscribe({
-        filter: { contexts: null, kinds: null, similarTo: null, agents: null, memoryIds: null },
+        filter: { sessionFilter: null, kinds: null, similarTo: null, spaces: null, memoryIds: null },
         includeHistory: false,
         fromLsn: null,
         maxInflight: 8,
@@ -448,7 +448,7 @@ describe("parity verbs over a mock server", () => {
     try {
       const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
       const sub = await client.subscribe({
-        filter: { contexts: null, kinds: null, similarTo: null, agents: null, memoryIds: null },
+        filter: { sessionFilter: null, kinds: null, similarTo: null, spaces: null, memoryIds: null },
         includeHistory: false,
         fromLsn: null,
         maxInflight: 8,

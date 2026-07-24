@@ -4,7 +4,7 @@ The Rust client for the Brain memory database. Speaks Brain's BRN0 wire
 protocol directly; no dependency on Brain's internal code.
 
 **Status: multiplexed client (Phase 3 wired in).** The wire codec (Phase 1) is
-**verified byte-for-byte against the shared conformance corpus** (all 38
+**verified byte-for-byte against the shared conformance corpus** (all 86
 `.bin`/`.json` cases re-encode to identical bytes). On top of it: an async
 [`transport`], a [`MuxConnection`] that splits the socket and runs a background
 reader task demultiplexing responses by `stream_id`, and a high-level
@@ -13,8 +13,10 @@ run in flight at once over one connection** (share a client across tasks behind
 an `Arc`). The full v1 + typed-graph API is present: `encode()`, `recall()`
 (streaming to EOS / `recall_frames()`), `forget()`, `create_entity()`,
 `create_statement()`, `create_relation()`, `upload_schema()`,
-`materialize_procedural()` — each with an ergonomic builder, plus a retry layer
-(`RetryPolicy` + the free `with_retry` combinator). The connection pool and
+`materialize_procedural()`, and the space/session registry verbs
+(`create_space()` / `list_spaces()` / `delete_space()`, `create_session()` /
+`list_sessions()` / `delete_session()`) — each with an ergonomic builder, plus a
+retry layer (`RetryPolicy` + the free `with_retry` combinator). The connection pool and
 transparent reconnect are later work; the serial one-at-a-time [`Connection`]
 remains for callers who want it.
 

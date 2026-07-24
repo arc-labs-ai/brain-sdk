@@ -60,8 +60,8 @@ class Pool:
         """Open ``size`` connections to ``host:port`` from an explicit
         configuration template, each running its own handshake, and return the
         pool. All members share the template's credential, so the server binds
-        them to the same agent; they remain individually identifiable by session
-        id. Raises :class:`~brain_db_sdk.errors.ProtocolError` if ``size < 1``;
+        them to the same space; they remain individually identifiable by
+        connection id. Raises :class:`~brain_db_sdk.errors.ProtocolError` if ``size < 1``;
         on a mid-open failure, closes the members already opened and re-raises."""
         if size < 1:
             raise ProtocolError("connection pool size must be >= 1")

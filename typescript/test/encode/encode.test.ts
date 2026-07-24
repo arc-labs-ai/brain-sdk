@@ -27,11 +27,11 @@ describe.skipIf(T === null)("encode (integration)", () => {
     }
   });
 
-  it("carries context and event time", async () => {
+  it("carries session and event time", async () => {
     const { client } = await connectFresh(t);
     try {
       const req = new EncodeBuilder("We shipped v1 on launch day.")
-        .context(42n)
+        .session(42n)
         .occurredAt(1_700_000_000_000_000_000n)
         .build();
       const resp = await client.encode(req);

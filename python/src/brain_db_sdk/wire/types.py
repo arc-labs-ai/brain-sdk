@@ -180,15 +180,15 @@ class HelloPayload:
     client_id: str
     supported_versions: list[int]
     capabilities: HelloCapabilities
-    # Reserved for session resumption; None encodes as CBOR null.
-    client_session_token: Optional[bytes]
+    # Reserved for connection resumption; None encodes as CBOR null.
+    client_connection_token: Optional[bytes]
 
     def to_map(self) -> dict:
         return {
             "client_id": self.client_id,
             "supported_versions": list(self.supported_versions),
             "capabilities": self.capabilities.to_map(),
-            "client_session_token": self.client_session_token,
+            "client_connection_token": self.client_connection_token,
         }
 
     @classmethod
@@ -197,7 +197,7 @@ class HelloPayload:
             m["client_id"],
             list(m["supported_versions"]),
             HelloCapabilities.from_map(m["capabilities"]),
-            m["client_session_token"],
+            m["client_connection_token"],
         )
 
 
@@ -257,9 +257,9 @@ class AuthCredentials:
 @dataclass
 class AuthPayload:
     """The AUTH frame. Carries only the method and credential — the credential
-    is the connection's whole identity, and the server assigns the agent id and
-    namespace it resolves to (returned in AUTH_OK). The client never sends an
-    agent id.
+    is the connection's whole identity, and the server assigns the space id and
+    namespace it resolves to (returned in AUTH_OK). The client never sends a
+    space id.
     """
 
     method: int
@@ -349,11 +349,11 @@ class ServerFeatures:
 
 @dataclass
 class WelcomePayload:
-    """WELCOME (``0x0081``). The server's handshake reply: its id, the negotiated version, the session id, shared capabilities, and server limits."""
+    """WELCOME (``0x0081``). The server's handshake reply: its id, the negotiated version, the connection id, shared capabilities, and server limits."""
 
     server_id: str
     chosen_version: int
-    session_id: bytes  # 16-byte byte string
+    connection_id: bytes  # 16-byte byte string
     capabilities: HelloCapabilities
     server_features: ServerFeatures
 
@@ -361,7 +361,7 @@ class WelcomePayload:
         return {
             "server_id": self.server_id,
             "chosen_version": self.chosen_version,
-            "session_id": self.session_id,
+            "connection_id": self.connection_id,
             "capabilities": self.capabilities.to_map(),
             "server_features": self.server_features.to_map(),
         }
@@ -371,7 +371,7 @@ class WelcomePayload:
         return cls(
             m["server_id"],
             m["chosen_version"],
-            m["session_id"],
+            m["connection_id"],
             HelloCapabilities.from_map(m["capabilities"]),
             ServerFeatures.from_map(m["server_features"]),
         )
@@ -379,9 +379,9 @@ class WelcomePayload:
 
 @dataclass
 class AuthOkPayload:
-    """AUTH_OK (``0x0082``). The successful-auth reply: the server-assigned agent id, bound shard, granted permissions, resolved namespace, and server clock."""
+    """AUTH_OK (``0x0082``). The successful-auth reply: the server-resolved space id (the derived 16-byte storage id), bound shard, granted permissions, resolved namespace, and server clock."""
 
-    agent_id: bytes
+    space_id: bytes  # 16-byte byte string (derived storage id)
     bound_shard_id: int
     permissions: AgentPermissions
     # Owning tenant the connection resolved to (server-derived from auth).
@@ -392,7 +392,7 @@ class AuthOkPayload:
 
     def to_map(self) -> dict:
         return {
-            "agent_id": self.agent_id,
+            "space_id": self.space_id,
             "bound_shard_id": self.bound_shard_id,
             "permissions": self.permissions.to_map(),
             "namespace": self.namespace,
@@ -402,7 +402,7 @@ class AuthOkPayload:
     @classmethod
     def from_map(cls, m: dict) -> "AuthOkPayload":
         return cls(
-            m["agent_id"],
+            m["space_id"],
             m["bound_shard_id"],
             AgentPermissions.from_map(m["permissions"]),
             # Tolerate older servers that don't emit the field yet.
@@ -498,10 +498,15 @@ class ClientPongRequest:
 @dataclass
 class ActAs:
     """Per-request effective-identity selector carried on data-plane op
-    requests. When present, the op runs as this ``(namespace, agent_id)`` on
+    requests. When present, the op runs as this ``(namespace, space_id)`` on
     behalf of the authenticated connection principal; when absent (the common
     case, omitted on the wire) the op runs as the connection's own key-bound
     identity.
+
+    ``space_id`` is the human-readable structured space string (e.g.
+    ``"support-bot:user123"``) and encodes as a CBOR text string; the server
+    derives the 16-byte storage id from ``(namespace, space_id)``. An empty
+    string selects the key-bound space.
 
     Honored server-side only when the connection principal holds
     ``can_act_as`` and ``namespace`` lies within its granted allowlist —
@@ -510,14 +515,14 @@ class ActAs:
     """
 
     namespace: str
-    agent_id: bytes  # 16-byte byte string
+    space_id: str
 
     def to_map(self) -> dict:
-        return {"namespace": self.namespace, "agent_id": self.agent_id}
+        return {"namespace": self.namespace, "space_id": self.space_id}
 
     @classmethod
     def from_map(cls, m: dict) -> "ActAs":
-        return cls(m["namespace"], m["agent_id"])
+        return cls(m["namespace"], m["space_id"])
 
 
 # ===========================================================================
@@ -547,10 +552,10 @@ class EdgeRequest:
 
 @dataclass
 class EncodeRequest:
-    """ENCODE (``0x0020``). Store a memory from text — the server embeds it. Carries the text, context, idempotency and txn ids, and an optional event time."""
+    """ENCODE (``0x0020``). Store a memory from text — the server embeds it. Carries the text, session, idempotency and txn ids, and an optional event time."""
 
     text: str
-    context_id: int  # u64
+    session_id: int  # u64
     request_id: bytes  # 16-byte byte string
     txn_id: Optional[bytes]  # 16-byte byte string or None
     occurred_at_unix_nanos: Optional[int]  # event time, or None
@@ -564,7 +569,7 @@ class EncodeRequest:
     # ``trace`` instead — writes never carry it.
     wait: int = WaitMode.ACK
     # Opt out of content dedup and force a distinct memory. Default False: Brain
-    # dedupes byte-identical text on ``(agent_id, context_id, BLAKE3(text))`` and
+    # dedupes byte-identical text on ``(space_id, session_id, BLAKE3(text))`` and
     # returns the existing memory (``was_deduplicated = True``) without writing.
     # Set True when the same text is a genuinely distinct observation that must
     # coexist (e.g. the same fact re-stated at a different ``occurred_at``).
@@ -575,7 +580,7 @@ class EncodeRequest:
     def to_map(self) -> dict:
         m = {
             "text": self.text,
-            "context_id": self.context_id,
+            "session_id": self.session_id,
             "request_id": self.request_id,
             "txn_id": self.txn_id,
             "occurred_at_unix_nanos": self.occurred_at_unix_nanos,
@@ -593,7 +598,7 @@ class EncodeRequest:
         act_as = m.get("act_as")
         return cls(
             m["text"],
-            m["context_id"],
+            m["session_id"],
             m["request_id"],
             m["txn_id"],
             m["occurred_at_unix_nanos"],
@@ -612,7 +617,7 @@ class EncodeVectorDirectRequest:
 
     text: str
     model_fingerprint: bytes  # 16-byte byte string
-    context_id: int
+    session_id: int
     kind: int
     salience_hint: float  # f32
     edges: list[EdgeRequest]
@@ -625,7 +630,7 @@ class EncodeVectorDirectRequest:
         return {
             "text": self.text,
             "model_fingerprint": self.model_fingerprint,
-            "context_id": self.context_id,
+            "session_id": self.session_id,
             "kind": self.kind,
             "salience_hint": round_f32(self.salience_hint),
             "edges": [e.to_map() for e in self.edges],
@@ -639,7 +644,7 @@ class EncodeVectorDirectRequest:
         return cls(
             m["text"],
             m["model_fingerprint"],
-            m["context_id"],
+            m["session_id"],
             m["kind"],
             m["salience_hint"],
             [EdgeRequest.from_map(e) for e in m["edges"]],
@@ -658,8 +663,8 @@ class EncodeResponse:
     salience: float  # f32
     auto_edges_added: int
     lsn: int
-    agent_id: bytes
-    context_id: int
+    space_id: bytes  # 16-byte byte string (derived storage id)
+    session_id: int
     kind: int
     created_at_unix_nanos: int
     edges_out_count: int
@@ -677,8 +682,8 @@ class EncodeResponse:
             "salience": round_f32(self.salience),
             "auto_edges_added": self.auto_edges_added,
             "lsn": self.lsn,
-            "agent_id": self.agent_id,
-            "context_id": self.context_id,
+            "space_id": self.space_id,
+            "session_id": self.session_id,
             "kind": self.kind,
             "created_at_unix_nanos": self.created_at_unix_nanos,
             "edges_out_count": self.edges_out_count,
@@ -699,8 +704,8 @@ class EncodeResponse:
             m["salience"],
             m["auto_edges_added"],
             m["lsn"],
-            m["agent_id"],
-            m["context_id"],
+            m["space_id"],
+            m["session_id"],
             m["kind"],
             m["created_at_unix_nanos"],
             m["edges_out_count"],
@@ -1196,7 +1201,7 @@ class RecallRequest:
     subject_name: str
     max_results: int
     confidence_threshold: float  # f32
-    context_filter: Optional[list[int]]
+    session_filter: Optional[list[int]]
     age_bound_unix_nanos: Optional[int]
     as_of_record_time_unix_nanos: Optional[int]
     kind_filter: Optional[list[int]]
@@ -1220,8 +1225,8 @@ class RecallRequest:
             "subject_name": self.subject_name,
             "max_results": self.max_results,
             "confidence_threshold": round_f32(self.confidence_threshold),
-            "context_filter": (
-                None if self.context_filter is None else list(self.context_filter)
+            "session_filter": (
+                None if self.session_filter is None else list(self.session_filter)
             ),
             "age_bound_unix_nanos": self.age_bound_unix_nanos,
             "as_of_record_time_unix_nanos": self.as_of_record_time_unix_nanos,
@@ -1246,7 +1251,7 @@ class RecallRequest:
             m["subject_name"],
             m["max_results"],
             m["confidence_threshold"],
-            None if m["context_filter"] is None else list(m["context_filter"]),
+            None if m["session_filter"] is None else list(m["session_filter"]),
             m["age_bound_unix_nanos"],
             m["as_of_record_time_unix_nanos"],
             None if m["kind_filter"] is None else list(m["kind_filter"]),
@@ -1380,8 +1385,8 @@ class MemoryResult:
     confidence: float  # f32
     salience: float  # f32
     kind: int
-    agent_id: bytes
-    context_id: int
+    space_id: bytes  # 16-byte byte string (derived storage id)
+    session_id: int
     created_at_unix_nanos: int
     last_accessed_at_unix_nanos: int
     edges: Optional[list[EdgeView]]
@@ -1406,8 +1411,8 @@ class MemoryResult:
             "confidence": round_f32(self.confidence),
             "salience": round_f32(self.salience),
             "kind": self.kind,
-            "agent_id": self.agent_id,
-            "context_id": self.context_id,
+            "space_id": self.space_id,
+            "session_id": self.session_id,
             "created_at_unix_nanos": self.created_at_unix_nanos,
             "last_accessed_at_unix_nanos": self.last_accessed_at_unix_nanos,
             "edges": None if self.edges is None else [e.to_map() for e in self.edges],
@@ -1434,8 +1439,8 @@ class MemoryResult:
             m["confidence"],
             m["salience"],
             m["kind"],
-            m["agent_id"],
-            m["context_id"],
+            m["space_id"],
+            m["session_id"],
             m["created_at_unix_nanos"],
             m["last_accessed_at_unix_nanos"],
             None if m["edges"] is None else [EdgeView.from_map(e) for e in m["edges"]],
@@ -1887,7 +1892,7 @@ class MemoryListTimeAxis:
 @dataclass
 class MemoryListRequest:
     """MEMORY_LIST (``0x0027``). A paginated enumeration of the caller's
-    ``(namespace, agent)`` memories — no query, no ranking. It walks the tenant
+    ``(namespace, space)`` memories — no query, no ranking. It walks the tenant
     timeline in a stable order and returns a page plus an opaque keyset cursor.
     Empty/zero fields mean "no filter". ``cursor`` / ``next_cursor`` are opaque
     byte blobs (CBOR arrays of ints on the wire, not byte strings)."""
@@ -1953,6 +1958,8 @@ class MemoryListItem:
     fields plus relationship-handle counts."""
 
     memory_id: bytes  # 16-byte byte string
+    space_id: bytes  # 16-byte byte string (derived storage id)
+    session_id: int
     text: str
     kind: int  # raw memory-kind byte
     state: int  # lifecycle state byte (0 = active, 1 = tombstoned)
@@ -1969,6 +1976,8 @@ class MemoryListItem:
     def to_map(self) -> dict:
         return {
             "memory_id": self.memory_id,
+            "space_id": self.space_id,
+            "session_id": self.session_id,
             "text": self.text,
             "kind": self.kind,
             "state": self.state,
@@ -1987,6 +1996,8 @@ class MemoryListItem:
     def from_map(cls, m: dict) -> "MemoryListItem":
         return cls(
             m["memory_id"],
+            m["space_id"],
+            m["session_id"],
             m["text"],
             m["kind"],
             m["state"],
@@ -2089,7 +2100,7 @@ class GraphEdge:
 @dataclass
 class GraphFetchRequest:
     """GRAPH_FETCH (``0x0163``). A paginated export of the caller's whole
-    ``(namespace, agent)`` typed graph as a node/edge set. The default layer is
+    ``(namespace, space)`` typed graph as a node/edge set. The default layer is
     the concept map (entity nodes + Relation/Fact edges); ``include_statements``
     adds value-object statement nodes, ``include_memories`` adds source-memory
     nodes, ``include_memory_edges`` adds the stored memory↔memory links between
@@ -2360,6 +2371,7 @@ class EntityCreateRequest:
     canonical_name: str
     aliases: list[str]
     attributes_blob: list[int]  # Vec<u8> -> CBOR array of ints
+    session_id: int  # u64
     request_id: bytes
     # Effective identity this entity-create runs as. Omitted from the CBOR map
     # when None so the common single-tenant path stays byte-identical.
@@ -2371,6 +2383,7 @@ class EntityCreateRequest:
             "canonical_name": self.canonical_name,
             "aliases": list(self.aliases),
             "attributes_blob": list(self.attributes_blob),
+            "session_id": self.session_id,
             "request_id": self.request_id,
         }
         if self.act_as is not None:
@@ -2385,6 +2398,7 @@ class EntityCreateRequest:
             m["canonical_name"],
             list(m["aliases"]),
             list(m["attributes_blob"]),
+            m["session_id"],
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
         )
@@ -2419,6 +2433,7 @@ class StatementCreateRequest:
     valid_to_unix_nanos: int
     event_at_unix_nanos: int
     schema_version: int
+    session_id: int  # u64
     request_id: bytes
     # Effective identity this statement-create runs as. Omitted from the CBOR
     # map when None so the common single-tenant path stays byte-identical.
@@ -2437,6 +2452,7 @@ class StatementCreateRequest:
             "valid_to_unix_nanos": self.valid_to_unix_nanos,
             "event_at_unix_nanos": self.event_at_unix_nanos,
             "schema_version": self.schema_version,
+            "session_id": self.session_id,
             "request_id": self.request_id,
         }
         if self.act_as is not None:
@@ -2458,6 +2474,7 @@ class StatementCreateRequest:
             m["valid_to_unix_nanos"],
             m["event_at_unix_nanos"],
             m["schema_version"],
+            m["session_id"],
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
         )
@@ -2496,6 +2513,7 @@ class RelationCreateRequest:
     confidence: float  # f32
     valid_from_unix_nanos: int
     valid_to_unix_nanos: int
+    session_id: int  # u64
     request_id: bytes
     # Effective identity this relation-create runs as. Omitted from the CBOR
     # map when None so the common single-tenant path stays byte-identical.
@@ -2512,6 +2530,7 @@ class RelationCreateRequest:
             "confidence": round_f32(self.confidence),
             "valid_from_unix_nanos": self.valid_from_unix_nanos,
             "valid_to_unix_nanos": self.valid_to_unix_nanos,
+            "session_id": self.session_id,
             "request_id": self.request_id,
         }
         if self.act_as is not None:
@@ -2531,6 +2550,7 @@ class RelationCreateRequest:
             m["confidence"],
             m["valid_from_unix_nanos"],
             m["valid_to_unix_nanos"],
+            m["session_id"],
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
         )
@@ -2752,10 +2772,10 @@ class QueryRequest:
 
 @dataclass
 class MaterializeProceduralRequest:
-    """MATERIALIZE_PROCEDURAL (``0x0164``). Assemble a procedural-memory system block for an agent: context filter, top-k, confidence floor, and category selection."""
+    """MATERIALIZE_PROCEDURAL (``0x0164``). Assemble a procedural-memory system block for a space: session filter, top-k, confidence floor, and category selection."""
 
-    agent_id: bytes
-    context_filter: int  # u64
+    space_id: bytes  # 16-byte byte string (derived storage id)
+    session_filter: Optional[list[int]]  # subset of session ids, or None for all
     top_k: int
     min_confidence: float  # f32
     categories: list[str]
@@ -2763,8 +2783,10 @@ class MaterializeProceduralRequest:
 
     def to_map(self) -> dict:
         return {
-            "agent_id": self.agent_id,
-            "context_filter": self.context_filter,
+            "space_id": self.space_id,
+            "session_filter": (
+                None if self.session_filter is None else list(self.session_filter)
+            ),
             "top_k": self.top_k,
             "min_confidence": round_f32(self.min_confidence),
             "categories": list(self.categories),
@@ -2774,8 +2796,8 @@ class MaterializeProceduralRequest:
     @classmethod
     def from_map(cls, m: dict) -> "MaterializeProceduralRequest":
         return cls(
-            m["agent_id"],
-            m["context_filter"],
+            m["space_id"],
+            None if m["session_filter"] is None else list(m["session_filter"]),
             m["top_k"],
             m["min_confidence"],
             list(m["categories"]),
@@ -3053,13 +3075,13 @@ class PlanBudget:
 
 @dataclass
 class PlanRequest:
-    """PLAN (``0x0022``). Search for a memory path from ``start`` to ``goal`` under a budget, with an optional strategy hint, context filter, and idempotency/txn ids."""
+    """PLAN (``0x0022``). Search for a memory path from ``start`` to ``goal`` under a budget, with an optional strategy hint, session filter, and idempotency/txn ids."""
 
     start: PlanState
     goal: PlanState
     budget: PlanBudget
     strategy_hint: Optional[int]
-    context_filter: Optional[list[int]]
+    session_filter: Optional[list[int]]
     request_id: Optional[bytes]
     txn_id: Optional[bytes]
     # Opt-in per-stage observability. Always present on the wire (defaults to
@@ -3078,8 +3100,8 @@ class PlanRequest:
             "goal": self.goal.to_cbor_value(),
             "budget": self.budget.to_map(),
             "strategy_hint": self.strategy_hint,
-            "context_filter": (
-                None if self.context_filter is None else list(self.context_filter)
+            "session_filter": (
+                None if self.session_filter is None else list(self.session_filter)
             ),
             "request_id": self.request_id,
             "txn_id": self.txn_id,
@@ -3097,7 +3119,7 @@ class PlanRequest:
             PlanState.from_cbor_value(m["goal"]),
             PlanBudget.from_map(m["budget"]),
             m["strategy_hint"],
-            None if m["context_filter"] is None else list(m["context_filter"]),
+            None if m["session_filter"] is None else list(m["session_filter"]),
             m["request_id"],
             m["txn_id"],
             bool(m.get("trace", False)),
@@ -3333,12 +3355,12 @@ class InferenceKind:
 
 @dataclass
 class ReasonRequest:
-    """REASON (``0x0023``). Draw inferences from an observation: the input, search depth, confidence threshold, context filter, inference cap, and wall-time budget."""
+    """REASON (``0x0023``). Draw inferences from an observation: the input, search depth, confidence threshold, session filter, inference cap, and wall-time budget."""
 
     observation: ObservationInput
     depth: int
     confidence_threshold: float  # f32
-    context_filter: Optional[list[int]]
+    session_filter: Optional[list[int]]
     max_inferences: int
     budget_wall_time_ms: int
     request_id: Optional[bytes]
@@ -3359,8 +3381,8 @@ class ReasonRequest:
             "observation": self.observation.to_cbor_value(),
             "depth": self.depth,
             "confidence_threshold": round_f32(self.confidence_threshold),
-            "context_filter": (
-                None if self.context_filter is None else list(self.context_filter)
+            "session_filter": (
+                None if self.session_filter is None else list(self.session_filter)
             ),
             "max_inferences": self.max_inferences,
             "budget_wall_time_ms": self.budget_wall_time_ms,
@@ -3379,7 +3401,7 @@ class ReasonRequest:
             ObservationInput.from_cbor_value(m["observation"]),
             m["depth"],
             m["confidence_threshold"],
-            None if m["context_filter"] is None else list(m["context_filter"]),
+            None if m["session_filter"] is None else list(m["session_filter"]),
             m["max_inferences"],
             m["budget_wall_time_ms"],
             m["request_id"],
@@ -3974,30 +3996,30 @@ class SimilarityFilter:
 
 @dataclass
 class SubscriptionFilter:
-    """The selection filter on a subscription: optional context, kind, similarity, agent-subset, and memory-id-subset constraints (None = no constraint)."""
+    """The selection filter on a subscription: optional session, kind, similarity, space-subset, and memory-id-subset constraints (None = no constraint)."""
 
-    contexts: Optional[list[int]]
+    session_filter: Optional[list[int]]
     kinds: Optional[list[int]]
     similar_to: Optional[SimilarityFilter]
-    agents: Optional[list[bytes]]  # subset of agent ids, or None for all
+    spaces: Optional[list[bytes]]  # subset of space ids (16-byte), or None for all
     memory_ids: Optional[list[int]] = None  # subset of memory ids (u128), or None for all
 
     def to_map(self) -> dict:
         return {
-            "contexts": None if self.contexts is None else list(self.contexts),
+            "session_filter": None if self.session_filter is None else list(self.session_filter),
             "kinds": None if self.kinds is None else list(self.kinds),
             "similar_to": None if self.similar_to is None else self.similar_to.to_map(),
-            "agents": None if self.agents is None else list(self.agents),
+            "spaces": None if self.spaces is None else list(self.spaces),
             "memory_ids": None if self.memory_ids is None else list(self.memory_ids),
         }
 
     @classmethod
     def from_map(cls, m: dict) -> "SubscriptionFilter":
         return cls(
-            None if m["contexts"] is None else list(m["contexts"]),
+            None if m["session_filter"] is None else list(m["session_filter"]),
             None if m["kinds"] is None else list(m["kinds"]),
             None if m["similar_to"] is None else SimilarityFilter.from_map(m["similar_to"]),
-            None if m["agents"] is None else list(m["agents"]),
+            None if m["spaces"] is None else list(m["spaces"]),
             None if m.get("memory_ids") is None else list(m["memory_ids"]),
         )
 
@@ -4411,7 +4433,7 @@ class SubscriptionEvent:
 
     event_type: int
     memory_id: int  # u128
-    context_id: int
+    session_id: int
     text: str
     kind: int
     salience: float  # f32
@@ -4427,7 +4449,7 @@ class SubscriptionEvent:
         return {
             "event_type": self.event_type,
             "memory_id": self.memory_id,
-            "context_id": self.context_id,
+            "session_id": self.session_id,
             "text": self.text,
             "kind": self.kind,
             "salience": round_f32(self.salience),
@@ -4449,7 +4471,7 @@ class SubscriptionEvent:
         return cls(
             m["event_type"],
             m["memory_id"],
-            m["context_id"],
+            m["session_id"],
             m["text"],
             m["kind"],
             m["salience"],
@@ -4836,7 +4858,7 @@ class EntityResolveRequest:
     """ENTITY_RESOLVE (``0x0136``). Resolve a candidate name (with context and an optional type hint) to an entity, optionally creating one, with an idempotency id."""
 
     candidate_name: str
-    context: str
+    resolution_context: str
     entity_type_hint: int  # 0 = no hint
     allow_create: bool
     request_id: bytes
@@ -4847,7 +4869,7 @@ class EntityResolveRequest:
     def to_map(self) -> dict:
         m = {
             "candidate_name": self.candidate_name,
-            "context": self.context,
+            "resolution_context": self.resolution_context,
             "entity_type_hint": self.entity_type_hint,
             "allow_create": self.allow_create,
             "request_id": self.request_id,
@@ -4861,7 +4883,7 @@ class EntityResolveRequest:
         act_as = m.get("act_as")
         return cls(
             m["candidate_name"],
-            m["context"],
+            m["resolution_context"],
             m["entity_type_hint"],
             m["allow_create"],
             m["request_id"],
@@ -6221,3 +6243,410 @@ class QueryTraceResponse:
     @classmethod
     def from_map(cls, m: dict) -> "QueryTraceResponse":
         return cls(m["trace_text"], m["total_latency_ms"])
+
+
+# ---------------------------------------------------------------------------
+# Space registry — SPACE_CREATE / SPACE_LIST / SPACE_DELETE.
+#
+# A space is the per-request isolation unit within a namespace. Registry
+# echoes carry the human-readable structured space string (``space_id: str``,
+# a CBOR text string), not the derived 16-byte storage id.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SpaceView:
+    """One space row in a :class:`SpaceListResponse`: the human-readable
+    structured space string plus activity and cardinality counters."""
+
+    space_id: str
+    created_at_unix_nanos: int
+    last_active_unix_nanos: int
+    memory_count: int
+    session_count: int
+
+    def to_map(self) -> dict:
+        return {
+            "space_id": self.space_id,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "last_active_unix_nanos": self.last_active_unix_nanos,
+            "memory_count": self.memory_count,
+            "session_count": self.session_count,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SpaceView":
+        return cls(
+            m["space_id"],
+            m["created_at_unix_nanos"],
+            m["last_active_unix_nanos"],
+            m["memory_count"],
+            m["session_count"],
+        )
+
+
+@dataclass
+class SpaceCreateRequest:
+    """SPACE_CREATE (``0x0070``). Provision the caller's effective space
+    explicitly; idempotent. ``metadata`` is an opaque blob (CBOR array of
+    ints), omitted from the map when None."""
+
+    request_id: bytes  # 16-byte byte string
+    metadata: Optional[list[int]] = None  # Vec<u8> -> CBOR array of ints
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m: dict = {}
+        if self.metadata is not None:
+            m["metadata"] = list(self.metadata)
+        m["request_id"] = self.request_id
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SpaceCreateRequest":
+        metadata = m.get("metadata")
+        act_as = m.get("act_as")
+        return cls(
+            m["request_id"],
+            None if metadata is None else list(metadata),
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class SpaceCreateResponse:
+    """SPACE_CREATE_RESP (``0x00F0``). ``created`` is False on an idempotent
+    replay. ``space_id`` is the human-readable structured space string."""
+
+    space_id: str
+    created: bool
+    created_at_unix_nanos: int
+    last_active_unix_nanos: int
+    memory_count: int
+    session_count: int
+
+    def to_map(self) -> dict:
+        return {
+            "space_id": self.space_id,
+            "created": self.created,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "last_active_unix_nanos": self.last_active_unix_nanos,
+            "memory_count": self.memory_count,
+            "session_count": self.session_count,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SpaceCreateResponse":
+        return cls(
+            m["space_id"],
+            m["created"],
+            m["created_at_unix_nanos"],
+            m["last_active_unix_nanos"],
+            m["memory_count"],
+            m["session_count"],
+        )
+
+
+@dataclass
+class SpaceListRequest:
+    """SPACE_LIST (``0x0071``). Lists the caller's namespace's spaces.
+    ``limit == 0`` means no cap."""
+
+    limit: int
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m: dict = {"limit": self.limit}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SpaceListRequest":
+        act_as = m.get("act_as")
+        return cls(
+            m["limit"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class SpaceListResponse:
+    """SPACE_LIST_RESP (``0x00F1``). ``cross_shard_complete`` is False when the
+    listing covers only the caller-shard's spaces (v1 behavior)."""
+
+    spaces: list[SpaceView]
+    cross_shard_complete: bool
+
+    def to_map(self) -> dict:
+        return {
+            "spaces": [s.to_map() for s in self.spaces],
+            "cross_shard_complete": self.cross_shard_complete,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SpaceListResponse":
+        return cls(
+            [SpaceView.from_map(s) for s in m["spaces"]],
+            m["cross_shard_complete"],
+        )
+
+
+@dataclass
+class SpaceDeleteRequest:
+    """SPACE_DELETE (``0x0072``). GDPR erasure of the caller's effective space —
+    hard/immediate."""
+
+    request_id: bytes  # 16-byte byte string
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m: dict = {"request_id": self.request_id}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SpaceDeleteRequest":
+        act_as = m.get("act_as")
+        return cls(
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class SpaceDeleteResponse:
+    """SPACE_DELETE_RESP (``0x00F2``). ``existed`` is False when the space had no
+    registry row. ``space_id`` is the human-readable structured space string."""
+
+    space_id: str
+    existed: bool
+    memories_forgotten: int
+
+    def to_map(self) -> dict:
+        return {
+            "space_id": self.space_id,
+            "existed": self.existed,
+            "memories_forgotten": self.memories_forgotten,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SpaceDeleteResponse":
+        return cls(m["space_id"], m["existed"], m["memories_forgotten"])
+
+
+# ---------------------------------------------------------------------------
+# Session registry — SESSION_CREATE / SESSION_LIST / SESSION_DELETE.
+#
+# A session is a conversation/run grouping within a space (soft grouping,
+# never an isolation boundary). ``session_id`` is the client's opaque u64.
+# Session response echoes carry the effective space as a 16-byte ``space_id``
+# (CBOR byte string), surfaced as Python ``bytes`` like every other resolved
+# id — distinct from the SPACE_* registry echoes, which are text strings.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SessionView:
+    """One session row in a :class:`SessionListResponse`. ``title`` is omitted
+    from the map when None."""
+
+    session_id: int  # u64
+    created_at_unix_nanos: int
+    last_active_unix_nanos: int
+    memory_count: int
+    title: Optional[str] = None
+
+    def to_map(self) -> dict:
+        m: dict = {
+            "session_id": self.session_id,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "last_active_unix_nanos": self.last_active_unix_nanos,
+        }
+        if self.title is not None:
+            m["title"] = self.title
+        m["memory_count"] = self.memory_count
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SessionView":
+        return cls(
+            m["session_id"],
+            m["created_at_unix_nanos"],
+            m["last_active_unix_nanos"],
+            m["memory_count"],
+            m.get("title"),
+        )
+
+
+@dataclass
+class SessionCreateRequest:
+    """SESSION_CREATE (``0x0073``). Provision a session under the caller's
+    effective space; idempotent. ``title`` is omitted from the map when None."""
+
+    session_id: int  # u64
+    request_id: bytes  # 16-byte byte string
+    title: Optional[str] = None
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m: dict = {"session_id": self.session_id}
+        if self.title is not None:
+            m["title"] = self.title
+        m["request_id"] = self.request_id
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SessionCreateRequest":
+        act_as = m.get("act_as")
+        return cls(
+            m["session_id"],
+            m["request_id"],
+            m.get("title"),
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class SessionCreateResponse:
+    """SESSION_CREATE_RESP (``0x00F3``). ``space_id`` is the effective space's
+    derived 16-byte storage id; ``created`` is False on an idempotent replay."""
+
+    space_id: bytes  # 16-byte byte string (derived storage id)
+    session_id: int  # u64
+    created: bool
+    created_at_unix_nanos: int
+    last_active_unix_nanos: int
+    memory_count: int
+
+    def to_map(self) -> dict:
+        return {
+            "space_id": self.space_id,
+            "session_id": self.session_id,
+            "created": self.created,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "last_active_unix_nanos": self.last_active_unix_nanos,
+            "memory_count": self.memory_count,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SessionCreateResponse":
+        return cls(
+            m["space_id"],
+            m["session_id"],
+            m["created"],
+            m["created_at_unix_nanos"],
+            m["last_active_unix_nanos"],
+            m["memory_count"],
+        )
+
+
+@dataclass
+class SessionListRequest:
+    """SESSION_LIST (``0x0074``). Lists one space's sessions newest-first.
+    ``limit == 0`` means no cap."""
+
+    limit: int
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m: dict = {"limit": self.limit}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SessionListRequest":
+        act_as = m.get("act_as")
+        return cls(
+            m["limit"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class SessionListResponse:
+    """SESSION_LIST_RESP (``0x00F4``). ``space_id`` is the effective space's
+    derived 16-byte storage id."""
+
+    space_id: bytes  # 16-byte byte string (derived storage id)
+    sessions: list[SessionView]
+
+    def to_map(self) -> dict:
+        return {
+            "space_id": self.space_id,
+            "sessions": [s.to_map() for s in self.sessions],
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SessionListResponse":
+        return cls(
+            m["space_id"],
+            [SessionView.from_map(s) for s in m["sessions"]],
+        )
+
+
+@dataclass
+class SessionDeleteRequest:
+    """SESSION_DELETE (``0x0075``). ``hard`` is always present on the wire
+    (default False = soft, 7-day grace; True = immediate). The default session
+    (``session_id = 0``) is non-deletable."""
+
+    session_id: int  # u64
+    request_id: bytes  # 16-byte byte string
+    hard: bool = False
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict:
+        m: dict = {
+            "session_id": self.session_id,
+            "hard": self.hard,
+            "request_id": self.request_id,
+        }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SessionDeleteRequest":
+        act_as = m.get("act_as")
+        return cls(
+            m["session_id"],
+            m["request_id"],
+            bool(m.get("hard", False)),
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class SessionDeleteResponse:
+    """SESSION_DELETE_RESP (``0x00F5``). ``existed`` is False when the session
+    had no registry row. ``space_id`` is the effective space's derived 16-byte
+    storage id."""
+
+    space_id: bytes  # 16-byte byte string (derived storage id)
+    session_id: int  # u64
+    existed: bool
+    memories_forgotten: int
+
+    def to_map(self) -> dict:
+        return {
+            "space_id": self.space_id,
+            "session_id": self.session_id,
+            "existed": self.existed,
+            "memories_forgotten": self.memories_forgotten,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SessionDeleteResponse":
+        return cls(
+            m["space_id"],
+            m["session_id"],
+            m["existed"],
+            m["memories_forgotten"],
+        )

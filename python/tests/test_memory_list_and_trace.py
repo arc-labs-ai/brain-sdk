@@ -71,6 +71,8 @@ def _sample_request(cursor: bytes = b"") -> MemoryListRequest:
 def _sample_item(byte: int, text: str) -> MemoryListItem:
     return MemoryListItem(
         memory_id=bytes([byte]) * 16,
+        space_id=bytes([byte ^ 0x55]) * 16,
+        session_id=1,
         text=text,
         kind=0,
         state=0,
@@ -119,7 +121,7 @@ def _serve_memory_list(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock",
         chosen_version=h.supported_versions[0],
-        session_id=b"\x00" * 16,
+        connection_id=b"\x00" * 16,
         capabilities=h.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -134,7 +136,7 @@ def _serve_memory_list(sock: socket.socket) -> None:
     assert auth.opcode == Opcode.AUTH
     decode_payload(AuthPayload, auth.payload)
     auth_ok = AuthOkPayload(
-        agent_id=b"\x01" * 16,
+        space_id=b"\x01" * 16,
         bound_shard_id=0,
         permissions=AgentPermissions(True, True, True, True, True, False, False),
         namespace="",
@@ -218,8 +220,8 @@ def test_encode_trace_round_trips_via_response() -> None:
         salience=0.5,
         auto_edges_added=1,
         lsn=42,
-        agent_id=b"\x22" * 16,
-        context_id=1,
+        space_id=b"\x22" * 16,
+        session_id=1,
         kind=0,
         created_at_unix_nanos=1700000000000000000,
         edges_out_count=1,

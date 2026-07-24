@@ -17,7 +17,7 @@ def test_minted_token_resolves_session(it):
         session = client.session
         # The server derives identity from the credential: the session's agent
         # is exactly the one the key was minted for, bound to the tenant.
-        assert session.agent_id == agent
+        assert session.space_id == agent
         assert session.namespace == it.namespace
         assert session.chosen_version == 1
     finally:
@@ -29,8 +29,8 @@ def test_two_agents_get_distinct_sessions(it):
     b, b_id = it.connect_fresh()
     try:
         assert a_id != b_id
-        assert a.session.agent_id == a_id
-        assert b.session.agent_id == b_id
+        assert a.session.space_id == a_id
+        assert b.session.space_id == b_id
         assert a.session.namespace == b.session.namespace  # same tenant
     finally:
         a.close()

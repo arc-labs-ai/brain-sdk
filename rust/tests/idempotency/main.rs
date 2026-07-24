@@ -44,6 +44,7 @@ async fn repeated_create_entity_is_idempotent() {
         canonical_name: "Idempotent Ada".to_string(),
         aliases: vec![],
         attributes_blob: vec![],
+            session_id: 0,
         request_id: new_id(),
     };
     let first = client.create_entity(&req).await.expect("first create");

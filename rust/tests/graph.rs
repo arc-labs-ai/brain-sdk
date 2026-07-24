@@ -39,7 +39,7 @@ async fn serve_graph(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -53,7 +53,7 @@ async fn serve_graph(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -180,6 +180,7 @@ async fn typed_graph_verbs_round_trip() {
             canonical_name: "Ada Lovelace".to_string(),
             aliases: vec!["Ada".to_string()],
             attributes_blob: vec![],
+            session_id: 0,
             request_id: rid(),
         })
         .await
@@ -200,6 +201,7 @@ async fn typed_graph_verbs_round_trip() {
             valid_to_unix_nanos: u64::MAX,
             event_at_unix_nanos: 0,
             schema_version: 1,
+            session_id: 0,
             request_id: rid(),
         })
         .await
@@ -214,6 +216,7 @@ async fn typed_graph_verbs_round_trip() {
             from_entity: entity.entity_id,
             to_entity: ENTITY_ID,
             properties_blob: vec![],
+        session_id: 0,
             evidence: EvidenceRefWire::Inline(vec![]),
             extractor_id: 0,
             confidence: 0.8,
@@ -239,8 +242,8 @@ async fn typed_graph_verbs_round_trip() {
 
     let proc = client
         .materialize_procedural(&MaterializeProceduralRequest {
-            agent_id: client.agent_id(),
-            context_filter: 0,
+            space_id: client.space_id(),
+            session_filter: None,
             top_k: 3,
             min_confidence: 0.5,
             categories: vec!["style".to_string()],
@@ -401,7 +404,7 @@ fn read_side_types_round_trip() {
 
     round_trip(&EntityResolveRequest {
         candidate_name: "Alice".to_string(),
-        context: "she joined in 2020".to_string(),
+        resolution_context: "she joined in 2020".to_string(),
         entity_type_hint: 1,
         allow_create: true,
         request_id: id(30),
@@ -543,7 +546,7 @@ async fn serve_read(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -557,7 +560,7 @@ async fn serve_read(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -815,7 +818,7 @@ async fn read_side_verbs_over_connection() {
     let resolved = client
         .resolve_entity(&EntityResolveRequest {
             candidate_name: "Alice".to_string(),
-            context: String::new(),
+            resolution_context: String::new(),
             entity_type_hint: 1,
             allow_create: false,
             request_id: id(30),
@@ -996,7 +999,7 @@ fn edge_cognitive_types_round_trip() {
             max_branches_explored: 256,
         },
         strategy_hint: Some(PlanStrategy::AStar),
-        context_filter: Some(vec![1, 2, 3]),
+        session_filter: Some(vec![1, 2, 3]),
         request_id: Some(id(4)),
         txn_id: None,
         trace: false,
@@ -1014,7 +1017,7 @@ fn edge_cognitive_types_round_trip() {
             max_branches_explored: 1,
         },
         strategy_hint: None,
-        context_filter: None,
+        session_filter: None,
         request_id: None,
         txn_id: Some(id(5)),
         trace: false,
@@ -1046,7 +1049,7 @@ fn edge_cognitive_types_round_trip() {
         observation: ObservationInput::ByText("the lights are off".to_string()),
         depth: 4,
         confidence_threshold: 0.6,
-        context_filter: Some(vec![7]),
+        session_filter: Some(vec![7]),
         max_inferences: 32,
         budget_wall_time_ms: 2_000,
         request_id: Some(id(6)),
@@ -1058,7 +1061,7 @@ fn edge_cognitive_types_round_trip() {
         observation: ObservationInput::ByMemoryId(SOURCE_MEMORY),
         depth: 0,
         confidence_threshold: 0.0,
-        context_filter: None,
+        session_filter: None,
         max_inferences: 1,
         budget_wall_time_ms: 1,
         request_id: None,
@@ -1097,7 +1100,7 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -1111,7 +1114,7 @@ async fn serve_edge_cognitive(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -1298,7 +1301,7 @@ async fn edge_cognitive_verbs_over_connection() {
             max_branches_explored: 256,
         },
         strategy_hint: Some(PlanStrategy::Auto),
-        context_filter: None,
+        session_filter: None,
         request_id: Some(rid()),
         txn_id: None,
         trace: false,
@@ -1315,7 +1318,7 @@ async fn edge_cognitive_verbs_over_connection() {
             observation: ObservationInput::ByText("the lights are off".to_string()),
             depth: 4,
             confidence_threshold: 0.6,
-            context_filter: None,
+            session_filter: None,
             max_inferences: 32,
             budget_wall_time_ms: 2_000,
             request_id: Some(rid()),
@@ -1380,7 +1383,7 @@ async fn serve_txn(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -1394,7 +1397,7 @@ async fn serve_txn(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,

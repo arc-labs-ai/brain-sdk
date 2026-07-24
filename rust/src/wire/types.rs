@@ -10,10 +10,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 16-byte UUID-shaped identifier (agent id, request id, txn id, …).
+/// 16-byte UUID-shaped identifier (space id, request id, txn id, …).
 pub type WireUuid = [u8; 16];
-/// `ContextId` on the wire — a `u64`.
-pub type WireContextId = u64;
+/// `SessionId` on the wire — a `u64`.
+pub type WireSessionId = u64;
 /// Packed `MemoryId` — a `u128`.
 pub type WireMemoryId = u128;
 
@@ -139,9 +139,9 @@ pub struct HelloPayload {
     pub client_id: String,
     pub supported_versions: Vec<u8>,
     pub capabilities: HelloCapabilities,
-    /// Reserved for session resumption; `None` encodes as CBOR null.
+    /// Reserved for connection resumption; `None` encodes as CBOR null.
     #[serde(with = "serde_bytes")]
-    pub client_session_token: Option<[u8; 32]>,
+    pub client_connection_token: Option<[u8; 32]>,
 }
 
 /// WELCOME (`0x0081`) — server reply to HELLO.
@@ -149,14 +149,15 @@ pub struct HelloPayload {
 pub struct WelcomePayload {
     pub server_id: String,
     pub chosen_version: u8,
+    /// 16 cryptographically-random bytes; per-connection identifier.
     #[serde(with = "serde_bytes")]
-    pub session_id: [u8; 16],
+    pub connection_id: [u8; 16],
     pub capabilities: HelloCapabilities,
     pub server_features: ServerFeatures,
 }
 
 /// AUTH (`0x0002`) — client credentials. The client never claims an identity:
-/// the server resolves `(namespace, agent, permissions)` from the credential
+/// the server resolves `(namespace, space, permissions)` from the credential
 /// alone and echoes the assignment in AUTH_OK.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuthPayload {
@@ -168,7 +169,7 @@ pub struct AuthPayload {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuthOkPayload {
     #[serde(with = "serde_bytes")]
-    pub agent_id: WireUuid,
+    pub space_id: WireUuid,
     pub bound_shard_id: u16,
     pub permissions: AgentPermissions,
     /// Owning tenant the connection resolved to (server-derived from auth).
@@ -183,7 +184,7 @@ pub struct AuthOkPayload {
 // ===========================================================================
 
 /// Per-request effective-identity selector carried on data-plane op requests.
-/// When present, the op runs as this `(namespace, agent_id)` on behalf of the
+/// When present, the op runs as this `(namespace, space_id)` on behalf of the
 /// authenticated connection principal; when the field is absent (the common
 /// case, omitted on the wire) the op runs as the connection's own key-bound
 /// identity.
@@ -196,9 +197,11 @@ pub struct AuthOkPayload {
 pub struct ActAs {
     /// Effective namespace. Must be within the principal's allowlist.
     pub namespace: String,
-    /// 16-byte effective agent id — a CBOR byte string on the wire.
-    #[serde(with = "serde_bytes")]
-    pub agent_id: WireUuid,
+    /// Structured, opaque effective-space selector (e.g.
+    /// `"support-bot:user123"`) — a CBOR text string on the wire. The server
+    /// derives the 16-byte storage space id from it at ingress. An empty
+    /// string selects the connection's key-bound space.
+    pub space_id: String,
 }
 
 // ===========================================================================
@@ -246,7 +249,7 @@ impl WaitMode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EncodeRequest {
     pub text: String,
-    pub context_id: WireContextId,
+    pub session_id: WireSessionId,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
@@ -267,7 +270,7 @@ pub struct EncodeRequest {
     #[serde(default, skip_serializing_if = "WaitMode::is_ack")]
     pub wait: WaitMode,
     /// Opt out of content dedup and force a distinct memory. Default `false`:
-    /// Brain dedupes text ENCODE on `(agent_id, context_id, BLAKE3(text))` — a
+    /// Brain dedupes text ENCODE on `(space_id, session_id, BLAKE3(text))` — a
     /// repeat of byte-identical text returns the existing MemoryId
     /// (`was_deduplicated = true`) and writes nothing new. Set `true` when the
     /// same text is a genuinely distinct observation that must coexist (e.g. the
@@ -295,7 +298,7 @@ pub struct EncodeVectorDirectRequest {
     pub vector: Vec<f32>,
     #[serde(with = "serde_bytes")]
     pub model_fingerprint: [u8; 16],
-    pub context_id: WireContextId,
+    pub session_id: WireSessionId,
     pub kind: MemoryKindWire,
     pub salience_hint: f32,
     pub edges: Vec<EdgeRequest>,
@@ -315,8 +318,8 @@ pub struct EncodeResponse {
     pub auto_edges_added: u32,
     pub lsn: u64,
     #[serde(with = "serde_bytes")]
-    pub agent_id: WireUuid,
-    pub context_id: WireContextId,
+    pub space_id: WireUuid,
+    pub session_id: WireSessionId,
     pub kind: MemoryKindWire,
     pub created_at_unix_nanos: u64,
     pub edges_out_count: u32,
@@ -552,7 +555,7 @@ pub struct RecallRequest {
     pub subject_name: String,
     pub max_results: u32,
     pub confidence_threshold: f32,
-    pub context_filter: Option<Vec<WireContextId>>,
+    pub session_filter: Option<Vec<WireSessionId>>,
     pub age_bound_unix_nanos: Option<u64>,
     pub as_of_record_time_unix_nanos: Option<u64>,
     pub kind_filter: Option<Vec<MemoryKindWire>>,
@@ -766,8 +769,8 @@ pub struct MemoryResult {
     pub salience: f32,
     pub kind: MemoryKindWire,
     #[serde(with = "serde_bytes")]
-    pub agent_id: WireUuid,
-    pub context_id: WireContextId,
+    pub space_id: WireUuid,
+    pub session_id: WireSessionId,
     pub created_at_unix_nanos: u64,
     pub last_accessed_at_unix_nanos: u64,
     pub edges: Option<Vec<EdgeView>>,
@@ -978,7 +981,7 @@ pub enum MemoryListTimeAxisWire {
 }
 
 /// MEMORY_LIST (`0x0027`) — a paginated enumeration of the caller's
-/// `(namespace, agent)` memories. This is not RECALL: no query, no ranking.
+/// `(namespace, space)` memories. This is not RECALL: no query, no ranking.
 /// It walks the tenant timeline in a stable order and returns a page plus an
 /// opaque keyset cursor. Empty/zero fields mean "no filter". v1 supports
 /// `sort = Created` (Asc/Desc); other sorts, the text filter, and the
@@ -1022,6 +1025,11 @@ pub struct MemoryListRequest {
 pub struct MemoryListItem {
     #[serde(with = "serde_bytes")]
     pub memory_id: [u8; 16],
+    /// Owner space (16-byte storage key) the row belongs to.
+    #[serde(with = "serde_bytes")]
+    pub space_id: [u8; 16],
+    /// Session (conversation) the memory was encoded under; `0` = default.
+    pub session_id: WireSessionId,
     pub text: String,
     /// Raw memory-kind byte (0 = Episodic, 1 = Semantic, 2 = Consolidated).
     pub kind: u8,
@@ -1053,7 +1061,7 @@ pub struct MemoryListResponseFrame {
 }
 
 // ===========================================================================
-// GRAPH_FETCH — full-agent typed-graph export.
+// GRAPH_FETCH — full-space typed-graph export.
 // ===========================================================================
 
 /// One graph node. `id` is the 16-byte entity / statement / memory id; `kind`
@@ -1085,7 +1093,7 @@ pub struct GraphEdge {
 }
 
 /// GRAPH_FETCH (`0x0163`) — a paginated export of the caller's whole
-/// `(namespace, agent)` typed graph as a node/edge set. Default layer is the
+/// `(namespace, space)` typed graph as a node/edge set. Default layer is the
 /// concept map (entity nodes + Relation/Fact edges); `include_statements` adds
 /// value-object statement nodes, `include_memories` adds source-memory nodes,
 /// `include_memory_edges` adds the stored memory↔memory links between them.
@@ -1165,7 +1173,7 @@ pub struct PlanRequest {
     pub goal: PlanState,
     pub budget: PlanBudget,
     pub strategy_hint: Option<PlanStrategy>,
-    pub context_filter: Option<Vec<WireContextId>>,
+    pub session_filter: Option<Vec<WireSessionId>>,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub request_id: Option<WireUuid>,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
@@ -1307,7 +1315,7 @@ pub struct ReasonRequest {
     pub observation: ObservationInput,
     pub depth: u32,
     pub confidence_threshold: f32,
-    pub context_filter: Option<Vec<WireContextId>>,
+    pub session_filter: Option<Vec<WireSessionId>>,
     pub max_inferences: u32,
     pub budget_wall_time_ms: u32,
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
@@ -1548,7 +1556,7 @@ pub enum ErrorCodeWire {
     MissingRequiredField = 0x0041,
     TextTooLarge = 0x0042,
     TextEmpty = 0x0043,
-    BadContextId = 0x0044,
+    BadSessionId = 0x0044,
     BadMemoryKind = 0x0045,
     BadEdgeKind = 0x0046,
     BadStrategyHint = 0x0047,
@@ -1713,6 +1721,10 @@ pub struct EntityCreateRequest {
     pub canonical_name: String,
     pub aliases: Vec<String>,
     pub attributes_blob: Vec<u8>,
+    /// Session that first mentions this entity; `0` = default session.
+    /// First-mention provenance only — entity identity is session-agnostic.
+    #[serde(default)]
+    pub session_id: WireSessionId,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
     /// Effective identity this entity-create runs as. `None` (omitted on the
@@ -1844,6 +1856,10 @@ pub struct StatementCreateRequest {
     pub valid_to_unix_nanos: u64,
     pub event_at_unix_nanos: u64,
     pub schema_version: u32,
+    /// Conversation/run this statement belongs to; `0` = default session.
+    /// A grouping key, not an isolation boundary.
+    #[serde(default)]
+    pub session_id: WireSessionId,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
     /// Effective identity this statement-create runs as. `None` (omitted on
@@ -1961,6 +1977,10 @@ pub struct RelationCreateRequest {
     pub confidence: f32,
     pub valid_from_unix_nanos: u64,
     pub valid_to_unix_nanos: u64,
+    /// Conversation/run this relation belongs to; `0` = default session.
+    /// A grouping key, not an isolation boundary.
+    #[serde(default)]
+    pub session_id: WireSessionId,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
     /// Effective identity this relation-create runs as. `None` (omitted on the
@@ -2065,8 +2085,8 @@ pub struct QueryRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MaterializeProceduralRequest {
     #[serde(with = "serde_bytes")]
-    pub agent_id: WireUuid,
-    pub context_filter: WireContextId,
+    pub space_id: WireUuid,
+    pub session_filter: Option<Vec<WireSessionId>>,
     pub top_k: u32,
     pub min_confidence: f32,
     pub categories: Vec<String>,
@@ -2084,6 +2104,178 @@ pub struct MaterializeProceduralResponse {
     pub statement_ids: Vec<WireUuid>,
     pub total_candidates: u32,
     pub trimmed_by_budget: bool,
+}
+
+// ===========================================================================
+// SPACE registry — SPACE_CREATE / SPACE_LIST / SPACE_DELETE.
+// ===========================================================================
+
+/// One space row in a [`SpaceListResponse`]. `space_id` is the
+/// human-readable structured space string from the registry (a CBOR text
+/// string), not the derived 16-byte storage id.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceView {
+    pub space_id: String,
+    pub created_at_unix_nanos: u64,
+    pub last_active_unix_nanos: u64,
+    pub memory_count: u64,
+    pub session_count: u32,
+}
+
+/// SPACE_CREATE (`0x0070`). Provisions the caller's effective space
+/// explicitly; idempotent (a create for an existing space returns the
+/// existing row with `created = false`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceCreateRequest {
+    /// Opaque caller metadata blob (quota hints, labels). `None` for a bare
+    /// provision (omitted on the wire).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub metadata: Option<Vec<u8>>,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// SPACE_CREATE_RESP (`0x00F0`). `space_id` is the human-readable structured
+/// space string this create resolved to (a CBOR text string).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceCreateResponse {
+    pub space_id: String,
+    /// `false` on an idempotent replay of an existing space.
+    pub created: bool,
+    pub created_at_unix_nanos: u64,
+    pub last_active_unix_nanos: u64,
+    pub memory_count: u64,
+    pub session_count: u32,
+}
+
+/// SPACE_LIST (`0x0071`). Lists the caller's namespace's spaces. `limit == 0`
+/// means "no cap".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceListRequest {
+    pub limit: u32,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// SPACE_LIST_RESP (`0x00F1`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceListResponse {
+    pub spaces: Vec<SpaceView>,
+    /// `true` when the listing covers every shard. v1 lists only the
+    /// caller-shard's spaces, so this is `false` until cross-shard
+    /// scatter-gather lands — treat `false` as "partial".
+    pub cross_shard_complete: bool,
+}
+
+/// SPACE_DELETE (`0x0072`). GDPR erasure of the caller's effective space:
+/// removes every row under `(namespace, space)`. Hard/immediate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceDeleteRequest {
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// SPACE_DELETE_RESP (`0x00F2`). `space_id` is the human-readable structured
+/// space string this delete targeted (a CBOR text string).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceDeleteResponse {
+    pub space_id: String,
+    /// `false` when the space had no registry row.
+    pub existed: bool,
+    /// Number of memories tombstoned by the cascade.
+    pub memories_forgotten: u64,
+}
+
+// ===========================================================================
+// SESSION registry — SESSION_CREATE / SESSION_LIST / SESSION_DELETE.
+// ===========================================================================
+
+/// One session row in a [`SessionListResponse`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionView {
+    pub session_id: WireSessionId,
+    pub created_at_unix_nanos: u64,
+    pub last_active_unix_nanos: u64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    pub memory_count: u32,
+}
+
+/// SESSION_CREATE (`0x0073`). Provisions a session under the caller's
+/// effective space explicitly; idempotent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionCreateRequest {
+    pub session_id: WireSessionId,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// SESSION_CREATE_RESP (`0x00F3`). `space_id` is the derived 16-byte storage
+/// id (a CBOR byte string).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionCreateResponse {
+    #[serde(with = "serde_bytes")]
+    pub space_id: WireUuid,
+    pub session_id: WireSessionId,
+    /// `false` on an idempotent replay of an existing session.
+    pub created: bool,
+    pub created_at_unix_nanos: u64,
+    pub last_active_unix_nanos: u64,
+    pub memory_count: u32,
+}
+
+/// SESSION_LIST (`0x0074`). Lists one `(namespace, space)`'s sessions
+/// newest-first. `limit == 0` means "no cap".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionListRequest {
+    pub limit: u32,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// SESSION_LIST_RESP (`0x00F4`). `space_id` is the derived 16-byte storage id
+/// (a CBOR byte string).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionListResponse {
+    #[serde(with = "serde_bytes")]
+    pub space_id: WireUuid,
+    pub sessions: Vec<SessionView>,
+}
+
+/// SESSION_DELETE (`0x0075`). Removes a session's memories + graph rows.
+/// Defaults to soft (7-day grace); `hard = true` zeroes immediately. The
+/// default session (`session_id = 0`) is non-deletable.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionDeleteRequest {
+    pub session_id: WireSessionId,
+    /// `true` ⇒ hard tombstone (immediate); `false` (default) ⇒ soft.
+    #[serde(default)]
+    pub hard: bool,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// SESSION_DELETE_RESP (`0x00F5`). `space_id` is the derived 16-byte storage
+/// id (a CBOR byte string).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionDeleteResponse {
+    #[serde(with = "serde_bytes")]
+    pub space_id: WireUuid,
+    pub session_id: WireSessionId,
+    /// `false` when the session had no registry row.
+    pub existed: bool,
+    /// Number of memories tombstoned by the cascade.
+    pub memories_forgotten: u64,
 }
 
 // ===========================================================================
@@ -2262,13 +2454,13 @@ pub struct SimilarityFilter {
 /// means "everything routed to this shard".
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SubscriptionFilter {
-    pub contexts: Option<Vec<WireContextId>>,
+    pub session_filter: Option<Vec<WireSessionId>>,
     pub kinds: Option<Vec<MemoryKindWire>>,
     pub similar_to: Option<SimilarityFilter>,
-    /// Subset of agent ids whose events the subscriber wants. `None` or
-    /// empty = all agents on the shard.
+    /// Subset of space ids whose events the subscriber wants. `None` or
+    /// empty = all spaces on the shard.
     #[serde(with = "crate::wire::cbor::opt_vec_byte_array16")]
-    pub agents: Option<Vec<WireUuid>>,
+    pub spaces: Option<Vec<WireUuid>>,
     /// Subset of memory ids whose events the subscriber wants. `None` or
     /// empty = all memories. Lets a client scope a subscription to a single
     /// in-flight write (e.g. to watch that write's async derivation stages
@@ -2323,7 +2515,7 @@ pub struct EdgeEventPayload {
 pub struct SubscriptionEvent {
     pub event_type: EventType,
     pub memory_id: WireMemoryId,
-    pub context_id: WireContextId,
+    pub session_id: WireSessionId,
     pub text: String,
     pub kind: MemoryKindWire,
     pub salience: f32,
@@ -2682,7 +2874,7 @@ pub struct EntityListResponseFrame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntityResolveRequest {
     pub candidate_name: String,
-    pub context: String,
+    pub resolution_context: String,
     /// `0` = no hint; otherwise an entity type id.
     pub entity_type_hint: u32,
     pub allow_create: bool,

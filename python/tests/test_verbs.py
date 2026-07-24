@@ -52,8 +52,8 @@ def _sample_result(tag: int, text: str) -> MemoryResult:
         confidence=0.8,
         salience=0.5,
         kind=MemoryKind.SEMANTIC,
-        agent_id=bytes([tag]) * 16,
-        context_id=0,
+        space_id=bytes([tag]) * 16,
+        session_id=0,
         created_at_unix_nanos=1,
         last_accessed_at_unix_nanos=1,
         edges=None,
@@ -81,7 +81,7 @@ def _serve_recall_forget(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xCD" * 16,
+        connection_id=b"\xCD" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -95,7 +95,7 @@ def _serve_recall_forget(sock: socket.socket) -> None:
     auth_frame = read_frame(sock, buf)
     decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,

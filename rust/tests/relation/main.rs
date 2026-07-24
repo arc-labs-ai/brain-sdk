@@ -21,6 +21,7 @@ async fn entity(client: &BrainClient, name: &str) -> WireUuid {
             canonical_name: name.to_string(),
             aliases: vec![],
             attributes_blob: vec![],
+            session_id: 0,
             request_id: new_id(),
         })
         .await
@@ -35,6 +36,7 @@ fn relation(from: WireUuid, to: WireUuid) -> RelationCreateRequest {
         from_entity: from,
         to_entity: to,
         properties_blob: vec![],
+        session_id: 0,
         evidence: EvidenceRefWire::Inline(vec![]),
         extractor_id: 0,
         confidence: 0.8,

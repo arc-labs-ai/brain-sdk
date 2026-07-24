@@ -8,7 +8,7 @@
 //! `scripts/it-server.sh up` (see that script's header), then re-run.
 //!
 //! Auth is mandatory and the credential is the whole identity: every test
-//! mints a fresh `brain_` token bound to `(namespace, agent_id)` via the admin
+//! mints a fresh `brain_` token bound to `(namespace, space_id)` via the admin
 //! plane (`POST /v1/api-keys`) and connects with it, so isolation is real —
 //! two tests never share an agent unless they mint the same id on purpose.
 #![allow(dead_code)]
@@ -63,13 +63,13 @@ impl It {
         })
     }
 
-    /// Mint a `FULL` data-plane token bound to `(namespace, agent_id)` and
+    /// Mint a `FULL` data-plane token bound to `(namespace, space_id)` and
     /// return its secret string. Panics on any admin-plane failure — an
     /// integration test that cannot mint has nothing to assert.
-    pub async fn mint(&self, agent_id: [u8; 16]) -> String {
+    pub async fn mint(&self, space_id: [u8; 16]) -> String {
         let body = format!(
-            r#"{{"agent_id_hex":"{}","namespace":"{}","permissions":["FULL"]}}"#,
-            hex16(&agent_id),
+            r#"{{"space_id_hex":"{}","namespace":"{}","permissions":["FULL"]}}"#,
+            hex16(&space_id),
             self.namespace,
         );
         let req = format!(
@@ -109,18 +109,18 @@ impl It {
             .to_string()
     }
 
-    /// Mint a token for `agent_id` and connect a client as that agent.
-    pub async fn connect_as(&self, agent_id: [u8; 16]) -> BrainClient {
-        let token = self.mint(agent_id).await;
+    /// Mint a token for `space_id` and connect a client as that space.
+    pub async fn connect_as(&self, space_id: [u8; 16]) -> BrainClient {
+        let token = self.mint(space_id).await;
         BrainClient::connect(self.data, Auth::Token(token.into_bytes()))
             .await
             .expect("connect + handshake")
     }
 
-    /// Mint + connect as a brand-new random agent; returns `(client, agent_id)`.
+    /// Mint + connect as a brand-new random space; returns `(client, space_id)`.
     pub async fn connect_fresh(&self) -> (BrainClient, [u8; 16]) {
-        let agent = new_id();
-        (self.connect_as(agent).await, agent)
+        let space = new_id();
+        (self.connect_as(space).await, space)
     }
 }
 

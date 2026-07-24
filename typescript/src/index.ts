@@ -21,7 +21,7 @@ export * from "./wire/types.js";
 
 // Client + transport layers.
 export { BrainClient, newId } from "./client.js";
-export type { Auth, ClientConfig, SessionInfo } from "./client.js";
+export type { Auth, ClientConfig, ConnectionInfo } from "./client.js";
 export { MuxConnection, Subscription } from "./mux.js";
 export type { HandshakeOutcome } from "./connection.js";
 export { Pool } from "./pool.js";

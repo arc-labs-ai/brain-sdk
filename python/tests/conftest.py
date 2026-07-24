@@ -8,7 +8,7 @@ unset, the ``it`` fixture skips the test. Boot a server and export the vars
 with ``scripts/it-server.sh up`` (see that script's header), then re-run.
 
 Auth is mandatory and the credential is the whole identity: every test mints a
-fresh ``brain_`` token bound to ``(namespace, agent_id)`` via the admin plane
+fresh ``brain_`` token bound to ``(namespace, space_id)`` via the admin plane
 (``POST /v1/api-keys``) and connects with it, so isolation is real — two tests
 never share an agent unless they mint the same id on purpose.
 """
@@ -61,12 +61,12 @@ class It:
             namespace=os.environ.get("BRAIN_SDK_IT_NAMESPACE", "sdk-it"),
         )
 
-    def mint(self, agent_id: bytes) -> str:
-        """Mint a FULL data-plane token bound to ``(namespace, agent_id)`` and
+    def mint(self, space_id: bytes) -> str:
+        """Mint a FULL data-plane token bound to ``(namespace, space_id)`` and
         return its secret string."""
         body = json.dumps(
             {
-                "agent_id_hex": agent_id.hex(),
+                "space_id_hex": space_id.hex(),
                 "namespace": self.namespace,
                 "permissions": ["FULL"],
             }
@@ -91,12 +91,12 @@ class It:
         finally:
             conn.close()
 
-    def connect_as(self, agent_id: bytes) -> BrainClient:
-        token = self.mint(agent_id)
+    def connect_as(self, space_id: bytes) -> BrainClient:
+        token = self.mint(space_id)
         return BrainClient.connect(self.data_host, self.data_port, Auth.token(token.encode()))
 
     def connect_fresh(self) -> tuple[BrainClient, bytes]:
-        """Mint + connect as a brand-new random agent; returns ``(client, agent_id)``."""
+        """Mint + connect as a brand-new random agent; returns ``(client, space_id)``."""
         agent = new_id()
         return self.connect_as(agent), agent
 

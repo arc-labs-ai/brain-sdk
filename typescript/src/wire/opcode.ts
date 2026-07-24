@@ -49,6 +49,20 @@ export const Opcode = {
   EncodeVectorDirectReq: 0x002a,
   EncodeVectorDirectResp: 0x00aa,
 
+  // Space + session registry ops (tenancy).
+  SpaceCreateReq: 0x0070,
+  SpaceCreateResp: 0x00f0,
+  SpaceListReq: 0x0071,
+  SpaceListResp: 0x00f1,
+  SpaceDeleteReq: 0x0072,
+  SpaceDeleteResp: 0x00f2,
+  SessionCreateReq: 0x0073,
+  SessionCreateResp: 0x00f3,
+  SessionListReq: 0x0074,
+  SessionListResp: 0x00f4,
+  SessionDeleteReq: 0x0075,
+  SessionDeleteResp: 0x00f5,
+
   // Subscriptions (server push).
   SubscribeReq: 0x0030,
   SubscribeEvent: 0x00b0,

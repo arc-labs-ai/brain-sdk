@@ -42,15 +42,15 @@ def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) 
 SERVER_AGENT_ID = b"\x22" * 16
 
 
-def _response(req: EncodeRequest, agent_id: bytes) -> EncodeResponse:
+def _response(req: EncodeRequest, space_id: bytes) -> EncodeResponse:
     return EncodeResponse(
-        memory_id=req.context_id,
+        memory_id=req.session_id,
         was_deduplicated=False,
         salience=0.5,
         auto_edges_added=0,
         lsn=1,
-        agent_id=agent_id,
-        context_id=req.context_id,
+        space_id=space_id,
+        session_id=req.session_id,
         kind=MemoryKind.SEMANTIC,
         created_at_unix_nanos=1,
         edges_out_count=0,
@@ -60,10 +60,10 @@ def _response(req: EncodeRequest, agent_id: bytes) -> EncodeResponse:
     )
 
 
-def _request(context_id: int) -> EncodeRequest:
+def _request(session_id: int) -> EncodeRequest:
     return EncodeRequest(
-        text=f"memory {context_id}",
-        context_id=context_id,
+        text=f"memory {session_id}",
+        session_id=session_id,
         request_id=new_id(),
         txn_id=None,
         occurred_at_unix_nanos=None,
@@ -78,7 +78,7 @@ def _serve_two_concurrent(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xAB" * 16,
+        connection_id=b"\xAB" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -92,7 +92,7 @@ def _serve_two_concurrent(sock: socket.socket) -> None:
     auth_frame = read_frame(sock, buf)
     decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -150,7 +150,7 @@ def test_two_requests_in_flight_route_back_correctly() -> None:
             client_id="mux-test",
             supported_versions=[1],
             capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=False),
-            client_session_token=None,
+            client_connection_token=None,
         )
         auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
         conn, outcome = MuxConnection.connect(host, port, hello, auth)
@@ -158,9 +158,9 @@ def test_two_requests_in_flight_route_back_correctly() -> None:
 
         results: dict[int, EncodeResponse] = {}
 
-        def do(context_id: int) -> None:
-            frame = conn.request_one(Opcode.ENCODE_REQ, encode_payload(_request(context_id)))
-            results[context_id] = decode_payload(EncodeResponse, frame.payload)
+        def do(session_id: int) -> None:
+            frame = conn.request_one(Opcode.ENCODE_REQ, encode_payload(_request(session_id)))
+            results[session_id] = decode_payload(EncodeResponse, frame.payload)
 
         t1 = threading.Thread(target=do, args=(100,))
         t2 = threading.Thread(target=do, args=(200,))
@@ -173,9 +173,9 @@ def test_two_requests_in_flight_route_back_correctly() -> None:
         # Despite the server replying in reverse order, each response routed
         # back to the request whose context it echoes.
         assert results[100].memory_id == 100
-        assert results[100].context_id == 100
+        assert results[100].session_id == 100
         assert results[200].memory_id == 200
-        assert results[200].context_id == 200
+        assert results[200].session_id == 200
 
         conn.send_bye()
         conn.close()
@@ -209,7 +209,7 @@ def _sample_event(lsn: int) -> SubscriptionEvent:
     return SubscriptionEvent(
         event_type=EventType.ENCODED,
         memory_id=lsn,
-        context_id=1,
+        session_id=1,
         text=f"event {lsn}",
         kind=MemoryKind.SEMANTIC,
         salience=0.5,
@@ -231,7 +231,7 @@ def _serve_subscription(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xAB" * 16,
+        connection_id=b"\xAB" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -245,7 +245,7 @@ def _serve_subscription(sock: socket.socket) -> None:
     auth_frame = read_frame(sock, buf)
     decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -312,7 +312,7 @@ def test_subscription_drains_events_unsubscribes_and_leaks_no_route() -> None:
             client_id="sub-test",
             supported_versions=[1],
             capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=True),
-            client_session_token=None,
+            client_connection_token=None,
         )
         auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
         conn, outcome = MuxConnection.connect(host, port, hello, auth)
@@ -320,7 +320,7 @@ def test_subscription_drains_events_unsubscribes_and_leaks_no_route() -> None:
 
         sub = conn.subscribe(
             SubscribeRequest(
-                filter=SubscriptionFilter(contexts=None, kinds=None, similar_to=None, agents=None),
+                filter=SubscriptionFilter(session_filter=None, kinds=None, similar_to=None, spaces=None),
                 include_history=False,
                 from_lsn=None,
                 max_inflight=8,
@@ -374,7 +374,7 @@ def _serve_keepalive(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xAB" * 16,
+        connection_id=b"\xAB" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -388,7 +388,7 @@ def _serve_keepalive(sock: socket.socket) -> None:
     auth_frame = read_frame(sock, buf)
     decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -427,7 +427,7 @@ def test_server_ping_is_answered_with_client_pong() -> None:
             client_id="keepalive-test",
             supported_versions=[1],
             capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=False),
-            client_session_token=None,
+            client_connection_token=None,
         )
         auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
         # Hold `conn` (and its reader thread) alive while the server sends

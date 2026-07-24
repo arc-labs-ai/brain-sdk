@@ -219,7 +219,7 @@ describe("PLAN round-trip", () => {
       goal: { kind: "ByVector", offset: 0, dim: 384 },
       budget: { maxSteps: 8, maxWallTimeMs: 1000, maxBranchesExplored: 64 },
       strategyHint: PlanStrategy.AStar,
-      contextFilter: [1n, 2n],
+      sessionFilter: [1n, 2n],
       requestId: ID16(0x01),
       txnId: null,
       trace: false,
@@ -230,7 +230,7 @@ describe("PLAN round-trip", () => {
       goal: { kind: "ByText", text: "goal" },
       budget: { maxSteps: 4, maxWallTimeMs: 500, maxBranchesExplored: 16 },
       strategyHint: null,
-      contextFilter: null,
+      sessionFilter: null,
       requestId: null,
       txnId: null,
       trace: true,
@@ -270,7 +270,7 @@ describe("REASON round-trip", () => {
       observation: { kind: "ByText", text: "the sky darkened" },
       depth: 3,
       confidenceThreshold: 0.5,
-      contextFilter: [9n],
+      sessionFilter: [9n],
       maxInferences: 10,
       budgetWallTimeMs: 2000,
       requestId: ID16(0x02),
@@ -364,7 +364,7 @@ describe("ENTITY read-side round-trip", () => {
   it("resolve request + response", () => {
     rt(encodeEntityResolve, decodeEntityResolve, {
       candidateName: "Ada Lovelace",
-      context: "she joined in 2020",
+      resolutionContext: "she joined in 2020",
       entityTypeHint: 1,
       allowCreate: true,
       requestId: ID16(0x30),
@@ -500,19 +500,19 @@ describe("SUBSCRIBE round-trip", () => {
   it("subscribe request with filter", () => {
     rt(encodeSubscribe, decodeSubscribe, {
       filter: {
-        contexts: [1n, 2n],
+        sessionFilter: [1n, 2n],
         kinds: [MemoryKindWire.Semantic],
         similarTo: { referenceMemoryId: 5n, threshold: 0.75 },
-        agents: [ID16(0x01)],
+        spaces: [ID16(0x01)],
         memoryIds: [42n, 43n],
       },
       includeHistory: true,
       fromLsn: 100n,
       maxInflight: 64,
-      actAs: { namespace: "acme", agentId: ID16(0x02) },
+      actAs: { namespace: "acme", spaceId: "acme:user2" },
     });
     rt(encodeSubscribe, decodeSubscribe, {
-      filter: { contexts: null, kinds: null, similarTo: null, agents: null, memoryIds: null },
+      filter: { sessionFilter: null, kinds: null, similarTo: null, spaces: null, memoryIds: null },
       includeHistory: false,
       fromLsn: null,
       maxInflight: 8,
@@ -532,7 +532,7 @@ describe("SUBSCRIBE round-trip", () => {
     const ev: SubscriptionEvent = {
       eventType: EventType.Encoded,
       memoryId: 42n,
-      contextId: 1n,
+      sessionId: 1n,
       text: "remembered",
       kind: MemoryKindWire.Episodic,
       salience: 0.5,
@@ -551,7 +551,7 @@ describe("SUBSCRIBE round-trip", () => {
     const ev: SubscriptionEvent = {
       eventType: EventType.EntityCreated,
       memoryId: 0n,
-      contextId: 0n,
+      sessionId: 0n,
       text: "",
       kind: MemoryKindWire.Semantic,
       salience: 0.0,
@@ -573,7 +573,7 @@ describe("SUBSCRIBE round-trip", () => {
     const ev: SubscriptionEvent = {
       eventType: EventType.EdgeAdded,
       memoryId: 0n,
-      contextId: 0n,
+      sessionId: 0n,
       text: "",
       kind: MemoryKindWire.Semantic,
       salience: 0.0,
@@ -604,7 +604,7 @@ describe("SUBSCRIBE round-trip", () => {
     const ev: SubscriptionEvent = {
       eventType: EventType.StageCompleted,
       memoryId: 42n,
-      contextId: 1n,
+      sessionId: 1n,
       text: "",
       kind: MemoryKindWire.Episodic,
       salience: 0.0,
@@ -632,7 +632,7 @@ describe("SUBSCRIBE round-trip", () => {
     const ev: SubscriptionEvent = {
       eventType: EventType.StageCompleted,
       memoryId: 42n,
-      contextId: 1n,
+      sessionId: 1n,
       text: "",
       kind: MemoryKindWire.Episodic,
       salience: 0.0,

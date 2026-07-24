@@ -31,7 +31,7 @@ async fn serve_recall_forget(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xCD; 16],
+        connection_id: [0xCD; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -45,7 +45,7 @@ async fn serve_recall_forget(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -112,8 +112,8 @@ fn sample_result(tag: u8, text: &str) -> MemoryResult {
         confidence: 0.8,
         salience: 0.5,
         kind: MemoryKindWire::Semantic,
-        agent_id: [tag; 16],
-        context_id: 0,
+        space_id: [tag; 16],
+        session_id: 0,
         created_at_unix_nanos: 1,
         last_accessed_at_unix_nanos: 1,
         edges: None,

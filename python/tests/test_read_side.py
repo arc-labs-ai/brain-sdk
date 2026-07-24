@@ -274,7 +274,7 @@ def test_read_side_types_round_trip() -> None:
         goal=PlanState.by_vector(0, 384),
         budget=PlanBudget(10, 100, 5),
         strategy_hint=PlanStrategy.A_STAR,
-        context_filter=[1, 2],
+        session_filter=[1, 2],
         request_id=_rid(),
         txn_id=None,
     )
@@ -292,7 +292,7 @@ def test_read_side_types_round_trip() -> None:
         observation=ObservationInput.by_memory_id(5),
         depth=3,
         confidence_threshold=0.5,
-        context_filter=None,
+        session_filter=None,
         max_inferences=10,
         budget_wall_time_ms=1000,
         request_id=_rid(),
@@ -326,7 +326,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xAB" * 16,
+        connection_id=b"\xAB" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -339,7 +339,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     auth_frame = read_frame(sock, buf)
     auth = decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(True, True, True, True, True, True),
         namespace="",

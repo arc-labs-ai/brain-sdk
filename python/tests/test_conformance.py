@@ -105,6 +105,20 @@ PAYLOAD_TYPES = {
     # Extractor introspection (read-only; empty request).
     "req_extractor_list": t.ExtractorListRequest,
     "resp_extractor_list": t.ExtractorListResponseFrame,
+    # Space registry.
+    "req_space_create": t.SpaceCreateRequest,
+    "resp_space_create": t.SpaceCreateResponse,
+    "req_space_list": t.SpaceListRequest,
+    "resp_space_list": t.SpaceListResponse,
+    "req_space_delete": t.SpaceDeleteRequest,
+    "resp_space_delete": t.SpaceDeleteResponse,
+    # Session registry.
+    "req_session_create": t.SessionCreateRequest,
+    "resp_session_create": t.SessionCreateResponse,
+    "req_session_list": t.SessionListRequest,
+    "resp_session_list": t.SessionListResponse,
+    "req_session_delete": t.SessionDeleteRequest,
+    "resp_session_delete": t.SessionDeleteResponse,
     # Keepalive responses.
     "resp_pong": t.PongResponse,
     "resp_server_ping": t.ServerPingResponse,
@@ -249,9 +263,9 @@ def test_frame_round_trip(name):
 
 
 def test_all_cases_present():
-    """The corpus has 74 .bin/.json pairs; every one must be covered."""
+    """The corpus has 86 .bin/.json pairs; every one must be covered."""
     index = _load_index()
-    assert len(index) == 74, f"expected 74 corpus cases, index has {len(index)}"
+    assert len(index) == 86, f"expected 86 corpus cases, index has {len(index)}"
     covered = set(PAYLOAD_TYPES) | set(FRAME_PAYLOAD_TYPES)
     names = {c["name"] for c in index}
     missing = names - covered

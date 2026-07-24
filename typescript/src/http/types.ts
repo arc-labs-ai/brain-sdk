@@ -22,7 +22,7 @@ export type AnswerKind = "single" | "many" | "none";
 // --- encode ---------------------------------------------------------------
 export interface EncodeInput {
   text: string;
-  context?: number;
+  session?: number;
   occurred_at?: number;
 }
 export interface EncodeResult {
@@ -146,7 +146,7 @@ export interface Permissions {
 }
 export interface Whoami {
   namespace: string;
-  agent_id: string;
+  space_id: string;
   permissions: Permissions;
 }
 export interface Capabilities {

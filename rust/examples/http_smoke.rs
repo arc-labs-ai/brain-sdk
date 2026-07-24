@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let brain = BrainHttpClient::new(url.clone(), key);
 
     let who = brain.whoami().await?;
-    println!("whoami       {} {}", who.namespace, who.agent_id);
+    println!("whoami       {} {}", who.namespace, who.space_id);
 
     let caps = brain.capabilities().await?;
     println!("capabilities vector_dim={} llm={}", caps.vector_dim, caps.llm_extractor);

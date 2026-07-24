@@ -26,7 +26,7 @@ def test_encode_carries_context_and_event_time(it):
     try:
         req = (
             EncodeBuilder("We shipped v1 on launch day.")
-            .context(42)
+            .session(42)
             .occurred_at(1_700_000_000_000_000_000)
             .build()
         )

@@ -62,7 +62,7 @@ async function serveGraph(sock: net.Socket): Promise<void> {
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: new Uint8Array(16).fill(0xab),
+    connectionId: new Uint8Array(16).fill(0xab),
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 1 << 20,
@@ -76,7 +76,7 @@ async function serveGraph(sock: net.Socket): Promise<void> {
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -158,6 +158,7 @@ describe("typed-graph verbs", () => {
         canonicalName: "Ada Lovelace",
         aliases: ["Ada"],
         attributesBlob: new Uint8Array(0),
+        sessionId: 0n,
         requestId: newId(),
         actAs: null,
       });
@@ -175,6 +176,7 @@ describe("typed-graph verbs", () => {
         validToUnixNanos: 0xffffffffffffffffn,
         eventAtUnixNanos: 0n,
         schemaVersion: 1,
+        sessionId: 0n,
         requestId: newId(),
         actAs: null,
       });
@@ -191,6 +193,7 @@ describe("typed-graph verbs", () => {
         confidence: 0.8,
         validFromUnixNanos: 0n,
         validToUnixNanos: 0xffffffffffffffffn,
+        sessionId: 0n,
         requestId: newId(),
         actAs: null,
       });
@@ -206,8 +209,8 @@ describe("typed-graph verbs", () => {
       expect(schema.backwardCompatible).toBe(true);
 
       const proc = await client.materializeProcedural({
-        agentId: client.agentId,
-        contextFilter: 0n,
+        spaceId: client.spaceId,
+        sessionFilter: null,
         topK: 3,
         minConfidence: 0.5,
         categories: ["style"],

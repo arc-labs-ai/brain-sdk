@@ -146,6 +146,35 @@ const handlers: Record<string, Handler> = {
     t.decodeMaterializeProcedural,
     t.encodeMaterializeProcedural,
   ),
+
+  req_space_create: payloadRoundTrip(t.decodeSpaceCreate, t.encodeSpaceCreate),
+  resp_space_create: payloadRoundTrip(
+    t.decodeSpaceCreateResponse,
+    t.encodeSpaceCreateResponse,
+  ),
+  req_space_list: payloadRoundTrip(t.decodeSpaceList, t.encodeSpaceList),
+  resp_space_list: payloadRoundTrip(t.decodeSpaceListResponse, t.encodeSpaceListResponse),
+  req_space_delete: payloadRoundTrip(t.decodeSpaceDelete, t.encodeSpaceDelete),
+  resp_space_delete: payloadRoundTrip(
+    t.decodeSpaceDeleteResponse,
+    t.encodeSpaceDeleteResponse,
+  ),
+
+  req_session_create: payloadRoundTrip(t.decodeSessionCreate, t.encodeSessionCreate),
+  resp_session_create: payloadRoundTrip(
+    t.decodeSessionCreateResponse,
+    t.encodeSessionCreateResponse,
+  ),
+  req_session_list: payloadRoundTrip(t.decodeSessionList, t.encodeSessionList),
+  resp_session_list: payloadRoundTrip(
+    t.decodeSessionListResponse,
+    t.encodeSessionListResponse,
+  ),
+  req_session_delete: payloadRoundTrip(t.decodeSessionDelete, t.encodeSessionDelete),
+  resp_session_delete: payloadRoundTrip(
+    t.decodeSessionDeleteResponse,
+    t.encodeSessionDeleteResponse,
+  ),
   resp_materialize_procedural: payloadRoundTrip(
     t.decodeMaterializeProceduralResponse,
     t.encodeMaterializeProceduralResponse,

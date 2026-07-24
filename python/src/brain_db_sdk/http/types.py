@@ -200,14 +200,14 @@ class Permissions:
 @dataclass
 class Whoami:
     namespace: str
-    agent_id: str
+    space_id: str
     permissions: Permissions
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Whoami":
         return cls(
             namespace=d["namespace"],
-            agent_id=d["agent_id"],
+            space_id=d["space_id"],
             permissions=Permissions.from_dict(d["permissions"]),
         )
 

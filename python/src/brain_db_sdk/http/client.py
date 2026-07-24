@@ -55,11 +55,11 @@ class BrainHttpClient:
     def encode(
         self,
         text: str,
-        context: Optional[int] = None,
+        session: Optional[int] = None,
         occurred_at: Optional[int] = None,
     ) -> EncodeResult:
         """Store a memory."""
-        body = _compact({"text": text, "context": context, "occurred_at": occurred_at})
+        body = _compact({"text": text, "session": session, "occurred_at": occurred_at})
         return EncodeResult.from_dict(
             self._request("POST", "/v1/memories", body, idempotent=True)
         )

@@ -65,7 +65,7 @@ def _serve_one(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xAB" * 16,
+        connection_id=b"\xAB" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=16 * 1024 * 1024,
@@ -81,7 +81,7 @@ def _serve_one(sock: socket.socket) -> None:
     decode_payload(AuthPayload, auth_frame.payload)
 
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=3,
         permissions=AgentPermissions(
             can_encode=True,
@@ -106,8 +106,8 @@ def _serve_one(sock: socket.socket) -> None:
         salience=0.75,
         auto_edges_added=0,
         lsn=42,
-        agent_id=SERVER_AGENT_ID,
-        context_id=enc.context_id,
+        space_id=SERVER_AGENT_ID,
+        session_id=enc.session_id,
         kind=MemoryKind.SEMANTIC,
         created_at_unix_nanos=1_700_000_000_000_000_001,
         edges_out_count=0,
@@ -141,7 +141,7 @@ def _spawn_server(handler) -> tuple[str, int, threading.Thread, socket.socket]:
 def _sample_encode_request() -> EncodeRequest:
     return EncodeRequest(
         text="the user prefers dark mode",
-        context_id=9,
+        session_id=9,
         request_id=new_id(),
         txn_id=None,
         occurred_at_unix_nanos=None,
@@ -157,20 +157,20 @@ def test_connect_handshake_encode_round_trip_against_mock_server() -> None:
         assert session.chosen_version == 1
         assert session.server_id == "mock-brain"
         assert session.bound_shard_id == 3
-        assert session.session_id == b"\xAB" * 16
+        assert session.connection_id == b"\xAB" * 16
         assert session.permissions.can_encode
         assert not session.permissions.can_admin
         assert session.server_features.max_concurrent_streams == 256
         # The client adopts the server-assigned identity; it sent none.
-        assert client.agent_id == SERVER_AGENT_ID
+        assert client.space_id == SERVER_AGENT_ID
         assert client.namespace == ""
 
         req = _sample_encode_request()
         resp = client.encode(req)
         assert resp.memory_id == MEMORY_ID
         assert resp.lsn == 42
-        assert resp.context_id == req.context_id
-        assert resp.agent_id == client.agent_id
+        assert resp.session_id == req.session_id
+        assert resp.space_id == client.space_id
         assert resp.pending_stages == [StageKind.AUTO_EDGE, StageKind.EXTRACTOR]
 
         client.close()
@@ -191,7 +191,7 @@ def test_client_exposes_server_assigned_namespace() -> None:
         welcome = WelcomePayload(
             server_id="mock-brain",
             chosen_version=1,
-            session_id=b"\xAB" * 16,
+            connection_id=b"\xAB" * 16,
             capabilities=hello.capabilities,
             server_features=ServerFeatures(
                 max_payload_size=1 << 20,
@@ -205,7 +205,7 @@ def test_client_exposes_server_assigned_namespace() -> None:
         auth_frame = read_frame(sock, buf)
         decode_payload(AuthPayload, auth_frame.payload)
         auth_ok = AuthOkPayload(
-            agent_id=SERVER_AGENT_ID,
+            space_id=SERVER_AGENT_ID,
             bound_shard_id=7,
             permissions=AgentPermissions(
                 can_encode=True,
@@ -228,7 +228,7 @@ def test_client_exposes_server_assigned_namespace() -> None:
         client = BrainClient.connect(host, port, Auth.token(b"opaque-token"))
         assert client.namespace == "acme"
         assert client.session.namespace == "acme"
-        assert client.agent_id == SERVER_AGENT_ID
+        assert client.space_id == SERVER_AGENT_ID
         client.close()
         thread.join(timeout=5)
     finally:
@@ -243,7 +243,7 @@ def test_rejects_a_server_that_chooses_an_unoffered_version() -> None:
         welcome = WelcomePayload(
             server_id="mock-brain",
             chosen_version=99,  # never offered by the client
-            session_id=b"\x00" * 16,
+            connection_id=b"\x00" * 16,
             capabilities=hello.capabilities,
             server_features=ServerFeatures(
                 max_payload_size=0,

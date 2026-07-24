@@ -43,7 +43,7 @@ async fn serve_one(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: SESSION_ID,
+        connection_id: SESSION_ID,
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 16 * 1024 * 1024,
@@ -60,7 +60,7 @@ async fn serve_one(mut sock: TcpStream) {
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
 
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 3,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -87,8 +87,8 @@ async fn serve_one(mut sock: TcpStream) {
         salience: 0.75,
         auto_edges_added: 0,
         lsn: 42,
-        agent_id: SERVER_AGENT,
-        context_id: enc.context_id,
+        space_id: SERVER_AGENT,
+        session_id: enc.session_id,
         kind: MemoryKindWire::Semantic,
         created_at_unix_nanos: 1_700_000_000_000_000_001,
         edges_out_count: 0,
@@ -127,7 +127,7 @@ fn sample_encode_request() -> EncodeRequest {
     EncodeRequest {
         act_as: None,
         text: "the user prefers dark mode".to_string(),
-        context_id: 9,
+        session_id: 9,
         request_id: new_id(),
         txn_id: None,
         occurred_at_unix_nanos: None,
@@ -152,7 +152,7 @@ async fn connect_handshake_encode_round_trip_against_mock_server() {
     assert_eq!(session.chosen_version, 1);
     assert_eq!(session.server_id, "mock-brain");
     assert_eq!(session.bound_shard_id, 3);
-    assert_eq!(session.session_id, SESSION_ID);
+    assert_eq!(session.connection_id, SESSION_ID);
     assert!(session.permissions.can_encode);
     assert!(!session.permissions.can_admin);
     assert_eq!(session.server_features.max_concurrent_streams, 256);
@@ -161,8 +161,8 @@ async fn connect_handshake_encode_round_trip_against_mock_server() {
     let resp = client.encode(&req).await.expect("encode");
     assert_eq!(resp.memory_id, MEMORY_ID);
     assert_eq!(resp.lsn, 42);
-    assert_eq!(resp.context_id, req.context_id);
-    assert_eq!(resp.agent_id, client.agent_id());
+    assert_eq!(resp.session_id, req.session_id);
+    assert_eq!(resp.space_id, client.space_id());
     assert_eq!(
         resp.pending_stages,
         vec![StageKind::AutoEdge, StageKind::Extractor]
@@ -186,7 +186,7 @@ async fn rejects_a_server_that_chooses_an_unoffered_version() {
         let welcome = WelcomePayload {
             server_id: "mock-brain".to_string(),
             chosen_version: 99,
-            session_id: [0u8; 16],
+            connection_id: [0u8; 16],
             capabilities: hello.capabilities,
             server_features: ServerFeatures {
                 max_payload_size: 0,

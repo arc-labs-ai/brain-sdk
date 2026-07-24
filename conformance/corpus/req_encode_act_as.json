@@ -1,6 +1,6 @@
 {
   "text": "on behalf of a tenant",
-  "context_id": 1,
+  "session_id": 1,
   "request_id": [
     17,
     17,
@@ -23,23 +23,6 @@
   "occurred_at_unix_nanos": null,
   "act_as": {
     "namespace": "tenant-acme",
-    "agent_id": [
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34
-    ]
+    "space_id": "support-bot:user123"
   }
 }

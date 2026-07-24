@@ -101,6 +101,7 @@ def _relation_create() -> RelationCreateRequest:
         confidence=0.5,
         valid_from_unix_nanos=0,
         valid_to_unix_nanos=(1 << 64) - 1,
+        session_id=0,
         request_id=_rid(),
     )
 
@@ -148,7 +149,7 @@ def test_relation_query_types_round_trip() -> None:
     evd = EncodeVectorDirectRequest(
         text="hello",
         model_fingerprint=b"\xAB" * 16,
-        context_id=0,
+        session_id=0,
         kind=MemoryKind.SEMANTIC,
         salience_hint=0.5,
         edges=[],
@@ -210,7 +211,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xAB" * 16,
+        connection_id=b"\xAB" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -223,7 +224,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> None:
     auth_frame = read_frame(sock, buf)
     decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(True, True, True, True, True, True),
         namespace="",
@@ -252,8 +253,8 @@ def _serve(sock: socket.socket) -> None:
                 salience=0.5,
                 auto_edges_added=0,
                 lsn=1,
-                agent_id=SERVER_AGENT_ID,
-                context_id=0,
+                space_id=SERVER_AGENT_ID,
+                session_id=0,
                 kind=MemoryKind.SEMANTIC,
                 created_at_unix_nanos=1,
                 edges_out_count=0,
@@ -361,7 +362,7 @@ def test_relation_query_verbs() -> None:
             EncodeVectorDirectRequest(
                 text="hello",
                 model_fingerprint=b"\xAB" * 16,
-                context_id=0,
+                session_id=0,
                 kind=MemoryKind.SEMANTIC,
                 salience_hint=0.5,
                 edges=[],

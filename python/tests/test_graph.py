@@ -58,7 +58,7 @@ def _serve_graph(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xAB" * 16,
+        connection_id=b"\xAB" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -72,7 +72,7 @@ def _serve_graph(sock: socket.socket) -> None:
     auth_frame = read_frame(sock, buf)
     decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,
@@ -177,6 +177,7 @@ def test_typed_graph_verbs_round_trip() -> None:
                 canonical_name="Ada Lovelace",
                 aliases=["Ada"],
                 attributes_blob=[],
+                session_id=0,
                 request_id=_rid(),
             )
         )
@@ -195,6 +196,7 @@ def test_typed_graph_verbs_round_trip() -> None:
                 valid_to_unix_nanos=(1 << 64) - 1,
                 event_at_unix_nanos=0,
                 schema_version=1,
+                session_id=0,
                 request_id=_rid(),
             )
         )
@@ -212,6 +214,7 @@ def test_typed_graph_verbs_round_trip() -> None:
                 confidence=0.8,
                 valid_from_unix_nanos=0,
                 valid_to_unix_nanos=(1 << 64) - 1,
+                session_id=0,
                 request_id=_rid(),
             )
         )
@@ -230,8 +233,8 @@ def test_typed_graph_verbs_round_trip() -> None:
 
         proc = client.materialize_procedural(
             MaterializeProceduralRequest(
-                agent_id=client.agent_id,
-                context_filter=0,
+                space_id=client.space_id,
+                session_filter=None,
                 top_k=3,
                 min_confidence=0.5,
                 categories=["style"],

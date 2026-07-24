@@ -10,15 +10,15 @@
 use crate::client::new_id;
 use crate::wire::types::{
     ActAs, EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest, WaitMode,
-    WireMemoryId, WireUuid,
+    WireMemoryId,
 };
 
-/// Builder for an ENCODE request. Stores one text memory; `context` defaults
+/// Builder for an ENCODE request. Stores one text memory; `session` defaults
 /// to 0 and `occurred_at` is unset (the server stamps ingest time).
 #[derive(Clone, Debug)]
 pub struct EncodeBuilder {
     text: String,
-    context_id: u64,
+    session_id: u64,
     occurred_at_unix_nanos: Option<u64>,
     act_as: Option<ActAs>,
     wait: WaitMode,
@@ -26,12 +26,12 @@ pub struct EncodeBuilder {
 }
 
 impl EncodeBuilder {
-    /// Start an ENCODE for `text` (context 0, no explicit occurred-at).
+    /// Start an ENCODE for `text` (session 0, no explicit occurred-at).
     #[must_use]
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            context_id: 0,
+            session_id: 0,
             occurred_at_unix_nanos: None,
             act_as: None,
             wait: WaitMode::Ack,
@@ -57,23 +57,23 @@ impl EncodeBuilder {
         self
     }
 
-    /// Run this encode on behalf of another `(namespace, agent_id)` identity.
+    /// Run this encode on behalf of another `(namespace, space_id)` identity.
     /// Requires the connection principal to hold the `can_act_as` grant; set
     /// per request, never on the client, so a pooled client can serve many
     /// effective identities.
     #[must_use]
-    pub fn act_as(mut self, namespace: impl Into<String>, agent_id: WireUuid) -> Self {
+    pub fn act_as(mut self, namespace: impl Into<String>, space_id: impl Into<String>) -> Self {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
-            agent_id,
+            space_id: space_id.into(),
         });
         self
     }
 
-    /// Set the context (namespace) the memory belongs to.
+    /// Set the session (conversation) the memory belongs to.
     #[must_use]
-    pub fn context(mut self, context_id: u64) -> Self {
-        self.context_id = context_id;
+    pub fn session(mut self, session_id: u64) -> Self {
+        self.session_id = session_id;
         self
     }
 
@@ -86,7 +86,7 @@ impl EncodeBuilder {
     }
 
     /// Opt out of content dedup and force a distinct memory. By default Brain
-    /// dedupes byte-identical text on `(agent_id, context_id, BLAKE3(text))` and
+    /// dedupes byte-identical text on `(space_id, session_id, BLAKE3(text))` and
     /// returns the existing memory (`was_deduplicated = true`) without writing.
     /// Call this when the same text is a genuinely distinct observation that
     /// must coexist (e.g. the same fact re-stated at a different `occurred_at`).
@@ -101,7 +101,7 @@ impl EncodeBuilder {
     pub fn build(self) -> EncodeRequest {
         EncodeRequest {
             text: self.text,
-            context_id: self.context_id,
+            session_id: self.session_id,
             request_id: new_id(),
             txn_id: None,
             occurred_at_unix_nanos: self.occurred_at_unix_nanos,
@@ -121,7 +121,7 @@ pub struct RecallBuilder {
     subject_name: String,
     max_results: u32,
     confidence_threshold: f32,
-    context_filter: Option<Vec<u64>>,
+    session_filter: Option<Vec<u64>>,
     age_bound_unix_nanos: Option<u64>,
     as_of_record_time_unix_nanos: Option<u64>,
     kind_filter: Option<Vec<MemoryKindWire>>,
@@ -143,7 +143,7 @@ impl RecallBuilder {
             subject_name: String::new(),
             max_results: 10,
             confidence_threshold: 0.0,
-            context_filter: None,
+            session_filter: None,
             age_bound_unix_nanos: None,
             as_of_record_time_unix_nanos: None,
             kind_filter: None,
@@ -156,15 +156,15 @@ impl RecallBuilder {
         }
     }
 
-    /// Run this recall on behalf of another `(namespace, agent_id)` identity.
+    /// Run this recall on behalf of another `(namespace, space_id)` identity.
     /// Requires the connection principal to hold the `can_act_as` grant; set
     /// per request, never on the client, so a pooled client can serve many
     /// effective identities.
     #[must_use]
-    pub fn act_as(mut self, namespace: impl Into<String>, agent_id: WireUuid) -> Self {
+    pub fn act_as(mut self, namespace: impl Into<String>, space_id: impl Into<String>) -> Self {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
-            agent_id,
+            space_id: space_id.into(),
         });
         self
     }
@@ -197,10 +197,10 @@ impl RecallBuilder {
         self
     }
 
-    /// Restrict to these contexts.
+    /// Restrict to these sessions.
     #[must_use]
-    pub fn contexts(mut self, contexts: Vec<u64>) -> Self {
-        self.context_filter = Some(contexts);
+    pub fn sessions(mut self, sessions: Vec<u64>) -> Self {
+        self.session_filter = Some(sessions);
         self
     }
 
@@ -255,7 +255,7 @@ impl RecallBuilder {
             subject_name: self.subject_name,
             max_results: self.max_results,
             confidence_threshold: self.confidence_threshold,
-            context_filter: self.context_filter,
+            session_filter: self.session_filter,
             age_bound_unix_nanos: self.age_bound_unix_nanos,
             as_of_record_time_unix_nanos: self.as_of_record_time_unix_nanos,
             kind_filter: self.kind_filter,
@@ -291,15 +291,15 @@ impl ForgetBuilder {
         }
     }
 
-    /// Run this forget on behalf of another `(namespace, agent_id)` identity.
+    /// Run this forget on behalf of another `(namespace, space_id)` identity.
     /// Requires the connection principal to hold the `can_act_as` grant; set
     /// per request, never on the client, so a pooled client can serve many
     /// effective identities.
     #[must_use]
-    pub fn act_as(mut self, namespace: impl Into<String>, agent_id: WireUuid) -> Self {
+    pub fn act_as(mut self, namespace: impl Into<String>, space_id: impl Into<String>) -> Self {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
-            agent_id,
+            space_id: space_id.into(),
         });
         self
     }

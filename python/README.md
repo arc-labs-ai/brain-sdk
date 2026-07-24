@@ -4,7 +4,7 @@ The Python client for the Brain memory database. Speaks Brain's BRN0 wire
 protocol directly; no dependency on Brain's internal code.
 
 **Status: typed-graph verbs (Phase 6).** The wire codec (Phase 1) is **verified
-byte-for-byte against the shared conformance corpus** (all 38 `.bin`/`.json`
+byte-for-byte against the shared conformance corpus** (all 86 `.bin`/`.json`
 cases re-encode to identical bytes). On top of it, a synchronous connection
 layer (a `transport` over a socket, a `Connection` running the handshake HELLO →
 WELCOME → AUTH → AUTH_OK and request/response, a `BrainClient` holding the
@@ -12,7 +12,11 @@ negotiated session), the three v1 verbs with ergonomic builders (`encode()`,
 `recall()` streaming to EOS / `recall_frames()`, `forget()`), a `with_retry`
 helper + `RetryPolicy` (exponential backoff, server `retry_after_ms`), and the
 typed-graph verbs: `create_entity()`, `create_statement()`, `create_relation()`,
-`upload_schema()`, and `materialize_procedural()`. `BrainClient` is built on a
+`upload_schema()`, and `materialize_procedural()`; and the space/session registry
+verbs: `create_space()` / `list_spaces()` / `delete_space()` and
+`create_session()` / `list_sessions()` / `delete_session()` for managing the
+per-request isolation unit (space) and conversation groupings (session) that a
+trusted principal targets via `act_as`. `BrainClient` is built on a
 `MuxConnection`: a background reader thread demultiplexes responses by
 `stream_id`, so **every verb is concurrency-safe** and many requests run in
 flight at once over one connection from multiple threads. A `Pool` opens a fixed
@@ -77,7 +81,7 @@ from brain_db_sdk import BrainHttpClient
 brain = BrainHttpClient(api_key, base_url="https://api.arc-labs.ai")
 stored = brain.encode(text="the kettle whistled")
 answer = brain.recall(query="what whistled?", max_results=3)
-who = brain.whoami()  # namespace + agent_id + permissions
+who = brain.whoami()  # namespace + space_id + permissions
 ```
 
 Dependencies: `cbor2` (runtime), `pytest` (dev). CRC32C is pure Python.

@@ -60,6 +60,22 @@ class Opcode(IntEnum):
     GET_CAPABILITIES_REQ = 0x0032
     GET_CAPABILITIES_RESP = 0x00B2
 
+    # Space registry (per-request isolation unit within a namespace).
+    SPACE_CREATE_REQ = 0x0070
+    SPACE_CREATE_RESP = 0x00F0
+    SPACE_LIST_REQ = 0x0071
+    SPACE_LIST_RESP = 0x00F1
+    SPACE_DELETE_REQ = 0x0072
+    SPACE_DELETE_RESP = 0x00F2
+
+    # Session registry (conversation/run grouping within a space).
+    SESSION_CREATE_REQ = 0x0073
+    SESSION_CREATE_RESP = 0x00F3
+    SESSION_LIST_REQ = 0x0074
+    SESSION_LIST_RESP = 0x00F4
+    SESSION_DELETE_REQ = 0x0075
+    SESSION_DELETE_RESP = 0x00F5
+
     # Transactions.
     TXN_BEGIN = 0x0040
     TXN_BEGIN_RESP = 0x00C0

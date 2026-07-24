@@ -18,12 +18,11 @@ import {
   MemoryKindWire,
   type RecallRequest,
   WaitMode,
-  type WireUuid,
 } from "./wire/types.js";
 
-/** Builder for an ENCODE request (defaults: context 0). */
+/** Builder for an ENCODE request (defaults: session 0). */
 export class EncodeBuilder {
-  private contextId = 0n;
+  private sessionId = 0n;
   private occurredAtUnixNanos: bigint | null = null;
   private actAsIdentity: ActAs | null = null;
   private waitMode: WaitMode = WaitMode.Ack;
@@ -31,8 +30,8 @@ export class EncodeBuilder {
 
   constructor(private readonly text: string) {}
 
-  context(contextId: bigint): this {
-    this.contextId = contextId;
+  session(sessionId: bigint): this {
+    this.sessionId = sessionId;
     return this;
   }
 
@@ -50,16 +49,18 @@ export class EncodeBuilder {
     return this;
   }
 
-  /** Run this encode as an effective `(namespace, agentId)` on behalf of the
-   * connection principal. Per-request, so one pooled service key can serve
-   * many tenants. Requires the connection's `canActAs` grant server-side. */
-  actAs(namespace: string, agentId: WireUuid): this {
-    this.actAsIdentity = { namespace, agentId };
+  /** Run this encode as an effective `(namespace, spaceId)` on behalf of the
+   * connection principal. `spaceId` is the human-readable structured space
+   * string (empty selects the key-bound space). Per-request, so one pooled
+   * service key can serve many tenants. Requires the connection's `canActAs`
+   * grant server-side. */
+  actAs(namespace: string, spaceId: string): this {
+    this.actAsIdentity = { namespace, spaceId };
     return this;
   }
 
   /** Opt out of content dedup and force a distinct memory. By default Brain
-   * dedupes byte-identical text on `(agentId, contextId, BLAKE3(text))` and
+   * dedupes byte-identical text on `(spaceId, sessionId, BLAKE3(text))` and
    * returns the existing memory (`wasDeduplicated = true`) without writing.
    * Call this when the same text is a genuinely distinct observation that must
    * coexist (e.g. the same fact re-stated at a different `occurredAt`). */
@@ -72,7 +73,7 @@ export class EncodeBuilder {
   build(): EncodeRequest {
     return {
       text: this.text,
-      contextId: this.contextId,
+      sessionId: this.sessionId,
       requestId: newId(),
       txnId: null,
       occurredAtUnixNanos: this.occurredAtUnixNanos,
@@ -88,7 +89,7 @@ export class RecallBuilder {
   private subjectName = "";
   private maxResultsValue = 10;
   private confidenceThreshold = 0;
-  private contextFilter: bigint[] | null = null;
+  private sessionFilter: bigint[] | null = null;
   private ageBoundUnixNanos: bigint | null = null;
   private asOfRecordTimeUnixNanos: bigint | null = null;
   private kindFilter: MemoryKindWire[] | null = null;
@@ -123,8 +124,8 @@ export class RecallBuilder {
     return this;
   }
 
-  contexts(contexts: bigint[]): this {
-    this.contextFilter = contexts;
+  sessions(sessions: bigint[]): this {
+    this.sessionFilter = sessions;
     return this;
   }
 
@@ -159,11 +160,12 @@ export class RecallBuilder {
     return this;
   }
 
-  /** Run this recall as an effective `(namespace, agentId)` on behalf of the
-   * connection principal. Per-request; requires the connection's `canActAs`
-   * grant server-side. */
-  actAs(namespace: string, agentId: WireUuid): this {
-    this.actAsIdentity = { namespace, agentId };
+  /** Run this recall as an effective `(namespace, spaceId)` on behalf of the
+   * connection principal. `spaceId` is the human-readable structured space
+   * string. Per-request; requires the connection's `canActAs` grant
+   * server-side. */
+  actAs(namespace: string, spaceId: string): this {
+    this.actAsIdentity = { namespace, spaceId };
     return this;
   }
 
@@ -174,7 +176,7 @@ export class RecallBuilder {
       subjectName: this.subjectName,
       maxResults: this.maxResultsValue,
       confidenceThreshold: this.confidenceThreshold,
-      contextFilter: this.contextFilter,
+      sessionFilter: this.sessionFilter,
       ageBoundUnixNanos: this.ageBoundUnixNanos,
       asOfRecordTimeUnixNanos: this.asOfRecordTimeUnixNanos,
       kindFilter: this.kindFilter,
@@ -207,11 +209,12 @@ export class ForgetBuilder {
     return this;
   }
 
-  /** Run this forget as an effective `(namespace, agentId)` on behalf of the
-   * connection principal. Per-request; requires the connection's `canActAs`
-   * grant server-side. */
-  actAs(namespace: string, agentId: WireUuid): this {
-    this.actAsIdentity = { namespace, agentId };
+  /** Run this forget as an effective `(namespace, spaceId)` on behalf of the
+   * connection principal. `spaceId` is the human-readable structured space
+   * string. Per-request; requires the connection's `canActAs` grant
+   * server-side. */
+  actAs(namespace: string, spaceId: string): this {
+    this.actAsIdentity = { namespace, spaceId };
     return this;
   }
 

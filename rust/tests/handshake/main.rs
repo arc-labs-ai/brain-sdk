@@ -23,7 +23,7 @@ async fn live_minted_token_resolves_session() {
 
     // The server derives identity from the credential: the session's agent is
     // exactly the one the key was minted for, bound to the tenant namespace.
-    assert_eq!(session.agent_id, agent, "session agent == minted agent");
+    assert_eq!(session.space_id, agent, "session agent == minted agent");
     assert_eq!(session.namespace, it.namespace, "session namespace == tenant");
     assert_eq!(session.chosen_version, 1, "wire version negotiated to 1");
     client.close().await.expect("clean close");
@@ -39,8 +39,8 @@ async fn live_two_agents_get_distinct_sessions() {
     let (b, b_id) = it.connect_fresh().await;
 
     assert_ne!(a_id, b_id, "fresh agents differ");
-    assert_eq!(a.session().agent_id, a_id);
-    assert_eq!(b.session().agent_id, b_id);
+    assert_eq!(a.session().space_id, a_id);
+    assert_eq!(b.session().space_id, b_id);
     assert_eq!(a.session().namespace, b.session().namespace, "same tenant");
     a.close().await.expect("close a");
     b.close().await.expect("close b");

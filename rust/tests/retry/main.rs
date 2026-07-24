@@ -28,7 +28,7 @@ async fn serve_forget_then_recover(mut sock: TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".to_string(),
         chosen_version: 1,
-        session_id: [0xEE; 16],
+        connection_id: [0xEE; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -42,7 +42,7 @@ async fn serve_forget_then_recover(mut sock: TcpStream) {
     let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: SERVER_AGENT,
+        space_id: SERVER_AGENT,
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_act_as: false,
@@ -144,7 +144,7 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
         let welcome = WelcomePayload {
             server_id: "mock-brain".to_string(),
             chosen_version: 1,
-            session_id: [0u8; 16],
+            connection_id: [0u8; 16],
             capabilities: hello.capabilities,
             server_features: ServerFeatures {
                 max_payload_size: 0,
@@ -157,7 +157,7 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
         let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
         let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
         let auth_ok = AuthOkPayload {
-            agent_id: SERVER_AGENT,
+            space_id: SERVER_AGENT,
             bound_shard_id: 0,
             permissions: AgentPermissions {
                 can_act_as: false,

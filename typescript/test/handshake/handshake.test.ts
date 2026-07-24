@@ -18,9 +18,9 @@ describe.skipIf(T === null)("handshake (integration)", () => {
     const agent = newId();
     const client = await connectAs(t, agent);
     try {
-      const s = client.session;
+      const s = client.connection;
       // The server derives identity from the credential.
-      expect([...s.agentId]).toEqual([...agent]);
+      expect([...s.spaceId]).toEqual([...agent]);
       expect(s.namespace).toBe(t.namespace);
       expect(s.chosenVersion).toBe(1);
     } finally {
@@ -32,10 +32,10 @@ describe.skipIf(T === null)("handshake (integration)", () => {
     const a = await connectFresh(t);
     const b = await connectFresh(t);
     try {
-      expect([...a.agentId]).not.toEqual([...b.agentId]);
-      expect([...a.client.session.agentId]).toEqual([...a.agentId]);
-      expect([...b.client.session.agentId]).toEqual([...b.agentId]);
-      expect(a.client.session.namespace).toBe(b.client.session.namespace);
+      expect([...a.spaceId]).not.toEqual([...b.spaceId]);
+      expect([...a.client.connection.spaceId]).toEqual([...a.spaceId]);
+      expect([...b.client.connection.spaceId]).toEqual([...b.spaceId]);
+      expect(a.client.connection.namespace).toBe(b.client.connection.namespace);
     } finally {
       await a.client.close();
       await b.client.close();

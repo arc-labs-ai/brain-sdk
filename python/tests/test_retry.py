@@ -45,7 +45,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        session_id=b"\xEE" * 16,
+        connection_id=b"\xEE" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -58,7 +58,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     auth_frame = read_frame(sock, buf)
     auth = decode_payload(AuthPayload, auth_frame.payload)
     auth_ok = AuthOkPayload(
-        agent_id=SERVER_AGENT_ID,
+        space_id=SERVER_AGENT_ID,
         bound_shard_id=0,
         permissions=AgentPermissions(
             can_encode=True,

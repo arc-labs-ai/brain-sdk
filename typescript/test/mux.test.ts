@@ -48,15 +48,15 @@ function startServer(
   });
 }
 
-function encodeResponse(req: EncodeRequest, agentId: Uint8Array): EncodeResponse {
+function encodeResponse(req: EncodeRequest, spaceId: Uint8Array): EncodeResponse {
   return {
-    memoryId: req.contextId,
+    memoryId: req.sessionId,
     wasDeduplicated: false,
     salience: 0.5,
     autoEdgesAdded: 0,
     lsn: 1n,
-    agentId,
-    contextId: req.contextId,
+    spaceId,
+    sessionId: req.sessionId,
     kind: MemoryKindWire.Semantic,
     createdAtUnixNanos: 1n,
     edgesOutCount: 0,
@@ -66,10 +66,10 @@ function encodeResponse(req: EncodeRequest, agentId: Uint8Array): EncodeResponse
   };
 }
 
-function encodeRequest(contextId: bigint): EncodeRequest {
+function encodeRequest(sessionId: bigint): EncodeRequest {
   return {
-    text: `memory ${contextId}`,
-    contextId,
+    text: `memory ${sessionId}`,
+    sessionId,
     requestId: newId(),
     txnId: null,
     occurredAtUnixNanos: null,
@@ -90,7 +90,7 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: new Uint8Array(16).fill(0xab),
+    connectionId: new Uint8Array(16).fill(0xab),
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 1 << 20,
@@ -105,7 +105,7 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
   // Client sends a credential but no agent id; the server assigns one.
   decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -155,7 +155,7 @@ describe("mux connection", () => {
         clientId: "mux-test",
         supportedVersions: [1],
         capabilities: { streaming: true, compressionZstd: false, serverPush: false },
-        clientSessionToken: null,
+        clientConnectionToken: null,
       };
       const auth: AuthPayload = {
         method: AuthMethod.Token,
@@ -174,9 +174,9 @@ describe("mux connection", () => {
       const rb = decodeEncodeResponse(fb.payload);
       // Despite reverse-order replies, each response routed to its request.
       expect(ra.memoryId).toBe(100n);
-      expect(ra.contextId).toBe(100n);
+      expect(ra.sessionId).toBe(100n);
       expect(rb.memoryId).toBe(200n);
-      expect(rb.contextId).toBe(200n);
+      expect(rb.sessionId).toBe(200n);
 
       await conn.sendBye();
       conn.close();
@@ -214,7 +214,7 @@ async function serveKeepalive(
   const welcome: WelcomePayload = {
     serverId: "mock-brain",
     chosenVersion: 1,
-    sessionId: new Uint8Array(16).fill(0xab),
+    connectionId: new Uint8Array(16).fill(0xab),
     capabilities: hello.capabilities,
     serverFeatures: {
       maxPayloadSize: 1 << 20,
@@ -228,7 +228,7 @@ async function serveKeepalive(
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
   const authOk: AuthOkPayload = {
-    agentId: SERVER_AGENT_ID,
+    spaceId: SERVER_AGENT_ID,
     boundShardId: 0,
     permissions: {
       canEncode: true,
@@ -271,7 +271,7 @@ describe("mux keepalive", () => {
         clientId: "keepalive-test",
         supportedVersions: [1],
         capabilities: { streaming: true, compressionZstd: false, serverPush: false },
-        clientSessionToken: null,
+        clientConnectionToken: null,
       };
       const auth: AuthPayload = {
         method: AuthMethod.Token,

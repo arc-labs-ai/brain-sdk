@@ -38,7 +38,7 @@ async fn encode_vector_direct_round_trips() {
         text: "A memory written with a client-supplied vector.".to_string(),
         vector,
         model_fingerprint: fingerprint,
-        context_id: 0,
+        session_id: 0,
         kind: MemoryKindWire::Episodic,
         salience_hint: 0.5,
         edges: vec![],
