@@ -31,7 +31,9 @@ pub mod transport;
 pub mod verbs;
 pub mod wire;
 
-pub use client::{new_id, Auth, BrainClient, ClientConfig, ConnectionInfo, RecallAnswer};
+pub use client::{
+    derive_space_id, new_id, Auth, BrainClient, ClientConfig, ConnectionInfo, RecallAnswer,
+};
 pub use error::{BrainError, Result};
 pub use mux::{HandshakeOutcome, MuxConnection, Subscription};
 pub use pool::Pool;

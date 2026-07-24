@@ -159,6 +159,32 @@ def new_id() -> bytes:
     return uuid.uuid4().bytes
 
 
+# Root namespace UUID for space-id derivation. The server's frozen seed — the
+# exact 16 bytes it pins in brain-core, replicated here byte-for-byte (they must
+# match, or a space string resolves to different ids on each side). The seed is
+# pinned by a golden test on both sides.
+_BRAIN_ROOT_NAMESPACE_UUID = uuid.UUID(
+    bytes=bytes(
+        [
+            0x6B, 0x72, 0x61, 0x69, 0x6E, 0x2D, 0x73, 0x70,
+            0x61, 0x63, 0x65, 0x2D, 0x72, 0x6F, 0x6F, 0x74,
+        ]
+    )
+)
+
+
+def derive_space_id(namespace: str, space: str) -> bytes:
+    """Derive the 16-byte storage space id from a structured space string,
+    exactly as the server does at ingress: ``UUIDv5(UUIDv5(ROOT, namespace),
+    space)``. Folding the namespace makes equal strings under different
+    namespaces diverge. Clients only ever *send* the space string; this is for
+    the rare cases that need the resolved id locally — e.g. a subscription
+    filter naming the effective space by its resolved id. The seed is frozen and
+    pinned by a golden test on both sides."""
+    ns = uuid.uuid5(_BRAIN_ROOT_NAMESPACE_UUID, namespace)
+    return uuid.uuid5(ns, space).bytes
+
+
 @dataclass(frozen=True)
 class Auth:
     """How the client authenticates after WELCOME. Auth is mandatory: there is
@@ -200,8 +226,8 @@ class ClientConfig:
 
 
 @dataclass(frozen=True)
-class SessionInfo:
-    """The session the server granted at handshake time."""
+class ConnectionInfo:
+    """The connection the server granted at handshake time."""
 
     space_id: bytes
     server_id: str
@@ -224,9 +250,9 @@ class BrainClient:
     single client serves many requests in flight at once from multiple threads.
     """
 
-    def __init__(self, conn: MuxConnection, session: SessionInfo) -> None:
+    def __init__(self, conn: MuxConnection, connection: ConnectionInfo) -> None:
         self._conn = conn
-        self._session = session
+        self._connection = connection
 
     @classmethod
     def connect(
@@ -274,7 +300,7 @@ class BrainClient:
         permissions = outcome.auth_ok.permissions
         if isinstance(permissions, dict):
             permissions = SpacePermissions.from_map(permissions)
-        session = SessionInfo(
+        connection = ConnectionInfo(
             space_id=outcome.auth_ok.space_id,
             server_id=outcome.welcome.server_id,
             chosen_version=outcome.welcome.chosen_version,
@@ -284,24 +310,24 @@ class BrainClient:
             namespace=outcome.auth_ok.namespace,
             server_features=outcome.welcome.server_features,
         )
-        return cls(conn, session)
+        return cls(conn, connection)
 
     @property
-    def session(self) -> SessionInfo:
-        """The negotiated session."""
-        return self._session
+    def connection(self) -> ConnectionInfo:
+        """The negotiated connection."""
+        return self._connection
 
     @property
     def space_id(self) -> bytes:
         """The space id (derived 16-byte storage id) this connection acts as."""
-        return self._session.space_id
+        return self._connection.space_id
 
     @property
     def namespace(self) -> str:
         """The owning tenant the server bound this connection to (server-derived
         from auth). Empty when the connection resolves to the reserved ``brain``
         system namespace. Read-only — the client never sends a namespace."""
-        return self._session.namespace
+        return self._connection.namespace
 
     def encode(self, request: EncodeRequest) -> EncodeResponse:
         """Store a memory from text (ENCODE). The server owns the embedding,
@@ -942,7 +968,7 @@ class BrainClient:
 __all__ = [
     "BrainClient",
     "ClientConfig",
-    "SessionInfo",
+    "ConnectionInfo",
     "Auth",
     "new_id",
 ]

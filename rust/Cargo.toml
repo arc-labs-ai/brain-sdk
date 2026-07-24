@@ -31,7 +31,7 @@ thiserror = "1"            # structured frame-codec + client error taxonomy
 # per the SDK plan; the wire codec above stays runtime-agnostic.
 tokio = { version = "1", features = ["net", "io-util", "rt", "time", "macros", "sync"] }
 # request_id / agent_id minting: time-ordered UUIDv7, taken as 16 raw bytes.
-uuid = { version = "1", features = ["v7"] }
+uuid = { version = "1", features = ["v5", "v7"] }
 
 # HTTP tier (`http` module): the BrainHttpClient talks JSON to the Brain HTTP
 # edge. reqwest with rustls (no OpenSSL); serde_json for the JSON bodies.

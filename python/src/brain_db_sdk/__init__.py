@@ -20,7 +20,14 @@ from __future__ import annotations
 __version__ = "0.1.0"
 
 from . import wire  # noqa: F401
-from .client import Auth, BrainClient, ClientConfig, SessionInfo, new_id
+from .client import (
+    Auth,
+    BrainClient,
+    ClientConfig,
+    ConnectionInfo,
+    derive_space_id,
+    new_id,
+)
 from .mux import HandshakeOutcome, MuxConnection, Subscription
 from .pool import Pool
 from .retry import RetryPolicy, with_retry
@@ -45,9 +52,10 @@ __all__ = [
     "wire",
     "BrainClient",
     "ClientConfig",
-    "SessionInfo",
+    "ConnectionInfo",
     "Auth",
     "new_id",
+    "derive_space_id",
     "HandshakeOutcome",
     "MuxConnection",
     "Subscription",

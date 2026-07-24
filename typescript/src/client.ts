@@ -10,7 +10,7 @@
  * `requestId` each builder mints makes the resend idempotent.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import { ProtocolError } from "./errors.js";
 import { MuxConnection, type Subscription } from "./mux.js";
@@ -245,6 +245,37 @@ const DEFAULT_CLIENT_ID = "brain-db-sdk-typescript";
 /** Mint a fresh 16-byte identifier. */
 export function newId(): Uint8Array {
   return new Uint8Array(randomBytes(16));
+}
+
+/** Root namespace UUID for space-id derivation: the 16 bytes of the ASCII
+ * string `"brain-space-root"`. Must match the server's frozen seed. */
+const BRAIN_ROOT_NAMESPACE_UUID = new Uint8Array([
+  0x6b, 0x72, 0x61, 0x69, 0x6e, 0x2d, 0x73, 0x70, 0x61, 0x63, 0x65, 0x2d, 0x72, 0x6f, 0x6f, 0x74,
+]);
+
+/** RFC-4122 name-based UUIDv5 (SHA-1) of `name` under 16-byte `namespace`. */
+function uuidV5(namespace: Uint8Array, name: Uint8Array): Uint8Array {
+  const h = createHash("sha1");
+  h.update(namespace);
+  h.update(name);
+  const d = new Uint8Array(h.digest()).subarray(0, 16);
+  const out = new Uint8Array(d);
+  out[6] = (out[6] & 0x0f) | 0x50; // version 5
+  out[8] = (out[8] & 0x3f) | 0x80; // RFC-4122 variant
+  return out;
+}
+
+/** Derive the 16-byte storage space id from a structured space string, exactly
+ * as the server does at ingress: `UUIDv5(UUIDv5(ROOT, namespace), space)`.
+ * Folding the namespace makes equal strings under different namespaces diverge.
+ * Clients only ever *send* the space string; this is for the rare cases that
+ * need the resolved id locally — e.g. a subscription filter naming the effective
+ * space by its resolved id. The seed is frozen and pinned by a golden test on
+ * both sides. */
+export function deriveSpaceId(namespace: string, space: string): Uint8Array {
+  const enc = new TextEncoder();
+  const ns = uuidV5(BRAIN_ROOT_NAMESPACE_UUID, enc.encode(namespace));
+  return uuidV5(ns, enc.encode(space));
 }
 
 /**

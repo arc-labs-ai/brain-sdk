@@ -153,7 +153,7 @@ def test_connect_handshake_encode_round_trip_against_mock_server() -> None:
     try:
         client = BrainClient.connect(host, port, Auth.token(b"opaque-token"))
 
-        session = client.session
+        session = client.connection
         assert session.chosen_version == 1
         assert session.server_id == "mock-brain"
         assert session.bound_shard_id == 3
@@ -227,7 +227,7 @@ def test_client_exposes_server_assigned_namespace() -> None:
     try:
         client = BrainClient.connect(host, port, Auth.token(b"opaque-token"))
         assert client.namespace == "acme"
-        assert client.session.namespace == "acme"
+        assert client.connection.namespace == "acme"
         assert client.space_id == SERVER_AGENT_ID
         client.close()
         thread.join(timeout=5)
@@ -271,6 +271,6 @@ def test_rejects_a_server_that_chooses_an_unoffered_version() -> None:
 def test_live_server_handshake() -> None:
     host, _, port = os.environ["BRAIN_TEST_ADDR"].rpartition(":")
     client = BrainClient.connect(host, int(port), Auth.token(b"opaque-token"))
-    assert client.session.chosen_version == 1
-    assert client.session.permissions.can_encode
+    assert client.connection.chosen_version == 1
+    assert client.connection.permissions.can_encode
     client.close()

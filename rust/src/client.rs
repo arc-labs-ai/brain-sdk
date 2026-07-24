@@ -1235,3 +1235,44 @@ impl BrainClient {
 pub fn new_id() -> [u8; 16] {
     *uuid::Uuid::now_v7().as_bytes()
 }
+
+/// Root namespace UUID for space-id derivation: the 16 bytes of the ASCII
+/// string `"brain-space-root"`. Must match the server's frozen seed.
+const BRAIN_ROOT_NAMESPACE_UUID: uuid::Uuid = uuid::Uuid::from_bytes([
+    0x6b, 0x72, 0x61, 0x69, 0x6e, 0x2d, 0x73, 0x70, 0x61, 0x63, 0x65, 0x2d, 0x72, 0x6f, 0x6f, 0x74,
+]);
+
+/// Derive the 16-byte storage space id from a structured space string, exactly
+/// as the server does at request ingress: `UUIDv5(UUIDv5(ROOT, namespace),
+/// space)`. Folding the namespace makes equal strings under different
+/// namespaces diverge. Clients only ever *send* the space string; this is for
+/// the rare cases that need the resolved id locally — e.g. a `SubscriptionFilter`
+/// whose `spaces` names the effective space by its resolved id. The seed is
+/// frozen and pinned by a golden test on both sides; changing it re-keys every
+/// space.
+#[must_use]
+pub fn derive_space_id(namespace: &str, space: &str) -> [u8; 16] {
+    let ns = uuid::Uuid::new_v5(&BRAIN_ROOT_NAMESPACE_UUID, namespace.as_bytes());
+    *uuid::Uuid::new_v5(&ns, space.as_bytes()).as_bytes()
+}
+
+#[cfg(test)]
+mod space_id_tests {
+    use super::derive_space_id;
+
+    #[test]
+    fn derive_space_id_matches_server_golden() {
+        // The same frozen vector the server pins in brain-core: changing the
+        // seed on either side would break client/server agreement.
+        let id = derive_space_id("acme", "support-bot:user123");
+        assert_eq!(
+            uuid::Uuid::from_bytes(id).to_string(),
+            "119061cc-b6db-5cde-8edd-0cefa33452eb"
+        );
+    }
+
+    #[test]
+    fn same_space_diverges_across_namespaces() {
+        assert_ne!(derive_space_id("ns_a", "u1"), derive_space_id("ns_b", "u1"));
+    }
+}
