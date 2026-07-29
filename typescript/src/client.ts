@@ -547,7 +547,7 @@ export class BrainClient {
    * Idempotent: a create for an existing space returns the existing row with
    * `created = false`.
    */
-  async spaceCreate(request: SpaceCreateRequest): Promise<SpaceCreateResponse> {
+  async createSpace(request: SpaceCreateRequest): Promise<SpaceCreateResponse> {
     const frame = await this.conn.requestOne(Opcode.SpaceCreateReq, encodeSpaceCreate(request));
     this.expect(frame.opcode, Opcode.SpaceCreateResp, "SPACE_CREATE_RESP");
     return decodeSpaceCreateResponse(frame.payload);
@@ -558,7 +558,7 @@ export class BrainClient {
    * `false` while the listing covers only the caller shard — treat it as a
    * partial result.
    */
-  async spaceList(request: SpaceListRequest): Promise<SpaceListResponse> {
+  async listSpaces(request: SpaceListRequest): Promise<SpaceListResponse> {
     const frame = await this.conn.requestOne(Opcode.SpaceListReq, encodeSpaceList(request));
     this.expect(frame.opcode, Opcode.SpaceListResp, "SPACE_LIST_RESP");
     return decodeSpaceListResponse(frame.payload);
@@ -568,7 +568,7 @@ export class BrainClient {
    * GDPR-erase the caller's effective space (SPACE_DELETE): remove every row
    * under `(namespace, space)`. Hard and immediate.
    */
-  async spaceDelete(request: SpaceDeleteRequest): Promise<SpaceDeleteResponse> {
+  async deleteSpace(request: SpaceDeleteRequest): Promise<SpaceDeleteResponse> {
     const frame = await this.conn.requestOne(Opcode.SpaceDeleteReq, encodeSpaceDelete(request));
     this.expect(frame.opcode, Opcode.SpaceDeleteResp, "SPACE_DELETE_RESP");
     return decodeSpaceDeleteResponse(frame.payload);
@@ -579,7 +579,7 @@ export class BrainClient {
    * Idempotent: a create for an existing session returns the existing row with
    * `created = false`.
    */
-  async sessionCreate(request: SessionCreateRequest): Promise<SessionCreateResponse> {
+  async createSession(request: SessionCreateRequest): Promise<SessionCreateResponse> {
     const frame = await this.conn.requestOne(
       Opcode.SessionCreateReq,
       encodeSessionCreate(request),
@@ -592,7 +592,7 @@ export class BrainClient {
    * List one `(namespace, space)`'s sessions newest-first (SESSION_LIST).
    * A first-class end-user feature for enumerating a space's conversations/runs.
    */
-  async sessionList(request: SessionListRequest): Promise<SessionListResponse> {
+  async listSessions(request: SessionListRequest): Promise<SessionListResponse> {
     const frame = await this.conn.requestOne(Opcode.SessionListReq, encodeSessionList(request));
     this.expect(frame.opcode, Opcode.SessionListResp, "SESSION_LIST_RESP");
     return decodeSessionListResponse(frame.payload);
@@ -603,7 +603,7 @@ export class BrainClient {
    * (7-day grace); set `hard = true` to zero immediately. The default session
    * (`sessionId = 0`) is non-deletable.
    */
-  async sessionDelete(request: SessionDeleteRequest): Promise<SessionDeleteResponse> {
+  async deleteSession(request: SessionDeleteRequest): Promise<SessionDeleteResponse> {
     const frame = await this.conn.requestOne(
       Opcode.SessionDeleteReq,
       encodeSessionDelete(request),

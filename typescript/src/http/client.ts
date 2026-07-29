@@ -82,6 +82,38 @@ function parseRetryAfter(header: string | null): number | undefined {
   return Number.isFinite(secs) && String(secs) === header.trim() ? secs * 1000 : undefined;
 }
 
+
+/**
+ * The edge speaks snake_case JSON; this SDK speaks camelCase, as its wire types
+ * already do. Converting at the transport seam keeps one convention in the
+ * public API instead of two — Rust and Python have no such split because
+ * snake_case is idiomatic there, so their HTTP types match the wire by
+ * coincidence rather than by a different rule.
+ *
+ * Generic rather than 43 hand-written field mappings: every HTTP type here is a
+ * fixed-shape struct with plain snake_case keys, so the transform is total and
+ * mechanical. There are no free-form maps whose keys would be wrongly rewritten.
+ */
+function toSnakeKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(toSnakeKeys);
+  if (value === null || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()] = toSnakeKeys(v);
+  }
+  return out;
+}
+
+function toCamelKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(toCamelKeys);
+  if (value === null || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase())] = toCamelKeys(v);
+  }
+  return out;
+}
+
 export class BrainHttpClient {
   private readonly base: string;
   private readonly apiKey: string;
@@ -192,7 +224,7 @@ export class BrainHttpClient {
     const init: RequestInit = { method, headers, signal: controller.signal };
     if (body !== undefined) {
       headers["content-type"] = "application/json";
-      init.body = JSON.stringify(body);
+      init.body = JSON.stringify(toSnakeKeys(body));
     }
 
     let res: Response;
@@ -230,6 +262,6 @@ export class BrainHttpClient {
       if (retryAfterMs !== undefined) err.retryAfterMs = retryAfterMs;
       throw err;
     }
-    return (text ? JSON.parse(text) : undefined) as T;
+    return (text ? toCamelKeys(JSON.parse(text)) : undefined) as T;
   }
 }

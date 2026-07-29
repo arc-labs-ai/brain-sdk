@@ -104,15 +104,48 @@ describe("routing and auth", () => {
     expect(seen[0]!.auth, "the API key must ride every request").toBe(`Bearer ${API_KEY}`);
     expect(seen[0]!.contentType).toBe("application/json");
     expect(seen[0]!.body).toEqual({ text: "the sky is teal" });
-    expect(out.memory_id).toBe("42");
-    expect(out.auto_edges_added).toBe(1);
+    expect(out.memoryId).toBe("42");
+    expect(out.autoEdgesAdded).toBe(1);
+  });
+
+  it("speaks camelCase to callers and snake_case on the wire", async () => {
+    // The rest of this SDK is camelCase, including its wire types; the edge's
+    // JSON is snake_case. Both halves are asserted here so a change to either
+    // side of the mapping shows up as a failure rather than as silently wrong
+    // JSON that the mock happens to accept.
+    replies = [
+      [
+        200,
+        {
+          memory_id: "7",
+          was_deduplicated: true,
+          salience: 0.25,
+          kind: 0,
+          created_at_unix_nanos: 11,
+          auto_edges_added: 0,
+        },
+      ],
+    ];
+    const out = await client.encode({ text: "t", occurredAt: 99 });
+
+    expect(seen[0]!.body, "the edge must receive snake_case").toEqual({
+      text: "t",
+      occurred_at: 99,
+    });
+    expect(out.memoryId, "the caller must receive camelCase").toBe("7");
+    expect(out.wasDeduplicated).toBe(true);
+    expect(out.createdAtUnixNanos).toBe(11);
+    expect(
+      (out as unknown as Record<string, unknown>).memory_id,
+      "no snake_case leaks through to the public type",
+    ).toBeUndefined();
   });
 
   // A wrong path is a 404 against a real edge and silence against a mock, so
   // the route each verb uses is asserted directly.
   const routes: Array<[string, () => Promise<unknown>, string, string, unknown]> = [
     ["recall", () => client.recall({ query: "q" }), "POST", "/v1/recall", { answer_kind: "none", memories: [] }],
-    ["forget", () => client.forget({ memory_id: "42" }), "DELETE", "/v1/memories", { memory_id: "1", was_already_forgotten: false, edges_removed: 0 }],
+    ["forget", () => client.forget({ memoryId: "42" }), "DELETE", "/v1/memories", { memory_id: "1", was_already_forgotten: false, edges_removed: 0 }],
     ["link", () => client.link({ source: "1", target: "2", kind: "caused" }), "POST", "/v1/links", { source: "1", target: "2", kind: "caused", weight: 1, created_at_unix_nanos: 0, already_existed: false }],
     ["unlink", () => client.unlink({ source: "1", target: "2", kind: "caused" }), "DELETE", "/v1/links", { source: "1", target: "2", kind: "caused", removed: true }],
     ["whoami", () => client.whoami(), "GET", "/v1/whoami", WHOAMI],
@@ -137,7 +170,7 @@ describe("routing and auth", () => {
 describe("error mapping", () => {
   it("turns an error body into a structured error", async () => {
     replies = [[404, { error: { code: "not_found", message: "no such memory" } }]];
-    const err = await client.forget({ memory_id: "999" }).catch((e) => e);
+    const err = await client.forget({ memoryId: "999" }).catch((e) => e);
     expect(err).toBeInstanceOf(BrainHttpError);
     expect(err.status).toBe(404);
     expect(err.code).toBe("not_found");

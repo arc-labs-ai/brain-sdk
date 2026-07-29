@@ -151,7 +151,7 @@ const API_KEY: &str = "brain_test-key";
 fn client(edge: &MockEdge) -> BrainHttpClient {
     // No sleeping in tests: the schedule is asserted separately from the
     // decision to retry.
-    BrainHttpClient::new(&edge.base_url, API_KEY).with_retry_policy(HttpRetryPolicy::new(
+    BrainHttpClient::new(API_KEY, &edge.base_url).with_retry_policy(HttpRetryPolicy::new(
         3,
         Duration::ZERO,
         Duration::ZERO,
@@ -247,7 +247,7 @@ async fn a_non_json_error_body_still_yields_an_error() {
 async fn a_transport_failure_is_a_brain_error() {
     // A caller matching on BrainHttpError must not also have to handle a raw
     // reqwest error. Port 1 is reserved and refuses connections.
-    let err = BrainHttpClient::new("http://127.0.0.1:1", API_KEY)
+    let err = BrainHttpClient::new(API_KEY, "http://127.0.0.1:1")
         .with_retry_policy(HttpRetryPolicy::none())
         .whoami()
         .await

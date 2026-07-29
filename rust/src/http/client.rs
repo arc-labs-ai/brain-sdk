@@ -54,10 +54,17 @@ pub struct BrainHttpClient {
 }
 
 impl BrainHttpClient {
-    /// Build a client for `base_url`, authenticating as `api_key`. Uses the
+    /// Authenticate as `api_key` against `base_url`. Uses the
     /// [`DEFAULT_TIMEOUT`] request timeout and the default [`HttpRetryPolicy`].
+    ///
+    /// Key first, URL second — matching the Python and TypeScript clients,
+    /// which both take the key as the required argument and the URL as the
+    /// optional one. Both parameters are `impl Into<String>`, so a swapped call
+    /// compiles cleanly and sends the base URL as the bearer token; keeping the
+    /// three SDKs in one order is the only thing that makes that mistake hard.
+    /// [`Self::localhost`] covers the common case in one argument.
     #[must_use]
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
+    pub fn new(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
         let base = base_url.into().trim_end_matches('/').to_string();
         Self {
             base,
@@ -70,7 +77,7 @@ impl BrainHttpClient {
     /// Build a client against [`DEFAULT_BASE_URL`].
     #[must_use]
     pub fn localhost(api_key: impl Into<String>) -> Self {
-        Self::new(DEFAULT_BASE_URL, api_key)
+        Self::new(api_key, DEFAULT_BASE_URL)
     }
 
     /// Override the per-request timeout (default [`DEFAULT_TIMEOUT`]). A timeout

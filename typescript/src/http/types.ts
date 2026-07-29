@@ -23,46 +23,46 @@ export type AnswerKind = "single" | "many" | "none";
 export interface EncodeInput {
   text: string;
   session?: number;
-  occurred_at?: number;
+  occurredAt?: number;
 }
 export interface EncodeResult {
-  memory_id: string;
-  was_deduplicated: boolean;
+  memoryId: string;
+  wasDeduplicated: boolean;
   salience: number;
   kind: number;
-  created_at_unix_nanos: number;
-  auto_edges_added: number;
+  createdAtUnixNanos: number;
+  autoEdgesAdded: number;
 }
 
 // --- recall ---------------------------------------------------------------
 export interface RecallInput {
   query: string;
-  max_results?: number;
+  maxResults?: number;
   subject?: string;
 }
 export interface MemoryHit {
-  memory_id: string;
+  memoryId: string;
   text: string;
-  similarity_score: number;
+  similarityScore: number;
   confidence: number;
   salience: number;
   kind: number;
-  created_at_unix_nanos: number;
+  createdAtUnixNanos: number;
 }
 export interface RecallResult {
-  answer_kind: AnswerKind;
+  answerKind: AnswerKind;
   memories: MemoryHit[];
 }
 
 // --- forget ---------------------------------------------------------------
 export interface ForgetInput {
-  memory_id: string;
+  memoryId: string;
   hard?: boolean;
 }
 export interface ForgetResult {
-  memory_id: string;
-  was_already_forgotten: boolean;
-  edges_removed: number;
+  memoryId: string;
+  wasAlreadyForgotten: boolean;
+  edgesRemoved: number;
 }
 
 // --- link / unlink --------------------------------------------------------
@@ -77,8 +77,8 @@ export interface LinkResult {
   target: string;
   kind: EdgeKind;
   weight: number;
-  created_at_unix_nanos: number;
-  already_existed: boolean;
+  createdAtUnixNanos: number;
+  alreadyExisted: boolean;
 }
 export interface UnlinkInput {
   source: string;
@@ -95,23 +95,23 @@ export interface UnlinkResult {
 // --- plan / reason --------------------------------------------------------
 export interface Endpoint {
   text?: string;
-  memory_id?: string;
+  memoryId?: string;
 }
 export interface PlanInput {
   start: Endpoint;
   goal: Endpoint;
-  max_steps?: number;
-  max_wall_time_ms?: number;
-  max_branches?: number;
+  maxSteps?: number;
+  maxWallTimeMs?: number;
+  maxBranches?: number;
   strategy?: string;
 }
 export interface PlanStep {
-  step_index: number;
-  memory_id: string;
+  stepIndex: number;
+  memoryId: string;
   text: string;
-  transition_kind: string;
+  transitionKind: string;
   confidence: number;
-  estimated_distance_to_goal: number;
+  estimatedDistanceToGoal: number;
 }
 export interface PlanResult {
   steps: PlanStep[];
@@ -119,17 +119,17 @@ export interface PlanResult {
 export interface ReasonInput {
   observation: Endpoint;
   depth?: number;
-  confidence_threshold?: number;
-  max_inferences?: number;
-  budget_wall_time_ms?: number;
+  confidenceThreshold?: number;
+  maxInferences?: number;
+  budgetWallTimeMs?: number;
 }
 export interface InferenceStep {
-  step_index: number;
+  stepIndex: number;
   claim: string;
-  supporting_memories: string[];
-  contradicting_memories: string[];
+  supportingMemories: string[];
+  contradictingMemories: string[];
   confidence: number;
-  inference_kind: string;
+  inferenceKind: string;
 }
 export interface ReasonResult {
   inferences: InferenceStep[];
@@ -137,23 +137,23 @@ export interface ReasonResult {
 
 // --- identity -------------------------------------------------------------
 export interface Permissions {
-  can_encode: boolean;
-  can_recall: boolean;
-  can_plan: boolean;
-  can_reason: boolean;
-  can_forget: boolean;
-  can_admin: boolean;
+  canEncode: boolean;
+  canRecall: boolean;
+  canPlan: boolean;
+  canReason: boolean;
+  canForget: boolean;
+  canAdmin: boolean;
 }
 export interface Whoami {
   namespace: string;
-  space_id: string;
+  spaceId: string;
   permissions: Permissions;
 }
 export interface Capabilities {
   rerank: boolean;
-  llm_extractor: boolean;
-  classifier_extractor: boolean;
-  pattern_extractor: boolean;
-  schema_namespaces: string[];
-  vector_dim: number;
+  llmExtractor: boolean;
+  classifierExtractor: boolean;
+  patternExtractor: boolean;
+  schemaNamespaces: string[];
+  vectorDim: number;
 }

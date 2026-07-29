@@ -10,7 +10,7 @@ use brain_db_sdk::http::{BrainHttpClient, EncodeInput, Endpoint, ReasonInput, Re
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = std::env::var("BRAIN_API_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
     let key = std::env::var("BRAIN_API_KEY").expect("set BRAIN_API_KEY");
-    let brain = BrainHttpClient::new(url.clone(), key);
+    let brain = BrainHttpClient::new(key, url.clone());
 
     let who = brain.whoami().await?;
     println!("whoami       {} {}", who.namespace, who.space_id);
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     println!("reason       {} inference(s)", rea.inferences.len());
 
-    match BrainHttpClient::new(url, "brain_bogus").whoami().await {
+    match BrainHttpClient::new("brain_bogus", url).whoami().await {
         Err(e) => println!("bad key      status={} code={}", e.status, e.code),
         Ok(_) => println!("bad key      unexpectedly ok"),
     }
