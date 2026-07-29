@@ -1,0 +1,11155 @@
+{
+ "enums": {
+  "AnswerKindWire": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Single"
+    },
+    {
+     "name": "Many"
+    },
+    {
+     "name": "None"
+    }
+   ]
+  },
+  "AttrType": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Text"
+    },
+    {
+     "name": "Number"
+    },
+    {
+     "name": "Bool"
+    },
+    {
+     "name": "Date"
+    },
+    {
+     "name": "Timestamp"
+    }
+   ]
+  },
+  "AuthCredentials": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Token",
+     "payload": "Vec<u8>"
+    },
+    {
+     "name": "Mtls",
+     "payload": "MtlsClaim"
+    }
+   ]
+  },
+  "AuthMethod": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Token"
+    },
+    {
+     "discriminant": 1,
+     "name": "Mtls"
+    }
+   ]
+  },
+  "BackfillScope": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "All"
+    }
+   ]
+  },
+  "BackfillSelector": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Memory",
+     "payload": "u128"
+    },
+    {
+     "name": "Since",
+     "struct": [
+      {
+       "name": "since_unix_nanos",
+       "serde": {},
+       "type": "u64"
+      }
+     ]
+    },
+    {
+     "name": "All"
+    }
+   ]
+  },
+  "CacheConfig": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Enabled"
+    },
+    {
+     "name": "Disabled"
+    }
+   ]
+  },
+  "CancellationReason": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "ClientUnneeded"
+    },
+    {
+     "name": "Timeout"
+    },
+    {
+     "name": "Other",
+     "payload": "String"
+    }
+   ]
+  },
+  "CardinalityAst": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "OneToOne"
+    },
+    {
+     "name": "OneToMany"
+    },
+    {
+     "name": "ManyToOne"
+    },
+    {
+     "name": "ManyToMany"
+    }
+   ]
+  },
+  "CheckScope": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "QuickSample"
+    },
+    {
+     "name": "PerShard",
+     "payload": "Vec<u8>"
+    },
+    {
+     "name": "Full"
+    }
+   ]
+  },
+  "ConditionExpr": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": []
+  },
+  "ConditionOp": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Eq"
+    },
+    {
+     "name": "Neq"
+    },
+    {
+     "name": "Lt"
+    },
+    {
+     "name": "Lte"
+    },
+    {
+     "name": "Gt"
+    },
+    {
+     "name": "Gte"
+    },
+    {
+     "name": "In"
+    }
+   ]
+  },
+  "ConditionValue": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Text",
+     "payload": "String"
+    },
+    {
+     "name": "Number",
+     "payload": "f64"
+    },
+    {
+     "name": "Bool",
+     "payload": "bool"
+    },
+    {
+     "name": "List",
+     "payload": "Vec<ConditionValue>"
+    }
+   ]
+  },
+  "CostUnit": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "PerMemory"
+    },
+    {
+     "name": "PerRequest"
+    },
+    {
+     "name": "PerDay"
+    }
+   ]
+  },
+  "DurationUnit": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Seconds"
+    },
+    {
+     "name": "Minutes"
+    },
+    {
+     "name": "Hours"
+    },
+    {
+     "name": "Days"
+    }
+   ]
+  },
+  "EdgeKindWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Caused"
+    },
+    {
+     "discriminant": 1,
+     "name": "FollowedBy"
+    },
+    {
+     "discriminant": 2,
+     "name": "DerivedFrom"
+    },
+    {
+     "discriminant": 3,
+     "name": "SimilarTo"
+    },
+    {
+     "discriminant": 4,
+     "name": "Contradicts"
+    },
+    {
+     "discriminant": 5,
+     "name": "Supports"
+    },
+    {
+     "discriminant": 6,
+     "name": "References"
+    },
+    {
+     "discriminant": 7,
+     "name": "PartOf"
+    }
+   ]
+  },
+  "EncodeTraceStageStatus": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Ok"
+    },
+    {
+     "discriminant": 1,
+     "name": "Skipped"
+    },
+    {
+     "discriminant": 2,
+     "name": "Failed"
+    },
+    {
+     "discriminant": 3,
+     "name": "Timeout"
+    }
+   ]
+  },
+  "ErrorCategory": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Protocol"
+    },
+    {
+     "name": "Authentication"
+    },
+    {
+     "name": "Authorization"
+    },
+    {
+     "name": "Validation"
+    },
+    {
+     "name": "NotFound"
+    },
+    {
+     "name": "Conflict"
+    },
+    {
+     "name": "ResourceExhausted"
+    },
+    {
+     "name": "Internal"
+    },
+    {
+     "name": "Unavailable"
+    }
+   ]
+  },
+  "ErrorCategoryWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Protocol"
+    },
+    {
+     "discriminant": 1,
+     "name": "Authentication"
+    },
+    {
+     "discriminant": 2,
+     "name": "Authorization"
+    },
+    {
+     "discriminant": 3,
+     "name": "Validation"
+    },
+    {
+     "discriminant": 4,
+     "name": "NotFound"
+    },
+    {
+     "discriminant": 5,
+     "name": "Conflict"
+    },
+    {
+     "discriminant": 6,
+     "name": "ResourceExhausted"
+    },
+    {
+     "discriminant": 7,
+     "name": "Internal"
+    },
+    {
+     "discriminant": 8,
+     "name": "Unavailable"
+    }
+   ]
+  },
+  "ErrorCode": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "BadMagic"
+    },
+    {
+     "name": "BadHeaderCrc"
+    },
+    {
+     "name": "BadPayloadCrc"
+    },
+    {
+     "name": "BadOpcode"
+    },
+    {
+     "name": "BadVersion"
+    },
+    {
+     "name": "BadFrame"
+    },
+    {
+     "name": "OversizePayload"
+    },
+    {
+     "name": "ReservedFieldNonZero"
+    },
+    {
+     "name": "BadFlagCombination"
+    },
+    {
+     "name": "MalformedPayload"
+    },
+    {
+     "name": "MalformedVector"
+    },
+    {
+     "name": "VersionNotSupported"
+    },
+    {
+     "name": "NoSuchAuthMethod"
+    },
+    {
+     "name": "Unauthenticated"
+    },
+    {
+     "name": "NotAuthenticated"
+    },
+    {
+     "name": "AuthBackendUnavailable"
+    },
+    {
+     "name": "SessionExpired"
+    },
+    {
+     "name": "PermissionDenied"
+    },
+    {
+     "name": "AdminPermissionRequired"
+    },
+    {
+     "name": "WrongShard"
+    },
+    {
+     "name": "ActAsDenied"
+    },
+    {
+     "name": "InvalidArgument"
+    },
+    {
+     "name": "MissingRequiredField"
+    },
+    {
+     "name": "TextTooLarge"
+    },
+    {
+     "name": "TextEmpty"
+    },
+    {
+     "name": "BadSessionId"
+    },
+    {
+     "name": "BadMemoryKind"
+    },
+    {
+     "name": "BadEdgeKind"
+    },
+    {
+     "name": "BadStrategyHint"
+    },
+    {
+     "name": "TopKOutOfRange"
+    },
+    {
+     "name": "BudgetTooLarge"
+    },
+    {
+     "name": "BadModelFingerprint"
+    },
+    {
+     "name": "PredicateNotInSchema"
+    },
+    {
+     "name": "RelationTypeNotInSchema"
+    },
+    {
+     "name": "MemoryNotFound"
+    },
+    {
+     "name": "ContextNotFound"
+    },
+    {
+     "name": "SubscriptionNotFound"
+    },
+    {
+     "name": "SnapshotNotFound"
+    },
+    {
+     "name": "TxnNotFound"
+    },
+    {
+     "name": "IdempotencyConflict"
+    },
+    {
+     "name": "TransactionConflict"
+    },
+    {
+     "name": "TransactionTimeout"
+    },
+    {
+     "name": "StreamIdInUse"
+    },
+    {
+     "name": "SubscriptionLsnTooOld"
+    },
+    {
+     "name": "CardinalityViolation"
+    },
+    {
+     "name": "OutOfSlots"
+    },
+    {
+     "name": "OutOfDisk"
+    },
+    {
+     "name": "OutOfMemory"
+    },
+    {
+     "name": "RateLimited"
+    },
+    {
+     "name": "StreamLimitExceeded"
+    },
+    {
+     "name": "ConnectionLimitExceeded"
+    },
+    {
+     "name": "TransactionLimitExceeded"
+    },
+    {
+     "name": "TransactionTooLarge"
+    },
+    {
+     "name": "Internal"
+    },
+    {
+     "name": "StorageError"
+    },
+    {
+     "name": "IndexError"
+    },
+    {
+     "name": "EmbeddingError"
+    },
+    {
+     "name": "MetadataError"
+    },
+    {
+     "name": "Cancelled"
+    },
+    {
+     "name": "ShardUnavailable"
+    },
+    {
+     "name": "Overloaded"
+    },
+    {
+     "name": "Restarting"
+    },
+    {
+     "name": "Maintenance"
+    },
+    {
+     "name": "RetrieverDegraded"
+    },
+    {
+     "name": "SchemaInvalid"
+    },
+    {
+     "name": "SchemaMigrationRequired"
+    },
+    {
+     "name": "EntityNotFound"
+    },
+    {
+     "name": "EntityTypeMismatch"
+    },
+    {
+     "name": "EntityAmbiguous"
+    },
+    {
+     "name": "EntityMergeConflict"
+    },
+    {
+     "name": "StatementNotFound"
+    },
+    {
+     "name": "StatementObjectTypeMismatch"
+    },
+    {
+     "name": "StatementContradictsExisting"
+    },
+    {
+     "name": "QueryTimeout"
+    },
+    {
+     "name": "QueryOverBudget"
+    },
+    {
+     "name": "ExtractorDisabled"
+    },
+    {
+     "name": "ExtractorBudgetExceeded"
+    },
+    {
+     "name": "ExtractionFailed"
+    }
+   ]
+  },
+  "ErrorCodeWire": {
+   "encoding": "int",
+   "repr": "u16",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 1,
+     "name": "BadMagic"
+    },
+    {
+     "discriminant": 2,
+     "name": "BadHeaderCrc"
+    },
+    {
+     "discriminant": 3,
+     "name": "BadPayloadCrc"
+    },
+    {
+     "discriminant": 4,
+     "name": "BadOpcode"
+    },
+    {
+     "discriminant": 5,
+     "name": "BadVersion"
+    },
+    {
+     "discriminant": 6,
+     "name": "BadFrame"
+    },
+    {
+     "discriminant": 7,
+     "name": "OversizePayload"
+    },
+    {
+     "discriminant": 8,
+     "name": "ReservedFieldNonZero"
+    },
+    {
+     "discriminant": 9,
+     "name": "BadFlagCombination"
+    },
+    {
+     "discriminant": 10,
+     "name": "MalformedPayload"
+    },
+    {
+     "discriminant": 11,
+     "name": "MalformedVector"
+    },
+    {
+     "discriminant": 32,
+     "name": "VersionNotSupported"
+    },
+    {
+     "discriminant": 33,
+     "name": "NoSuchAuthMethod"
+    },
+    {
+     "discriminant": 34,
+     "name": "Unauthenticated"
+    },
+    {
+     "discriminant": 35,
+     "name": "NotAuthenticated"
+    },
+    {
+     "discriminant": 36,
+     "name": "AuthBackendUnavailable"
+    },
+    {
+     "discriminant": 37,
+     "name": "SessionExpired"
+    },
+    {
+     "discriminant": 48,
+     "name": "PermissionDenied"
+    },
+    {
+     "discriminant": 49,
+     "name": "AdminPermissionRequired"
+    },
+    {
+     "discriminant": 50,
+     "name": "WrongShard"
+    },
+    {
+     "discriminant": 51,
+     "name": "ActAsDenied"
+    },
+    {
+     "discriminant": 64,
+     "name": "InvalidArgument"
+    },
+    {
+     "discriminant": 65,
+     "name": "MissingRequiredField"
+    },
+    {
+     "discriminant": 66,
+     "name": "TextTooLarge"
+    },
+    {
+     "discriminant": 67,
+     "name": "TextEmpty"
+    },
+    {
+     "discriminant": 68,
+     "name": "BadSessionId"
+    },
+    {
+     "discriminant": 69,
+     "name": "BadMemoryKind"
+    },
+    {
+     "discriminant": 70,
+     "name": "BadEdgeKind"
+    },
+    {
+     "discriminant": 71,
+     "name": "BadStrategyHint"
+    },
+    {
+     "discriminant": 72,
+     "name": "TopKOutOfRange"
+    },
+    {
+     "discriminant": 73,
+     "name": "BudgetTooLarge"
+    },
+    {
+     "discriminant": 74,
+     "name": "BadModelFingerprint"
+    },
+    {
+     "discriminant": 75,
+     "name": "PredicateNotInSchema"
+    },
+    {
+     "discriminant": 76,
+     "name": "RelationTypeNotInSchema"
+    },
+    {
+     "discriminant": 80,
+     "name": "MemoryNotFound"
+    },
+    {
+     "discriminant": 81,
+     "name": "ContextNotFound"
+    },
+    {
+     "discriminant": 82,
+     "name": "SubscriptionNotFound"
+    },
+    {
+     "discriminant": 83,
+     "name": "SnapshotNotFound"
+    },
+    {
+     "discriminant": 84,
+     "name": "TxnNotFound"
+    },
+    {
+     "discriminant": 96,
+     "name": "IdempotencyConflict"
+    },
+    {
+     "discriminant": 97,
+     "name": "TransactionConflict"
+    },
+    {
+     "discriminant": 98,
+     "name": "TransactionTimeout"
+    },
+    {
+     "discriminant": 99,
+     "name": "StreamIdInUse"
+    },
+    {
+     "discriminant": 100,
+     "name": "SubscriptionLsnTooOld"
+    },
+    {
+     "discriminant": 101,
+     "name": "CardinalityViolation"
+    },
+    {
+     "discriminant": 112,
+     "name": "OutOfSlots"
+    },
+    {
+     "discriminant": 113,
+     "name": "OutOfDisk"
+    },
+    {
+     "discriminant": 114,
+     "name": "OutOfMemory"
+    },
+    {
+     "discriminant": 115,
+     "name": "RateLimited"
+    },
+    {
+     "discriminant": 116,
+     "name": "StreamLimitExceeded"
+    },
+    {
+     "discriminant": 117,
+     "name": "ConnectionLimitExceeded"
+    },
+    {
+     "discriminant": 118,
+     "name": "TransactionLimitExceeded"
+    },
+    {
+     "discriminant": 119,
+     "name": "TransactionTooLarge"
+    },
+    {
+     "discriminant": 128,
+     "name": "Internal"
+    },
+    {
+     "discriminant": 129,
+     "name": "StorageError"
+    },
+    {
+     "discriminant": 130,
+     "name": "IndexError"
+    },
+    {
+     "discriminant": 131,
+     "name": "EmbeddingError"
+    },
+    {
+     "discriminant": 132,
+     "name": "MetadataError"
+    },
+    {
+     "discriminant": 133,
+     "name": "Cancelled"
+    },
+    {
+     "discriminant": 144,
+     "name": "ShardUnavailable"
+    },
+    {
+     "discriminant": 145,
+     "name": "Overloaded"
+    },
+    {
+     "discriminant": 146,
+     "name": "Restarting"
+    },
+    {
+     "discriminant": 147,
+     "name": "Maintenance"
+    },
+    {
+     "discriminant": 148,
+     "name": "RetrieverDegraded"
+    },
+    {
+     "discriminant": 288,
+     "name": "SchemaInvalid"
+    },
+    {
+     "discriminant": 289,
+     "name": "SchemaMigrationRequired"
+    },
+    {
+     "discriminant": 304,
+     "name": "EntityNotFound"
+    },
+    {
+     "discriminant": 305,
+     "name": "EntityTypeMismatch"
+    },
+    {
+     "discriminant": 306,
+     "name": "EntityAmbiguous"
+    },
+    {
+     "discriminant": 307,
+     "name": "EntityMergeConflict"
+    },
+    {
+     "discriminant": 320,
+     "name": "StatementNotFound"
+    },
+    {
+     "discriminant": 321,
+     "name": "StatementObjectTypeMismatch"
+    },
+    {
+     "discriminant": 322,
+     "name": "StatementContradictsExisting"
+    },
+    {
+     "discriminant": 352,
+     "name": "QueryTimeout"
+    },
+    {
+     "discriminant": 353,
+     "name": "QueryOverBudget"
+    },
+    {
+     "discriminant": 368,
+     "name": "ExtractorDisabled"
+    },
+    {
+     "discriminant": 369,
+     "name": "ExtractorBudgetExceeded"
+    },
+    {
+     "discriminant": 370,
+     "name": "ExtractionFailed"
+    }
+   ]
+  },
+  "EventType": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Encoded"
+    },
+    {
+     "discriminant": 1,
+     "name": "Forgotten"
+    },
+    {
+     "discriminant": 2,
+     "name": "Reclaimed"
+    },
+    {
+     "discriminant": 3,
+     "name": "KindChanged"
+    },
+    {
+     "discriminant": 16,
+     "name": "EntityCreated"
+    },
+    {
+     "discriminant": 17,
+     "name": "EntityUpdated"
+    },
+    {
+     "discriminant": 18,
+     "name": "EntityRenamed"
+    },
+    {
+     "discriminant": 19,
+     "name": "EntityMerged"
+    },
+    {
+     "discriminant": 20,
+     "name": "EntityUnmerged"
+    },
+    {
+     "discriminant": 21,
+     "name": "EntityTombstoned"
+    },
+    {
+     "discriminant": 22,
+     "name": "StatementCreated"
+    },
+    {
+     "discriminant": 23,
+     "name": "StatementSuperseded"
+    },
+    {
+     "discriminant": 24,
+     "name": "StatementTombstoned"
+    },
+    {
+     "discriminant": 25,
+     "name": "RelationCreated"
+    },
+    {
+     "discriminant": 26,
+     "name": "RelationSuperseded"
+    },
+    {
+     "discriminant": 27,
+     "name": "StageCompleted"
+    },
+    {
+     "discriminant": 29,
+     "name": "SchemaUpdated"
+    },
+    {
+     "discriminant": 30,
+     "name": "RelationTombstoned"
+    },
+    {
+     "discriminant": 31,
+     "name": "EdgeAdded"
+    },
+    {
+     "discriminant": 32,
+     "name": "EdgeRemoved"
+    },
+    {
+     "discriminant": 33,
+     "name": "EdgeSuperseded"
+    }
+   ]
+  },
+  "EvidenceRefWire": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Inline",
+     "payload": "#[serde(with = \"vec_byte_array16\")] Vec<[u8; 16]>"
+    },
+    {
+     "name": "Overflow",
+     "payload": "#[serde(with = \"serde_bytes\")] [u8; 16]"
+    }
+   ]
+  },
+  "ExtractorField": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Patterns",
+     "payload": "Vec<String>"
+    },
+    {
+     "name": "Model",
+     "payload": "String"
+    },
+    {
+     "name": "FeatureExtraction",
+     "payload": "String"
+    },
+    {
+     "name": "Prompt",
+     "payload": "String"
+    },
+    {
+     "name": "Examples",
+     "payload": "Value"
+    },
+    {
+     "name": "Schema",
+     "payload": "Value"
+    },
+    {
+     "name": "Cache",
+     "payload": "CacheConfig"
+    },
+    {
+     "name": "CacheTtl",
+     "payload": "DurationAst"
+    },
+    {
+     "name": "Confidence",
+     "payload": "f32"
+    },
+    {
+     "name": "ConfidenceThreshold",
+     "payload": "f32"
+    },
+    {
+     "name": "Trigger",
+     "payload": "TriggerExpr"
+    },
+    {
+     "name": "CostBudget",
+     "payload": "CostExpr"
+    },
+    {
+     "name": "DependsOn",
+     "payload": "Vec<String>"
+    },
+    {
+     "name": "Resolver",
+     "payload": "ResolverConfig"
+    }
+   ]
+  },
+  "ExtractorKindAst": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Pattern"
+    },
+    {
+     "name": "Classifier"
+    },
+    {
+     "name": "Llm"
+    }
+   ]
+  },
+  "ExtractorTarget": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Entity",
+     "struct": [
+      {
+       "name": "entity_type",
+       "serde": {},
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "name": "Statement",
+     "struct": [
+      {
+       "name": "kind",
+       "serde": {},
+       "type": "StatementKindAst"
+      }
+     ]
+    },
+    {
+     "name": "Relation",
+     "struct": [
+      {
+       "name": "relation_type",
+       "serde": {},
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "name": "EntityOrStatement"
+    }
+   ]
+  },
+  "ForgetMode": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Soft"
+    },
+    {
+     "discriminant": 1,
+     "name": "Hard"
+    }
+   ]
+  },
+  "GraphEdgeKindWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Relation"
+    },
+    {
+     "discriminant": 1,
+     "name": "Fact"
+    },
+    {
+     "discriminant": 2,
+     "name": "HasStatement"
+    },
+    {
+     "discriminant": 3,
+     "name": "Mentions"
+    },
+    {
+     "discriminant": 4,
+     "name": "Caused"
+    },
+    {
+     "discriminant": 5,
+     "name": "FollowedBy"
+    },
+    {
+     "discriminant": 6,
+     "name": "DerivedFrom"
+    },
+    {
+     "discriminant": 7,
+     "name": "SimilarTo"
+    },
+    {
+     "discriminant": 8,
+     "name": "Contradicts"
+    },
+    {
+     "discriminant": 9,
+     "name": "Supports"
+    },
+    {
+     "discriminant": 10,
+     "name": "References"
+    },
+    {
+     "discriminant": 11,
+     "name": "PartOf"
+    }
+   ]
+  },
+  "GraphEventPayload": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "EntityCreated",
+     "payload": "EntityCreatedEvent"
+    },
+    {
+     "name": "EntityUpdated",
+     "payload": "EntityUpdatedEvent"
+    },
+    {
+     "name": "EntityRenamed",
+     "payload": "EntityRenamedEvent"
+    },
+    {
+     "name": "EntityMerged",
+     "payload": "EntityMergedEvent"
+    },
+    {
+     "name": "EntityUnmerged",
+     "payload": "EntityUnmergedEvent"
+    },
+    {
+     "name": "EntityTombstoned",
+     "payload": "EntityTombstonedEvent"
+    },
+    {
+     "name": "StatementCreated",
+     "payload": "StatementCreatedEvent"
+    },
+    {
+     "name": "StatementSuperseded",
+     "payload": "StatementSupersededEvent"
+    },
+    {
+     "name": "StatementTombstoned",
+     "payload": "StatementTombstonedEvent"
+    },
+    {
+     "name": "RelationCreated",
+     "payload": "RelationCreatedEvent"
+    },
+    {
+     "name": "RelationSuperseded",
+     "payload": "RelationSupersededEvent"
+    },
+    {
+     "name": "RelationTombstoned",
+     "payload": "RelationTombstonedEvent"
+    },
+    {
+     "name": "SchemaUpdated",
+     "payload": "SchemaUpdatedEvent"
+    }
+   ]
+  },
+  "GraphNodeKindWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Entity"
+    },
+    {
+     "discriminant": 1,
+     "name": "Statement"
+    },
+    {
+     "discriminant": 2,
+     "name": "Memory"
+    }
+   ]
+  },
+  "InferenceKind": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "CausalExplanation"
+    },
+    {
+     "name": "EvidenceAccumulation"
+    },
+    {
+     "name": "AnalogicalInference"
+    },
+    {
+     "name": "Other",
+     "payload": "String"
+    }
+   ]
+  },
+  "IntegrityIssueType": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "VectorCorruption"
+    },
+    {
+     "name": "TextCorruption"
+    },
+    {
+     "name": "StaleEdge"
+    },
+    {
+     "name": "OrphanIndex"
+    },
+    {
+     "name": "SchemaVersionMismatch"
+    },
+    {
+     "name": "Other",
+     "payload": "String"
+    }
+   ]
+  },
+  "KindCardinalityAst": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Single"
+    },
+    {
+     "name": "Set"
+    }
+   ]
+  },
+  "LiteralValue": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Text",
+     "payload": "String"
+    },
+    {
+     "name": "Number",
+     "payload": "f64"
+    },
+    {
+     "name": "Bool",
+     "payload": "bool"
+    },
+    {
+     "name": "Date",
+     "payload": "String"
+    },
+    {
+     "name": "Timestamp",
+     "payload": "u64"
+    },
+    {
+     "name": "Null"
+    }
+   ]
+  },
+  "MemoryKindWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Episodic"
+    },
+    {
+     "discriminant": 1,
+     "name": "Semantic"
+    },
+    {
+     "discriminant": 2,
+     "name": "Consolidated"
+    }
+   ]
+  },
+  "MemoryListDirWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Asc"
+    },
+    {
+     "discriminant": 1,
+     "name": "Desc"
+    }
+   ]
+  },
+  "MemoryListSortWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Created"
+    },
+    {
+     "discriminant": 1,
+     "name": "Salience"
+    },
+    {
+     "discriminant": 2,
+     "name": "Occurred"
+    },
+    {
+     "discriminant": 3,
+     "name": "LastAccessed"
+    }
+   ]
+  },
+  "MemoryListTimeAxisWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Created"
+    },
+    {
+     "discriminant": 1,
+     "name": "Occurred"
+    }
+   ]
+  },
+  "MigrationStatus": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "InProgress"
+    },
+    {
+     "name": "Completed"
+    },
+    {
+     "name": "Failed",
+     "payload": "String"
+    },
+    {
+     "name": "Cancelled"
+    }
+   ]
+  },
+  "ObjectKindAst": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Entity"
+    },
+    {
+     "name": "Value"
+    },
+    {
+     "name": "Time"
+    },
+    {
+     "name": "Quantity"
+    },
+    {
+     "name": "List"
+    }
+   ]
+  },
+  "ObjectTypeDecl": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": []
+  },
+  "ObservationInput": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "ByMemoryId",
+     "payload": "u128"
+    },
+    {
+     "name": "ByText",
+     "payload": "String"
+    }
+   ]
+  },
+  "Opcode": {
+   "encoding": "tagged",
+   "repr": "u16",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 1,
+     "name": "Hello"
+    },
+    {
+     "discriminant": 129,
+     "name": "Welcome"
+    },
+    {
+     "discriminant": 2,
+     "name": "Auth"
+    },
+    {
+     "discriminant": 130,
+     "name": "AuthOk"
+    },
+    {
+     "discriminant": 16,
+     "name": "Ping"
+    },
+    {
+     "discriminant": 144,
+     "name": "Pong"
+    },
+    {
+     "discriminant": 145,
+     "name": "ServerPing"
+    },
+    {
+     "discriminant": 17,
+     "name": "ClientPong"
+    },
+    {
+     "discriminant": 31,
+     "name": "Bye"
+    },
+    {
+     "discriminant": 32,
+     "name": "EncodeReq"
+    },
+    {
+     "discriminant": 160,
+     "name": "EncodeResp"
+    },
+    {
+     "discriminant": 33,
+     "name": "RecallReq"
+    },
+    {
+     "discriminant": 161,
+     "name": "RecallResp"
+    },
+    {
+     "discriminant": 34,
+     "name": "PlanReq"
+    },
+    {
+     "discriminant": 162,
+     "name": "PlanResp"
+    },
+    {
+     "discriminant": 35,
+     "name": "ReasonReq"
+    },
+    {
+     "discriminant": 163,
+     "name": "ReasonResp"
+    },
+    {
+     "discriminant": 36,
+     "name": "ForgetReq"
+    },
+    {
+     "discriminant": 164,
+     "name": "ForgetResp"
+    },
+    {
+     "discriminant": 37,
+     "name": "LinkReq"
+    },
+    {
+     "discriminant": 165,
+     "name": "LinkResp"
+    },
+    {
+     "discriminant": 38,
+     "name": "UnlinkReq"
+    },
+    {
+     "discriminant": 166,
+     "name": "UnlinkResp"
+    },
+    {
+     "discriminant": 39,
+     "name": "MemoryListReq"
+    },
+    {
+     "discriminant": 167,
+     "name": "MemoryListResp"
+    },
+    {
+     "discriminant": 40,
+     "name": "MemoryInspectReq"
+    },
+    {
+     "discriminant": 168,
+     "name": "MemoryInspectResp"
+    },
+    {
+     "discriminant": 42,
+     "name": "EncodeVectorDirectReq"
+    },
+    {
+     "discriminant": 170,
+     "name": "EncodeVectorDirectResp"
+    },
+    {
+     "discriminant": 48,
+     "name": "SubscribeReq"
+    },
+    {
+     "discriminant": 176,
+     "name": "SubscribeEvent"
+    },
+    {
+     "discriminant": 49,
+     "name": "UnsubscribeReq"
+    },
+    {
+     "discriminant": 177,
+     "name": "UnsubscribeResp"
+    },
+    {
+     "discriminant": 50,
+     "name": "GetCapabilitiesReq"
+    },
+    {
+     "discriminant": 178,
+     "name": "GetCapabilitiesResp"
+    },
+    {
+     "discriminant": 64,
+     "name": "TxnBegin"
+    },
+    {
+     "discriminant": 192,
+     "name": "TxnBeginResp"
+    },
+    {
+     "discriminant": 65,
+     "name": "TxnCommit"
+    },
+    {
+     "discriminant": 193,
+     "name": "TxnCommitResp"
+    },
+    {
+     "discriminant": 66,
+     "name": "TxnAbort"
+    },
+    {
+     "discriminant": 194,
+     "name": "TxnAbortResp"
+    },
+    {
+     "discriminant": 80,
+     "name": "CancelStream"
+    },
+    {
+     "discriminant": 208,
+     "name": "CancelStreamAck"
+    },
+    {
+     "discriminant": 96,
+     "name": "AdminStatsReq"
+    },
+    {
+     "discriminant": 224,
+     "name": "AdminStatsResp"
+    },
+    {
+     "discriminant": 97,
+     "name": "AdminSnapshotReq"
+    },
+    {
+     "discriminant": 225,
+     "name": "AdminSnapshotResp"
+    },
+    {
+     "discriminant": 98,
+     "name": "AdminRestoreReq"
+    },
+    {
+     "discriminant": 226,
+     "name": "AdminRestoreResp"
+    },
+    {
+     "discriminant": 99,
+     "name": "AdminIntegrityCheckReq"
+    },
+    {
+     "discriminant": 227,
+     "name": "AdminIntegrityCheckResp"
+    },
+    {
+     "discriminant": 100,
+     "name": "AdminMigrateEmbeddingsReq"
+    },
+    {
+     "discriminant": 228,
+     "name": "AdminMigrateEmbeddingsResp"
+    },
+    {
+     "discriminant": 101,
+     "name": "AdminCreateSessionReq"
+    },
+    {
+     "discriminant": 229,
+     "name": "AdminCreateSessionResp"
+    },
+    {
+     "discriminant": 102,
+     "name": "AdminRenameSessionReq"
+    },
+    {
+     "discriminant": 230,
+     "name": "AdminRenameSessionResp"
+    },
+    {
+     "discriminant": 103,
+     "name": "AdminMoveMemoryReq"
+    },
+    {
+     "discriminant": 231,
+     "name": "AdminMoveMemoryResp"
+    },
+    {
+     "discriminant": 104,
+     "name": "AdminReclassifyReq"
+    },
+    {
+     "discriminant": 232,
+     "name": "AdminReclassifyResp"
+    },
+    {
+     "discriminant": 105,
+     "name": "AdminListTombstonedReq"
+    },
+    {
+     "discriminant": 233,
+     "name": "AdminListTombstonedResp"
+    },
+    {
+     "discriminant": 106,
+     "name": "AdminTokenizeReq"
+    },
+    {
+     "discriminant": 234,
+     "name": "AdminTokenizeResp"
+    },
+    {
+     "discriminant": 107,
+     "name": "AdminRegisterModelReq"
+    },
+    {
+     "discriminant": 235,
+     "name": "AdminRegisterModelResp"
+    },
+    {
+     "discriminant": 108,
+     "name": "AdminAbortMigrationReq"
+    },
+    {
+     "discriminant": 236,
+     "name": "AdminAbortMigrationResp"
+    },
+    {
+     "discriminant": 109,
+     "name": "AdminRetireFingerprintReq"
+    },
+    {
+     "discriminant": 237,
+     "name": "AdminRetireFingerprintResp"
+    },
+    {
+     "discriminant": 110,
+     "name": "AdminBackfillReq"
+    },
+    {
+     "discriminant": 238,
+     "name": "AdminBackfillResp"
+    },
+    {
+     "discriminant": 111,
+     "name": "AdminBackfillCancelReq"
+    },
+    {
+     "discriminant": 239,
+     "name": "AdminBackfillCancelResp"
+    },
+    {
+     "discriminant": 112,
+     "name": "SpaceCreateReq"
+    },
+    {
+     "discriminant": 240,
+     "name": "SpaceCreateResp"
+    },
+    {
+     "discriminant": 113,
+     "name": "SpaceListReq"
+    },
+    {
+     "discriminant": 241,
+     "name": "SpaceListResp"
+    },
+    {
+     "discriminant": 114,
+     "name": "SpaceDeleteReq"
+    },
+    {
+     "discriminant": 242,
+     "name": "SpaceDeleteResp"
+    },
+    {
+     "discriminant": 115,
+     "name": "SessionCreateReq"
+    },
+    {
+     "discriminant": 243,
+     "name": "SessionCreateResp"
+    },
+    {
+     "discriminant": 116,
+     "name": "SessionListReq"
+    },
+    {
+     "discriminant": 244,
+     "name": "SessionListResp"
+    },
+    {
+     "discriminant": 117,
+     "name": "SessionDeleteReq"
+    },
+    {
+     "discriminant": 245,
+     "name": "SessionDeleteResp"
+    },
+    {
+     "discriminant": 255,
+     "name": "Error"
+    },
+    {
+     "discriminant": 288,
+     "name": "SchemaUploadReq"
+    },
+    {
+     "discriminant": 416,
+     "name": "SchemaUploadResp"
+    },
+    {
+     "discriminant": 289,
+     "name": "SchemaGetReq"
+    },
+    {
+     "discriminant": 417,
+     "name": "SchemaGetResp"
+    },
+    {
+     "discriminant": 290,
+     "name": "SchemaListReq"
+    },
+    {
+     "discriminant": 418,
+     "name": "SchemaListResp"
+    },
+    {
+     "discriminant": 291,
+     "name": "SchemaValidateReq"
+    },
+    {
+     "discriminant": 419,
+     "name": "SchemaValidateResp"
+    },
+    {
+     "discriminant": 292,
+     "name": "ExtractorListReq"
+    },
+    {
+     "discriminant": 420,
+     "name": "ExtractorListResp"
+    },
+    {
+     "discriminant": 295,
+     "name": "SchemaReplaceReq"
+    },
+    {
+     "discriminant": 423,
+     "name": "SchemaReplaceResp"
+    },
+    {
+     "discriminant": 304,
+     "name": "EntityCreateReq"
+    },
+    {
+     "discriminant": 432,
+     "name": "EntityCreateResp"
+    },
+    {
+     "discriminant": 305,
+     "name": "EntityGetReq"
+    },
+    {
+     "discriminant": 433,
+     "name": "EntityGetResp"
+    },
+    {
+     "discriminant": 306,
+     "name": "EntityUpdateReq"
+    },
+    {
+     "discriminant": 434,
+     "name": "EntityUpdateResp"
+    },
+    {
+     "discriminant": 307,
+     "name": "EntityRenameReq"
+    },
+    {
+     "discriminant": 435,
+     "name": "EntityRenameResp"
+    },
+    {
+     "discriminant": 308,
+     "name": "EntityMergeReq"
+    },
+    {
+     "discriminant": 436,
+     "name": "EntityMergeResp"
+    },
+    {
+     "discriminant": 309,
+     "name": "EntityUnmergeReq"
+    },
+    {
+     "discriminant": 437,
+     "name": "EntityUnmergeResp"
+    },
+    {
+     "discriminant": 310,
+     "name": "EntityResolveReq"
+    },
+    {
+     "discriminant": 438,
+     "name": "EntityResolveResp"
+    },
+    {
+     "discriminant": 311,
+     "name": "EntityListReq"
+    },
+    {
+     "discriminant": 439,
+     "name": "EntityListResp"
+    },
+    {
+     "discriminant": 312,
+     "name": "EntityTombstoneReq"
+    },
+    {
+     "discriminant": 440,
+     "name": "EntityTombstoneResp"
+    },
+    {
+     "discriminant": 320,
+     "name": "StatementCreateReq"
+    },
+    {
+     "discriminant": 448,
+     "name": "StatementCreateResp"
+    },
+    {
+     "discriminant": 321,
+     "name": "StatementGetReq"
+    },
+    {
+     "discriminant": 449,
+     "name": "StatementGetResp"
+    },
+    {
+     "discriminant": 322,
+     "name": "StatementSupersedeReq"
+    },
+    {
+     "discriminant": 450,
+     "name": "StatementSupersedeResp"
+    },
+    {
+     "discriminant": 323,
+     "name": "StatementTombstoneReq"
+    },
+    {
+     "discriminant": 451,
+     "name": "StatementTombstoneResp"
+    },
+    {
+     "discriminant": 324,
+     "name": "StatementRetractReq"
+    },
+    {
+     "discriminant": 452,
+     "name": "StatementRetractResp"
+    },
+    {
+     "discriminant": 325,
+     "name": "StatementHistoryReq"
+    },
+    {
+     "discriminant": 453,
+     "name": "StatementHistoryResp"
+    },
+    {
+     "discriminant": 326,
+     "name": "StatementListReq"
+    },
+    {
+     "discriminant": 454,
+     "name": "StatementListResp"
+    },
+    {
+     "discriminant": 336,
+     "name": "RelationCreateReq"
+    },
+    {
+     "discriminant": 464,
+     "name": "RelationCreateResp"
+    },
+    {
+     "discriminant": 337,
+     "name": "RelationGetReq"
+    },
+    {
+     "discriminant": 465,
+     "name": "RelationGetResp"
+    },
+    {
+     "discriminant": 338,
+     "name": "RelationSupersedeReq"
+    },
+    {
+     "discriminant": 466,
+     "name": "RelationSupersedeResp"
+    },
+    {
+     "discriminant": 339,
+     "name": "RelationTombstoneReq"
+    },
+    {
+     "discriminant": 467,
+     "name": "RelationTombstoneResp"
+    },
+    {
+     "discriminant": 340,
+     "name": "RelationListFromReq"
+    },
+    {
+     "discriminant": 468,
+     "name": "RelationListFromResp"
+    },
+    {
+     "discriminant": 341,
+     "name": "RelationListToReq"
+    },
+    {
+     "discriminant": 469,
+     "name": "RelationListToResp"
+    },
+    {
+     "discriminant": 342,
+     "name": "RelationTraverseReq"
+    },
+    {
+     "discriminant": 470,
+     "name": "RelationTraverseResp"
+    },
+    {
+     "discriminant": 353,
+     "name": "QueryExplainReq"
+    },
+    {
+     "discriminant": 481,
+     "name": "QueryExplainResp"
+    },
+    {
+     "discriminant": 354,
+     "name": "QueryTraceReq"
+    },
+    {
+     "discriminant": 482,
+     "name": "QueryTraceResp"
+    },
+    {
+     "discriminant": 355,
+     "name": "GraphFetchReq"
+    },
+    {
+     "discriminant": 483,
+     "name": "GraphFetchResp"
+    },
+    {
+     "discriminant": 356,
+     "name": "MaterializeProceduralReq"
+    },
+    {
+     "discriminant": 484,
+     "name": "MaterializeProceduralResp"
+    },
+    {
+     "discriminant": 376,
+     "name": "AdminListPendingContradictionsReq"
+    },
+    {
+     "discriminant": 504,
+     "name": "AdminListPendingContradictionsResp"
+    }
+   ]
+  },
+  "ParseError": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": []
+  },
+  "PlanState": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "ByMemoryId",
+     "payload": "u128"
+    },
+    {
+     "name": "ByText",
+     "payload": "String"
+    },
+    {
+     "name": "ByVector",
+     "struct": [
+      {
+       "name": "offset",
+       "serde": {},
+       "type": "u32"
+      },
+      {
+       "name": "dim",
+       "serde": {},
+       "type": "u16"
+      }
+     ]
+    }
+   ]
+  },
+  "PlanStatus": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "GoalReached"
+    },
+    {
+     "discriminant": 1,
+     "name": "BudgetExhausted"
+    },
+    {
+     "discriminant": 2,
+     "name": "NoPathFound"
+    },
+    {
+     "discriminant": 3,
+     "name": "Cancelled"
+    }
+   ]
+  },
+  "PlanStrategy": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Auto"
+    },
+    {
+     "discriminant": 1,
+     "name": "AStar"
+    },
+    {
+     "discriminant": 2,
+     "name": "Mcts"
+    },
+    {
+     "discriminant": 3,
+     "name": "AttractorRollout"
+    }
+   ]
+  },
+  "PlanTraceDirection": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Forward"
+    },
+    {
+     "discriminant": 1,
+     "name": "Backward"
+    }
+   ]
+  },
+  "ProtocolError": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "BadMagic"
+    },
+    {
+     "name": "BadVersion",
+     "struct": [
+      {
+       "name": "got",
+       "serde": {},
+       "type": "u8"
+      },
+      {
+       "name": "expected",
+       "serde": {},
+       "type": "u8"
+      }
+     ]
+    },
+    {
+     "name": "BadHeaderCrc"
+    },
+    {
+     "name": "BadPayloadCrc"
+    },
+    {
+     "name": "OversizePayload",
+     "struct": [
+      {
+       "name": "len",
+       "serde": {},
+       "type": "u32"
+      },
+      {
+       "name": "max",
+       "serde": {},
+       "type": "u32"
+      }
+     ]
+    },
+    {
+     "name": "ReservedFieldNonZero"
+    },
+    {
+     "name": "UnknownOpcode",
+     "payload": "u16"
+    },
+    {
+     "name": "Truncated",
+     "struct": [
+      {
+       "name": "have",
+       "serde": {},
+       "type": "usize"
+      },
+      {
+       "name": "need",
+       "serde": {},
+       "type": "usize"
+      }
+     ]
+    },
+    {
+     "name": "BadFrame",
+     "payload": "String"
+    },
+    {
+     "name": "BadFlagCombination",
+     "payload": "String"
+    },
+    {
+     "name": "MalformedPayload",
+     "payload": "String"
+    }
+   ]
+  },
+  "RankedItemKindWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Memory"
+    },
+    {
+     "discriminant": 1,
+     "name": "Statement"
+    },
+    {
+     "discriminant": 2,
+     "name": "Entity"
+    },
+    {
+     "discriminant": 3,
+     "name": "Relation"
+    }
+   ]
+  },
+  "ReasonStatus": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Complete"
+    },
+    {
+     "discriminant": 1,
+     "name": "BudgetExhausted"
+    },
+    {
+     "discriminant": 2,
+     "name": "DepthLimitReached"
+    },
+    {
+     "discriminant": 3,
+     "name": "Cancelled"
+    }
+   ]
+  },
+  "RecallCandidateKind": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Memory"
+    },
+    {
+     "discriminant": 1,
+     "name": "Statement"
+    },
+    {
+     "discriminant": 2,
+     "name": "Entity"
+    },
+    {
+     "discriminant": 3,
+     "name": "Relation"
+    }
+   ]
+  },
+  "RecallTraceRetrieverStatus": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Success"
+    },
+    {
+     "discriminant": 1,
+     "name": "Skipped"
+    },
+    {
+     "discriminant": 2,
+     "name": "Timeout"
+    },
+    {
+     "discriminant": 3,
+     "name": "Failure"
+    }
+   ]
+  },
+  "RelationWireError": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "OverflowEvidenceNotSupported"
+    }
+   ]
+  },
+  "RequestBody": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Hello",
+     "payload": "HelloPayload"
+    },
+    {
+     "name": "Auth",
+     "payload": "AuthPayload"
+    },
+    {
+     "name": "Encode",
+     "payload": "EncodeRequest"
+    },
+    {
+     "name": "EncodeVectorDirect",
+     "payload": "EncodeVectorDirectRequest"
+    },
+    {
+     "name": "Recall",
+     "payload": "RecallRequest"
+    },
+    {
+     "name": "Plan",
+     "payload": "PlanRequest"
+    },
+    {
+     "name": "Reason",
+     "payload": "ReasonRequest"
+    },
+    {
+     "name": "Forget",
+     "payload": "ForgetRequest"
+    },
+    {
+     "name": "Link",
+     "payload": "LinkRequest"
+    },
+    {
+     "name": "Unlink",
+     "payload": "UnlinkRequest"
+    },
+    {
+     "name": "MemoryList",
+     "payload": "MemoryListRequest"
+    },
+    {
+     "name": "MemoryInspect",
+     "payload": "MemoryInspectRequest"
+    },
+    {
+     "name": "GraphFetch",
+     "payload": "GraphFetchRequest"
+    },
+    {
+     "name": "Subscribe",
+     "payload": "SubscribeRequest"
+    },
+    {
+     "name": "Unsubscribe",
+     "payload": "UnsubscribeRequest"
+    },
+    {
+     "name": "GetCapabilities",
+     "payload": "GetCapabilitiesRequest"
+    },
+    {
+     "name": "TxnBegin",
+     "payload": "TxnBeginRequest"
+    },
+    {
+     "name": "TxnCommit",
+     "payload": "TxnCommitRequest"
+    },
+    {
+     "name": "TxnAbort",
+     "payload": "TxnAbortRequest"
+    },
+    {
+     "name": "CancelStream",
+     "payload": "CancelStreamRequest"
+    },
+    {
+     "name": "Ping",
+     "payload": "PingRequest"
+    },
+    {
+     "name": "ClientPong",
+     "payload": "ClientPongRequest"
+    },
+    {
+     "name": "Bye",
+     "payload": "ByeRequest"
+    },
+    {
+     "name": "AdminStats",
+     "payload": "AdminStatsRequest"
+    },
+    {
+     "name": "AdminSnapshot",
+     "payload": "AdminSnapshotRequest"
+    },
+    {
+     "name": "AdminRestore",
+     "payload": "AdminRestoreRequest"
+    },
+    {
+     "name": "AdminIntegrityCheck",
+     "payload": "AdminIntegrityCheckRequest"
+    },
+    {
+     "name": "AdminMigrateEmbeddings",
+     "payload": "AdminMigrateEmbeddingsRequest"
+    },
+    {
+     "name": "AdminCreateSession",
+     "payload": "AdminCreateSessionRequest"
+    },
+    {
+     "name": "AdminRenameSession",
+     "payload": "AdminRenameSessionRequest"
+    },
+    {
+     "name": "AdminMoveMemory",
+     "payload": "AdminMoveMemoryRequest"
+    },
+    {
+     "name": "AdminReclassify",
+     "payload": "AdminReclassifyRequest"
+    },
+    {
+     "name": "AdminListTombstoned",
+     "payload": "AdminListTombstonedRequest"
+    },
+    {
+     "name": "AdminListPendingContradictions",
+     "payload": "AdminListPendingContradictionsRequest"
+    },
+    {
+     "name": "AdminBackfill",
+     "payload": "AdminBackfillRequest"
+    },
+    {
+     "name": "AdminBackfillCancel",
+     "payload": "AdminBackfillCancelRequest"
+    },
+    {
+     "name": "EntityCreate",
+     "payload": "EntityCreateRequest"
+    },
+    {
+     "name": "EntityGet",
+     "payload": "EntityGetRequest"
+    },
+    {
+     "name": "EntityUpdate",
+     "payload": "EntityUpdateRequest"
+    },
+    {
+     "name": "EntityRename",
+     "payload": "EntityRenameRequest"
+    },
+    {
+     "name": "EntityMerge",
+     "payload": "EntityMergeRequest"
+    },
+    {
+     "name": "EntityUnmerge",
+     "payload": "EntityUnmergeRequest"
+    },
+    {
+     "name": "EntityResolve",
+     "payload": "EntityResolveRequest"
+    },
+    {
+     "name": "EntityList",
+     "payload": "EntityListRequest"
+    },
+    {
+     "name": "EntityTombstone",
+     "payload": "EntityTombstoneRequest"
+    },
+    {
+     "name": "StatementCreate",
+     "payload": "StatementCreateRequest"
+    },
+    {
+     "name": "StatementGet",
+     "payload": "StatementGetRequest"
+    },
+    {
+     "name": "StatementSupersede",
+     "payload": "StatementSupersedeRequest"
+    },
+    {
+     "name": "StatementTombstone",
+     "payload": "StatementTombstoneRequest"
+    },
+    {
+     "name": "StatementRetract",
+     "payload": "StatementRetractRequest"
+    },
+    {
+     "name": "StatementHistory",
+     "payload": "StatementHistoryRequest"
+    },
+    {
+     "name": "StatementList",
+     "payload": "StatementListRequest"
+    },
+    {
+     "name": "RelationCreate",
+     "payload": "RelationCreateRequest"
+    },
+    {
+     "name": "RelationGet",
+     "payload": "RelationGetRequest"
+    },
+    {
+     "name": "RelationSupersede",
+     "payload": "RelationSupersedeRequest"
+    },
+    {
+     "name": "RelationTombstone",
+     "payload": "RelationTombstoneRequest"
+    },
+    {
+     "name": "RelationListFrom",
+     "payload": "RelationListFromRequest"
+    },
+    {
+     "name": "RelationListTo",
+     "payload": "RelationListToRequest"
+    },
+    {
+     "name": "RelationTraverse",
+     "payload": "RelationTraverseRequest"
+    },
+    {
+     "name": "SchemaUpload",
+     "payload": "SchemaUploadRequest"
+    },
+    {
+     "name": "SchemaGet",
+     "payload": "SchemaGetRequest"
+    },
+    {
+     "name": "SchemaList",
+     "payload": "SchemaListRequest"
+    },
+    {
+     "name": "SchemaValidate",
+     "payload": "SchemaValidateRequest"
+    },
+    {
+     "name": "SchemaReplace",
+     "payload": "SchemaReplaceRequest"
+    },
+    {
+     "name": "ExtractorList",
+     "payload": "ExtractorListRequest"
+    },
+    {
+     "name": "QueryExplain",
+     "payload": "QueryExplainRequest"
+    },
+    {
+     "name": "QueryTrace",
+     "payload": "QueryTraceRequest"
+    },
+    {
+     "name": "MaterializeProcedural",
+     "payload": "MaterializeProceduralRequest"
+    },
+    {
+     "name": "SpaceCreate",
+     "payload": "SpaceCreateRequest"
+    },
+    {
+     "name": "SpaceList",
+     "payload": "SpaceListRequest"
+    },
+    {
+     "name": "SpaceDelete",
+     "payload": "SpaceDeleteRequest"
+    },
+    {
+     "name": "SessionCreate",
+     "payload": "SessionCreateRequest"
+    },
+    {
+     "name": "SessionList",
+     "payload": "SessionListRequest"
+    },
+    {
+     "name": "SessionDelete",
+     "payload": "SessionDeleteRequest"
+    }
+   ]
+  },
+  "ResolutionOutcomeWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 1,
+     "name": "Resolved"
+    },
+    {
+     "discriminant": 2,
+     "name": "Created"
+    },
+    {
+     "discriminant": 3,
+     "name": "Ambiguous"
+    },
+    {
+     "discriminant": 4,
+     "name": "NotFound"
+    }
+   ]
+  },
+  "ResponseBody": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Welcome",
+     "payload": "WelcomePayload"
+    },
+    {
+     "name": "AuthOk",
+     "payload": "AuthOkPayload"
+    },
+    {
+     "name": "Encode",
+     "payload": "EncodeResponse"
+    },
+    {
+     "name": "EncodeVectorDirect",
+     "payload": "EncodeResponse"
+    },
+    {
+     "name": "Recall",
+     "payload": "RecallResponseFrame"
+    },
+    {
+     "name": "Plan",
+     "payload": "PlanResponseFrame"
+    },
+    {
+     "name": "Reason",
+     "payload": "ReasonResponseFrame"
+    },
+    {
+     "name": "Forget",
+     "payload": "ForgetResponse"
+    },
+    {
+     "name": "Link",
+     "payload": "LinkResponse"
+    },
+    {
+     "name": "Unlink",
+     "payload": "UnlinkResponse"
+    },
+    {
+     "name": "MemoryList",
+     "payload": "MemoryListResponseFrame"
+    },
+    {
+     "name": "MemoryInspect",
+     "payload": "MemoryInspectResponse"
+    },
+    {
+     "name": "GraphFetch",
+     "payload": "GraphFetchResponseFrame"
+    },
+    {
+     "name": "SubscribeEvent",
+     "payload": "SubscriptionEvent"
+    },
+    {
+     "name": "Unsubscribe",
+     "payload": "UnsubscribeResponse"
+    },
+    {
+     "name": "GetCapabilities",
+     "payload": "GetCapabilitiesResponse"
+    },
+    {
+     "name": "TxnBegin",
+     "payload": "TxnBeginResponse"
+    },
+    {
+     "name": "TxnCommit",
+     "payload": "TxnCommitResponse"
+    },
+    {
+     "name": "TxnAbort",
+     "payload": "TxnAbortResponse"
+    },
+    {
+     "name": "CancelStreamAck",
+     "payload": "CancelStreamAck"
+    },
+    {
+     "name": "Pong",
+     "payload": "PongResponse"
+    },
+    {
+     "name": "ServerPing",
+     "payload": "ServerPingResponse"
+    },
+    {
+     "name": "AdminStats",
+     "payload": "AdminStatsResponse"
+    },
+    {
+     "name": "AdminSnapshot",
+     "payload": "AdminSnapshotResponse"
+    },
+    {
+     "name": "AdminRestore",
+     "payload": "AdminRestoreResponse"
+    },
+    {
+     "name": "AdminIntegrityCheck",
+     "payload": "AdminIntegrityCheckResponse"
+    },
+    {
+     "name": "AdminMigrateEmbeddings",
+     "payload": "AdminMigrateEmbeddingsResponseFrame"
+    },
+    {
+     "name": "AdminCreateSession",
+     "payload": "AdminCreateSessionResponse"
+    },
+    {
+     "name": "AdminRenameSession",
+     "payload": "AdminRenameSessionResponse"
+    },
+    {
+     "name": "AdminMoveMemory",
+     "payload": "AdminMoveMemoryResponse"
+    },
+    {
+     "name": "AdminReclassify",
+     "payload": "AdminReclassifyResponse"
+    },
+    {
+     "name": "AdminListTombstoned",
+     "payload": "AdminListTombstonedResponseFrame"
+    },
+    {
+     "name": "AdminListPendingContradictions",
+     "payload": "AdminListPendingContradictionsResponse"
+    },
+    {
+     "name": "AdminBackfill",
+     "payload": "AdminBackfillResponse"
+    },
+    {
+     "name": "AdminBackfillCancel",
+     "payload": "AdminBackfillCancelResponse"
+    },
+    {
+     "name": "EntityCreate",
+     "payload": "EntityCreateResponse"
+    },
+    {
+     "name": "EntityGet",
+     "payload": "EntityGetResponse"
+    },
+    {
+     "name": "EntityUpdate",
+     "payload": "EntityUpdateResponse"
+    },
+    {
+     "name": "EntityRename",
+     "payload": "EntityRenameResponse"
+    },
+    {
+     "name": "EntityMerge",
+     "payload": "EntityMergeResponse"
+    },
+    {
+     "name": "EntityUnmerge",
+     "payload": "EntityUnmergeResponse"
+    },
+    {
+     "name": "EntityResolve",
+     "payload": "EntityResolveResponse"
+    },
+    {
+     "name": "EntityList",
+     "payload": "EntityListResponseFrame"
+    },
+    {
+     "name": "EntityTombstone",
+     "payload": "EntityTombstoneResponse"
+    },
+    {
+     "name": "StatementCreate",
+     "payload": "StatementCreateResponse"
+    },
+    {
+     "name": "StatementGet",
+     "payload": "StatementGetResponse"
+    },
+    {
+     "name": "StatementSupersede",
+     "payload": "StatementSupersedeResponse"
+    },
+    {
+     "name": "StatementTombstone",
+     "payload": "StatementTombstoneResponse"
+    },
+    {
+     "name": "StatementRetract",
+     "payload": "StatementRetractResponse"
+    },
+    {
+     "name": "StatementHistory",
+     "payload": "StatementHistoryResponseFrame"
+    },
+    {
+     "name": "StatementList",
+     "payload": "StatementListResponseFrame"
+    },
+    {
+     "name": "RelationCreate",
+     "payload": "RelationCreateResponse"
+    },
+    {
+     "name": "RelationGet",
+     "payload": "RelationGetResponse"
+    },
+    {
+     "name": "RelationSupersede",
+     "payload": "RelationSupersedeResponse"
+    },
+    {
+     "name": "RelationTombstone",
+     "payload": "RelationTombstoneResponse"
+    },
+    {
+     "name": "RelationListFrom",
+     "payload": "RelationListFromResponseFrame"
+    },
+    {
+     "name": "RelationListTo",
+     "payload": "RelationListToResponseFrame"
+    },
+    {
+     "name": "RelationTraverse",
+     "payload": "RelationTraverseResponseFrame"
+    },
+    {
+     "name": "SchemaUpload",
+     "payload": "SchemaUploadResponse"
+    },
+    {
+     "name": "SchemaGet",
+     "payload": "SchemaGetResponse"
+    },
+    {
+     "name": "SchemaList",
+     "payload": "SchemaListResponseFrame"
+    },
+    {
+     "name": "SchemaValidate",
+     "payload": "SchemaValidateResponse"
+    },
+    {
+     "name": "SchemaReplace",
+     "payload": "SchemaReplaceResponse"
+    },
+    {
+     "name": "ExtractorList",
+     "payload": "ExtractorListResponseFrame"
+    },
+    {
+     "name": "QueryExplain",
+     "payload": "QueryExplainResponse"
+    },
+    {
+     "name": "QueryTrace",
+     "payload": "QueryTraceResponse"
+    },
+    {
+     "name": "MaterializeProcedural",
+     "payload": "MaterializeProceduralResponse"
+    },
+    {
+     "name": "SpaceCreate",
+     "payload": "SpaceCreateResponse"
+    },
+    {
+     "name": "SpaceList",
+     "payload": "SpaceListResponse"
+    },
+    {
+     "name": "SpaceDelete",
+     "payload": "SpaceDeleteResponse"
+    },
+    {
+     "name": "SessionCreate",
+     "payload": "SessionCreateResponse"
+    },
+    {
+     "name": "SessionList",
+     "payload": "SessionListResponse"
+    },
+    {
+     "name": "SessionDelete",
+     "payload": "SessionDeleteResponse"
+    },
+    {
+     "name": "Error",
+     "payload": "ErrorResponse"
+    }
+   ]
+  },
+  "RetrieverNameWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Semantic"
+    },
+    {
+     "discriminant": 1,
+     "name": "Lexical"
+    },
+    {
+     "discriminant": 2,
+     "name": "Graph"
+    }
+   ]
+  },
+  "RetrieverSelectionWire": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Auto"
+    },
+    {
+     "name": "Explicit",
+     "payload": "Vec<RetrieverWire>"
+    }
+   ]
+  },
+  "RetrieverWire": {
+   "encoding": "tagged",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Semantic"
+    },
+    {
+     "discriminant": 1,
+     "name": "Lexical"
+    },
+    {
+     "discriminant": 2,
+     "name": "Graph"
+    }
+   ]
+  },
+  "SchemaItem": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "EntityType",
+     "payload": "EntityTypeDef"
+    },
+    {
+     "name": "Predicate",
+     "payload": "PredicateDef"
+    },
+    {
+     "name": "RelationType",
+     "payload": "RelationTypeDef"
+    },
+    {
+     "name": "Extractor",
+     "payload": "ExtractorDef"
+    },
+    {
+     "name": "Kind",
+     "payload": "KindDef"
+    }
+   ]
+  },
+  "StageAuditStatus": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Succeeded"
+    },
+    {
+     "discriminant": 1,
+     "name": "PartiallyApplied"
+    },
+    {
+     "discriminant": 2,
+     "name": "Failed"
+    },
+    {
+     "discriminant": 3,
+     "name": "Skipped"
+    }
+   ]
+  },
+  "StageKind": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "AutoEdge"
+    },
+    {
+     "discriminant": 1,
+     "name": "TemporalEdge"
+    },
+    {
+     "discriminant": 2,
+     "name": "Extractor"
+    },
+    {
+     "discriminant": 3,
+     "name": "Hype"
+    }
+   ]
+  },
+  "StageOutcome": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Ok"
+    },
+    {
+     "discriminant": 1,
+     "name": "Empty"
+    },
+    {
+     "discriminant": 2,
+     "name": "Failed"
+    }
+   ]
+  },
+  "StagePayload": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "AutoEdge",
+     "payload": "StageAutoEdgePayload"
+    },
+    {
+     "name": "TemporalEdge",
+     "payload": "StageTemporalEdgePayload"
+    },
+    {
+     "name": "Extractor",
+     "payload": "StageExtractorPayload"
+    },
+    {
+     "name": "Hype",
+     "payload": "StageHypePayload"
+    }
+   ]
+  },
+  "StatementKindAst": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Fact"
+    },
+    {
+     "name": "Preference"
+    },
+    {
+     "name": "Event"
+    },
+    {
+     "name": "Attribute"
+    },
+    {
+     "name": "Relation"
+    },
+    {
+     "name": "Directive"
+    },
+    {
+     "name": "Any"
+    }
+   ]
+  },
+  "StatementKindWire": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Fact"
+    },
+    {
+     "name": "Preference"
+    },
+    {
+     "name": "Event"
+    },
+    {
+     "name": "Attribute"
+    },
+    {
+     "name": "Relation"
+    },
+    {
+     "name": "Directive"
+    },
+    {
+     "name": "Custom",
+     "payload": "u8"
+    }
+   ]
+  },
+  "StatementObjectWire": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "EntityRef",
+     "payload": "#[serde(with = \"serde_bytes\")] [u8; 16]"
+    },
+    {
+     "name": "Value",
+     "payload": "StatementValueWire"
+    },
+    {
+     "name": "MemoryRef",
+     "payload": "#[serde(with = \"serde_bytes\")] [u8; 16]"
+    },
+    {
+     "name": "StatementRef",
+     "payload": "#[serde(with = \"serde_bytes\")] [u8; 16]"
+    }
+   ]
+  },
+  "StatementValueWire": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Text",
+     "payload": "String"
+    },
+    {
+     "name": "Integer",
+     "payload": "i64"
+    },
+    {
+     "name": "Float",
+     "payload": "f64"
+    },
+    {
+     "name": "Bool",
+     "payload": "bool"
+    },
+    {
+     "name": "UnixNanos",
+     "payload": "u64"
+    },
+    {
+     "name": "Blob",
+     "payload": "Vec<u8>"
+    }
+   ]
+  },
+  "StatsDetail": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Summary"
+    },
+    {
+     "discriminant": 1,
+     "name": "PerShard"
+    },
+    {
+     "discriminant": 2,
+     "name": "PerContext"
+    },
+    {
+     "discriminant": 3,
+     "name": "Full"
+    }
+   ]
+  },
+  "TemporalModelAst": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "State"
+    },
+    {
+     "name": "Event"
+    },
+    {
+     "name": "None"
+    }
+   ]
+  },
+  "TransitionKind": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Initial"
+    },
+    {
+     "name": "Causal"
+    },
+    {
+     "name": "Temporal"
+    },
+    {
+     "name": "Similarity"
+    },
+    {
+     "name": "Other",
+     "payload": "String"
+    }
+   ]
+  },
+  "TriggerExpr": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "OnEncode"
+    },
+    {
+     "name": "OnEncodeWhere",
+     "payload": "ConditionExpr"
+    },
+    {
+     "name": "OnDemand"
+    },
+    {
+     "name": "OnSchemaChange"
+    },
+    {
+     "name": "Periodic",
+     "struct": [
+      {
+       "name": "cron",
+       "serde": {},
+       "type": "String"
+      }
+     ]
+    }
+   ]
+  },
+  "ValidationErrorCode": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "NamespaceMissing"
+    },
+    {
+     "name": "NamespaceInvalidIdentifier"
+    },
+    {
+     "name": "DuplicateDefinition"
+    },
+    {
+     "name": "UnresolvedTypeRef"
+    },
+    {
+     "name": "PredicateKindObjectMismatch"
+    },
+    {
+     "name": "RelationCardinalitySymmetricInvalid"
+    },
+    {
+     "name": "ExtractorMissingRequired"
+    },
+    {
+     "name": "ExtractorDuplicateField"
+    },
+    {
+     "name": "ExtractorInvalidConfig"
+    },
+    {
+     "name": "AttributeUniqueOnRefType"
+    },
+    {
+     "name": "DefaultIncompatibleWithType"
+    },
+    {
+     "name": "NameInvalidIdentifier"
+    },
+    {
+     "name": "NameTooLong"
+    }
+   ]
+  },
+  "WaitMode": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Ack"
+    },
+    {
+     "discriminant": 1,
+     "name": "Derived"
+    }
+   ]
+  },
+  "WireToStatementError": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "EvidenceInlineTooLarge",
+     "struct": [
+      {
+       "name": "len",
+       "serde": {},
+       "type": "usize"
+      },
+      {
+       "name": "cap",
+       "serde": {},
+       "type": "usize"
+      }
+     ]
+    },
+    {
+     "name": "UnknownKind",
+     "payload": "u8"
+    },
+    {
+     "name": "UnknownTombstoneReason",
+     "payload": "u8"
+    }
+   ]
+  }
+ },
+ "opcodes": {
+  "AdminAbortMigrationReq": 108,
+  "AdminAbortMigrationResp": 236,
+  "AdminBackfillCancelReq": 111,
+  "AdminBackfillCancelResp": 239,
+  "AdminBackfillReq": 110,
+  "AdminBackfillResp": 238,
+  "AdminCreateSessionReq": 101,
+  "AdminCreateSessionResp": 229,
+  "AdminIntegrityCheckReq": 99,
+  "AdminIntegrityCheckResp": 227,
+  "AdminListPendingContradictionsReq": 376,
+  "AdminListPendingContradictionsResp": 504,
+  "AdminListTombstonedReq": 105,
+  "AdminListTombstonedResp": 233,
+  "AdminMigrateEmbeddingsReq": 100,
+  "AdminMigrateEmbeddingsResp": 228,
+  "AdminMoveMemoryReq": 103,
+  "AdminMoveMemoryResp": 231,
+  "AdminReclassifyReq": 104,
+  "AdminReclassifyResp": 232,
+  "AdminRegisterModelReq": 107,
+  "AdminRegisterModelResp": 235,
+  "AdminRenameSessionReq": 102,
+  "AdminRenameSessionResp": 230,
+  "AdminRestoreReq": 98,
+  "AdminRestoreResp": 226,
+  "AdminRetireFingerprintReq": 109,
+  "AdminRetireFingerprintResp": 237,
+  "AdminSnapshotReq": 97,
+  "AdminSnapshotResp": 225,
+  "AdminStatsReq": 96,
+  "AdminStatsResp": 224,
+  "AdminTokenizeReq": 106,
+  "AdminTokenizeResp": 234,
+  "Auth": 2,
+  "AuthOk": 130,
+  "Bye": 31,
+  "CancelStream": 80,
+  "CancelStreamAck": 208,
+  "ClientPong": 17,
+  "EncodeReq": 32,
+  "EncodeResp": 160,
+  "EncodeVectorDirectReq": 42,
+  "EncodeVectorDirectResp": 170,
+  "EntityCreateReq": 304,
+  "EntityCreateResp": 432,
+  "EntityGetReq": 305,
+  "EntityGetResp": 433,
+  "EntityListReq": 311,
+  "EntityListResp": 439,
+  "EntityMergeReq": 308,
+  "EntityMergeResp": 436,
+  "EntityRenameReq": 307,
+  "EntityRenameResp": 435,
+  "EntityResolveReq": 310,
+  "EntityResolveResp": 438,
+  "EntityTombstoneReq": 312,
+  "EntityTombstoneResp": 440,
+  "EntityUnmergeReq": 309,
+  "EntityUnmergeResp": 437,
+  "EntityUpdateReq": 306,
+  "EntityUpdateResp": 434,
+  "Error": 255,
+  "ExtractorListReq": 292,
+  "ExtractorListResp": 420,
+  "ForgetReq": 36,
+  "ForgetResp": 164,
+  "GetCapabilitiesReq": 50,
+  "GetCapabilitiesResp": 178,
+  "GraphFetchReq": 355,
+  "GraphFetchResp": 483,
+  "Hello": 1,
+  "LinkReq": 37,
+  "LinkResp": 165,
+  "MaterializeProceduralReq": 356,
+  "MaterializeProceduralResp": 484,
+  "MemoryInspectReq": 40,
+  "MemoryInspectResp": 168,
+  "MemoryListReq": 39,
+  "MemoryListResp": 167,
+  "Ping": 16,
+  "PlanReq": 34,
+  "PlanResp": 162,
+  "Pong": 144,
+  "QueryExplainReq": 353,
+  "QueryExplainResp": 481,
+  "QueryTraceReq": 354,
+  "QueryTraceResp": 482,
+  "ReasonReq": 35,
+  "ReasonResp": 163,
+  "RecallReq": 33,
+  "RecallResp": 161,
+  "RelationCreateReq": 336,
+  "RelationCreateResp": 464,
+  "RelationGetReq": 337,
+  "RelationGetResp": 465,
+  "RelationListFromReq": 340,
+  "RelationListFromResp": 468,
+  "RelationListToReq": 341,
+  "RelationListToResp": 469,
+  "RelationSupersedeReq": 338,
+  "RelationSupersedeResp": 466,
+  "RelationTombstoneReq": 339,
+  "RelationTombstoneResp": 467,
+  "RelationTraverseReq": 342,
+  "RelationTraverseResp": 470,
+  "SchemaGetReq": 289,
+  "SchemaGetResp": 417,
+  "SchemaListReq": 290,
+  "SchemaListResp": 418,
+  "SchemaReplaceReq": 295,
+  "SchemaReplaceResp": 423,
+  "SchemaUploadReq": 288,
+  "SchemaUploadResp": 416,
+  "SchemaValidateReq": 291,
+  "SchemaValidateResp": 419,
+  "ServerPing": 145,
+  "SessionCreateReq": 115,
+  "SessionCreateResp": 243,
+  "SessionDeleteReq": 117,
+  "SessionDeleteResp": 245,
+  "SessionListReq": 116,
+  "SessionListResp": 244,
+  "SpaceCreateReq": 112,
+  "SpaceCreateResp": 240,
+  "SpaceDeleteReq": 114,
+  "SpaceDeleteResp": 242,
+  "SpaceListReq": 113,
+  "SpaceListResp": 241,
+  "StatementCreateReq": 320,
+  "StatementCreateResp": 448,
+  "StatementGetReq": 321,
+  "StatementGetResp": 449,
+  "StatementHistoryReq": 325,
+  "StatementHistoryResp": 453,
+  "StatementListReq": 326,
+  "StatementListResp": 454,
+  "StatementRetractReq": 324,
+  "StatementRetractResp": 452,
+  "StatementSupersedeReq": 322,
+  "StatementSupersedeResp": 450,
+  "StatementTombstoneReq": 323,
+  "StatementTombstoneResp": 451,
+  "SubscribeEvent": 176,
+  "SubscribeReq": 48,
+  "TxnAbort": 66,
+  "TxnAbortResp": 194,
+  "TxnBegin": 64,
+  "TxnBeginResp": 192,
+  "TxnCommit": 65,
+  "TxnCommitResp": 193,
+  "UnlinkReq": 38,
+  "UnlinkResp": 166,
+  "UnsubscribeReq": 49,
+  "UnsubscribeResp": 177,
+  "Welcome": 129
+ },
+ "structs": {
+  "ActAs": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "space_id",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminBackfillCancelRequest": {
+   "fields": [
+    {
+     "name": "backfill_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminBackfillCancelResponse": {
+   "fields": [
+    {
+     "name": "backfill_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "cancelled",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "progress",
+     "serde": {},
+     "type": "BackfillProgress"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminBackfillRequest": {
+   "fields": [
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "BackfillScope"
+    },
+    {
+     "name": "extractor_ids",
+     "serde": {},
+     "type": "Vec<u32>"
+    },
+    {
+     "name": "dry_run",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminBackfillResponse": {
+   "fields": [
+    {
+     "name": "backfill_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "progress",
+     "serde": {},
+     "type": "BackfillProgress"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminCreateSessionRequest": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "description",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminCreateSessionResponse": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminIntegrityCheckRequest": {
+   "fields": [
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "CheckScope"
+    },
+    {
+     "name": "repair_if_possible",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminIntegrityCheckResponse": {
+   "fields": [
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "CheckScope"
+    },
+    {
+     "name": "issues_found",
+     "serde": {},
+     "type": "Vec<IntegrityIssue>"
+    },
+    {
+     "name": "issues_repaired",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "completed_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminListPendingContradictionsRequest": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminListPendingContradictionsResponse": {
+   "fields": [
+    {
+     "name": "contradictions",
+     "serde": {},
+     "type": "Vec<ContradictionAuditView>"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminListTombstonedRequest": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "max_age_seconds",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminListTombstonedResponseFrame": {
+   "fields": [
+    {
+     "name": "memory",
+     "serde": {},
+     "type": "TombstonedMemoryInfo"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminMigrateEmbeddingsRequest": {
+   "fields": [
+    {
+     "name": "target_model",
+     "serde": {},
+     "type": "ModelIdentifier"
+    },
+    {
+     "name": "batch_size",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "rate_limit_qps",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminMigrateEmbeddingsResponseFrame": {
+   "fields": [
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "progress",
+     "serde": {},
+     "type": "MigrationProgress"
+    },
+    {
+     "name": "status",
+     "serde": {},
+     "type": "Option<MigrationStatus>"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminMoveMemoryRequest": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "new_session_id",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminMoveMemoryResponse": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "new_session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "old_session_id",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminReclassifyRequest": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "new_kind",
+     "serde": {},
+     "type": "MemoryKindWire"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminReclassifyResponse": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "new_kind",
+     "serde": {},
+     "type": "MemoryKindWire"
+    },
+    {
+     "name": "old_kind",
+     "serde": {},
+     "type": "MemoryKindWire"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminRenameSessionRequest": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "new_name",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminRenameSessionResponse": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "new_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "old_name",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminRestoreRequest": {
+   "fields": [
+    {
+     "name": "snapshot_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "target_shard",
+     "serde": {},
+     "type": "Option<u8>"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminRestoreResponse": {
+   "fields": [
+    {
+     "name": "snapshot_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "shards_restored",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "completed_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "memories_restored",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminSnapshotRequest": {
+   "fields": [
+    {
+     "name": "snapshot_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "target_path",
+     "serde": {},
+     "type": "Option<String>"
+    },
+    {
+     "name": "include_wal",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminSnapshotResponse": {
+   "fields": [
+    {
+     "name": "snapshot_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "snapshot_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "snapshot_path",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "started_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "completed_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "bytes_written",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "used_reflink",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminStatsRequest": {
+   "fields": [
+    {
+     "name": "detail",
+     "serde": {},
+     "type": "StatsDetail"
+    }
+   ],
+   "serde": {}
+  },
+  "AdminStatsResponse": {
+   "fields": [
+    {
+     "name": "summary",
+     "serde": {},
+     "type": "StatsSummary"
+    },
+    {
+     "name": "per_shard",
+     "serde": {},
+     "type": "Option<Vec<ShardStats>>"
+    },
+    {
+     "name": "per_session",
+     "serde": {},
+     "type": "Option<Vec<SessionStats>>"
+    },
+    {
+     "name": "server_uptime_seconds",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "server_version",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "AttributeDecl": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "attr_type",
+     "serde": {},
+     "type": "AttrType"
+    },
+    {
+     "name": "required",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "unique",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "indexed",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "default",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<LiteralValue>"
+    }
+   ],
+   "serde": {}
+  },
+  "AuthOkPayload": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "bound_shard_id",
+     "serde": {},
+     "type": "u16"
+    },
+    {
+     "name": "permissions",
+     "serde": {},
+     "type": "SpacePermissions"
+    },
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "server_time_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "AuthPayload": {
+   "fields": [
+    {
+     "name": "method",
+     "serde": {},
+     "type": "AuthMethod"
+    },
+    {
+     "name": "credentials",
+     "serde": {},
+     "type": "AuthCredentials"
+    }
+   ],
+   "serde": {}
+  },
+  "BackfillProgress": {
+   "fields": [
+    {
+     "name": "running",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "completed",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "failed",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "skipped_already_completed",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_processed_memory_id_present",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "last_processed_memory_id",
+     "serde": {},
+     "type": "u128"
+    }
+   ],
+   "serde": {}
+  },
+  "ByeRequest": {
+   "fields": [
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "CancelStreamAck": {
+   "fields": [
+    {
+     "name": "target_stream_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cancelled_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "CancelStreamRequest": {
+   "fields": [
+    {
+     "name": "target_stream_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "CancellationReason"
+    }
+   ],
+   "serde": {}
+  },
+  "Capabilities": {
+   "fields": [
+    {
+     "name": "rerank",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "llm_extractor",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "classifier_extractor",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "pattern_extractor",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "schema_namespaces",
+     "serde": {},
+     "type": "Vec<String>"
+    },
+    {
+     "name": "vector_dim",
+     "serde": {},
+     "type": "u16"
+    }
+   ],
+   "serde": {}
+  },
+  "ClientPongRequest": {
+   "fields": [
+    {
+     "name": "server_timestamp_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "client_timestamp_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "ContradictionAuditView": {
+   "fields": [
+    {
+     "name": "audit_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "subject_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "predicate_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "contradicting_statement_ids",
+     "serde": {
+      "with": "vec_byte_array16"
+     },
+     "type": "Vec<[u8; 16]>"
+    },
+    {
+     "name": "detected_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "outcome",
+     "serde": {},
+     "type": "u8"
+    }
+   ],
+   "serde": {}
+  },
+  "CostExpr": {
+   "fields": [
+    {
+     "name": "amount",
+     "serde": {},
+     "type": "f64"
+    },
+    {
+     "name": "unit",
+     "serde": {},
+     "type": "CostUnit"
+    }
+   ],
+   "serde": {}
+  },
+  "DurationAst": {
+   "fields": [
+    {
+     "name": "amount",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "unit",
+     "serde": {},
+     "type": "DurationUnit"
+    }
+   ],
+   "serde": {}
+  },
+  "EdgeEventPayload": {
+   "fields": [
+    {
+     "name": "from_kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "from_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "to_kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "to_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "edge_kind_tag",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "edge_kind_byte",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "relation_type_id",
+     "serde": {},
+     "type": "Option<u32>"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "relation_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "superseded_relation_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "origin",
+     "serde": {},
+     "type": "u8"
+    }
+   ],
+   "serde": {}
+  },
+  "EdgeRequest": {
+   "fields": [
+    {
+     "name": "target",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "EdgeKindWire"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "EdgeView": {
+   "fields": [
+    {
+     "name": "target",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "EdgeKindWire"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeGraphEdge": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "target",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<u64>"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeGraphNode": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "type_qname",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeRequest": {
+   "fields": [
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "occurred_at_unix_nanos",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    },
+    {
+     "name": "wait",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "WaitMode::is_ack"
+     },
+     "type": "WaitMode"
+    },
+    {
+     "name": "allow_duplicates",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "is_false"
+     },
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeResponse": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "was_deduplicated",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "auto_edges_added",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "lsn",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "space_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "MemoryKindWire"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "edges_out_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "embedding_model_fp",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "pending_stages",
+     "serde": {},
+     "type": "Vec<StageKind>"
+    },
+    {
+     "name": "has_active_schema",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<EncodeTrace>"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeStageArtifact": {
+   "fields": [
+    {
+     "name": "vector",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Vec::is_empty"
+     },
+     "type": "Vec<f32>"
+    },
+    {
+     "name": "record",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<EncodeStageRecord>"
+    },
+    {
+     "name": "hype_questions",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Vec::is_empty"
+     },
+     "type": "Vec<String>"
+    },
+    {
+     "name": "keyword_fields",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Vec::is_empty"
+     },
+     "type": "Vec<EncodeStageKeywordField>"
+    },
+    {
+     "name": "graph",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<EncodeStageGraph>"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeStageGraph": {
+   "fields": [
+    {
+     "name": "nodes",
+     "serde": {},
+     "type": "Vec<EncodeGraphNode>"
+    },
+    {
+     "name": "edges",
+     "serde": {},
+     "type": "Vec<EncodeGraphEdge>"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeStageKeywordField": {
+   "fields": [
+    {
+     "name": "field",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "terms",
+     "serde": {},
+     "type": "Vec<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeStageRecord": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "occurred_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "vector_dim",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "text_len",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "lsn",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeTrace": {
+   "fields": [
+    {
+     "name": "stages",
+     "serde": {},
+     "type": "Vec<EncodeTraceStage>"
+    },
+    {
+     "name": "artifacts",
+     "serde": {},
+     "type": "EncodeTraceArtifacts"
+    },
+    {
+     "name": "total_latency_us",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeTraceArtifacts": {
+   "fields": [
+    {
+     "name": "entities",
+     "serde": {},
+     "type": "Vec<EncodeTraceEntity>"
+    },
+    {
+     "name": "statements",
+     "serde": {},
+     "type": "Vec<EncodeTraceStatement>"
+    },
+    {
+     "name": "relations",
+     "serde": {},
+     "type": "Vec<EncodeTraceRelation>"
+    },
+    {
+     "name": "indexes",
+     "serde": {},
+     "type": "Vec<EncodeTraceIndex>"
+    },
+    {
+     "name": "dedup",
+     "serde": {},
+     "type": "EncodeTraceDedup"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeTraceDedup": {
+   "fields": [
+    {
+     "name": "was_deduplicated",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "matched_memory_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeTraceEntity": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "type_qname",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeTraceIndex": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "status",
+     "serde": {},
+     "type": "EncodeTraceStageStatus"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeTraceRelation": {
+   "fields": [
+    {
+     "name": "source_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "target_name",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeTraceStage": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "status",
+     "serde": {},
+     "type": "EncodeTraceStageStatus"
+    },
+    {
+     "name": "latency_us",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "detail",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "artifact",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<EncodeStageArtifact>"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeTraceStatement": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "subject_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "object_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<u64>"
+    }
+   ],
+   "serde": {}
+  },
+  "EncodeVectorDirectRequest": {
+   "fields": [
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "vector",
+     "serde": {
+      "default": true,
+      "skip": true
+     },
+     "type": "Vec<f32>"
+    },
+    {
+     "name": "model_fingerprint",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "MemoryKindWire"
+    },
+    {
+     "name": "salience_hint",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "edges",
+     "serde": {},
+     "type": "Vec<EdgeRequest>"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "deduplicate",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "EnrichedEntity": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "type_qname",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "EnrichedRelation": {
+   "fields": [
+    {
+     "name": "from_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "to_name",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "EnrichedStatement": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "subject_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "object_label",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<u64>"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityCreateRequest": {
+   "fields": [
+    {
+     "name": "entity_type_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "canonical_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "aliases",
+     "serde": {},
+     "type": "Vec<String>"
+    },
+    {
+     "name": "attributes_blob",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "session_id",
+     "serde": {
+      "default": true
+     },
+     "type": "u64"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityCreateResponse": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityCreatedEvent": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "entity_type_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "canonical_name",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityGetRequest": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityGetResponse": {
+   "fields": [
+    {
+     "name": "entity",
+     "serde": {},
+     "type": "EntityView"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityListItem": {
+   "fields": [
+    {
+     "name": "entity",
+     "serde": {},
+     "type": "EntityView"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityListRequest": {
+   "fields": [
+    {
+     "name": "entity_type_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "name_prefix",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "mention_count_min",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_merged",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityListResponseFrame": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<EntityListItem>"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "cumulative_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityMergeRequest": {
+   "fields": [
+    {
+     "name": "survivor",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "merged",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityMergeResponse": {
+   "fields": [
+    {
+     "name": "audit_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "grace_period_seconds",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityMergedEvent": {
+   "fields": [
+    {
+     "name": "survivor",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "merged",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "audit_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "statements_rerouted",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "relations_rerouted",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityRenameRequest": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "new_canonical_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "move_to_alias",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityRenameResponse": {
+   "fields": [
+    {
+     "name": "entity",
+     "serde": {},
+     "type": "EntityView"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityRenamedEvent": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "old_canonical_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "new_canonical_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "old_moved_to_alias",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityResolveRequest": {
+   "fields": [
+    {
+     "name": "candidate_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "resolution_context",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "entity_type_hint",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "allow_create",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityResolveResponse": {
+   "fields": [
+    {
+     "name": "outcome",
+     "serde": {},
+     "type": "ResolutionOutcomeWire"
+    },
+    {
+     "name": "tier",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "resolved_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "candidate_ids",
+     "serde": {
+      "with": "vec_byte_array16"
+     },
+     "type": "Vec<[u8; 16]>"
+    },
+    {
+     "name": "audit_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityTombstoneRequest": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityTombstoneResponse": {
+   "fields": [
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityTombstonedEvent": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityTypeDef": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "attributes",
+     "serde": {
+      "default": true
+     },
+     "type": "Vec<AttributeDecl>"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityUnmergeRequest": {
+   "fields": [
+    {
+     "name": "merged_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityUnmergeResponse": {
+   "fields": [
+    {
+     "name": "restored_entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityUnmergedEvent": {
+   "fields": [
+    {
+     "name": "restored_entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "from_survivor",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "audit_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityUpdateRequest": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "canonical_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "aliases",
+     "serde": {},
+     "type": "Vec<String>"
+    },
+    {
+     "name": "attributes_blob",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityUpdateResponse": {
+   "fields": [
+    {
+     "name": "entity",
+     "serde": {},
+     "type": "EntityView"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityUpdatedEvent": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "entity_type_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "canonical_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "embedding_version_changed",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityView": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "entity_type_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "canonical_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "normalized_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "aliases",
+     "serde": {},
+     "type": "Vec<String>"
+    },
+    {
+     "name": "attributes_blob",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "mention_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "updated_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "merged_into",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "embedding_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "flags",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "ErrorDetails": {
+   "fields": [
+    {
+     "name": "field",
+     "serde": {},
+     "type": "Option<String>"
+    },
+    {
+     "name": "expected",
+     "serde": {},
+     "type": "Option<String>"
+    },
+    {
+     "name": "actual",
+     "serde": {},
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "ErrorResponse": {
+   "fields": [
+    {
+     "name": "code",
+     "serde": {},
+     "type": "ErrorCodeWire"
+    },
+    {
+     "name": "category",
+     "serde": {},
+     "type": "ErrorCategoryWire"
+    },
+    {
+     "name": "message",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "details",
+     "serde": {},
+     "type": "Option<ErrorDetails>"
+    },
+    {
+     "name": "retry_after_ms",
+     "serde": {},
+     "type": "Option<u32>"
+    }
+   ],
+   "serde": {}
+  },
+  "ExtractBackfillRequest": {
+   "fields": [
+    {
+     "name": "selector",
+     "serde": {},
+     "type": "BackfillSelector"
+    }
+   ],
+   "serde": {}
+  },
+  "ExtractBackfillResponse": {
+   "fields": [
+    {
+     "name": "enqueued",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "skipped",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "ExtractorDef": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "ExtractorKindAst"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "type": "ExtractorTarget"
+    },
+    {
+     "name": "fields",
+     "serde": {
+      "default": true
+     },
+     "type": "Vec<ExtractorField>"
+    }
+   ],
+   "serde": {}
+  },
+  "ExtractorListItem": {
+   "fields": [
+    {
+     "name": "extractor_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "ExtractorListRequest": {
+   "fields": [],
+   "serde": {}
+  },
+  "ExtractorListResponseFrame": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<ExtractorListItem>"
+    },
+    {
+     "name": "total",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "ForgetRequest": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "mode",
+     "serde": {},
+     "type": "ForgetMode"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "ForgetResponse": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "was_already_forgotten",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "edges_removed",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "Frame": {
+   "fields": [
+    {
+     "name": "header",
+     "serde": {},
+     "type": "Header"
+    },
+    {
+     "name": "payload",
+     "serde": {},
+     "type": "Vec<u8>"
+    }
+   ],
+   "serde": {}
+  },
+  "FusionConfigWire": {
+   "fields": [
+    {
+     "name": "k",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "semantic_weight",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "lexical_weight",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "graph_weight",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "GetCapabilitiesRequest": {
+   "fields": [],
+   "serde": {}
+  },
+  "GetCapabilitiesResponse": {
+   "fields": [
+    {
+     "name": "capabilities",
+     "serde": {},
+     "type": "Capabilities"
+    }
+   ],
+   "serde": {}
+  },
+  "GraphEdge": {
+   "fields": [
+    {
+     "name": "from_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "to_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "label",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "GraphEnrichment": {
+   "fields": [
+    {
+     "name": "entities",
+     "serde": {},
+     "type": "Vec<EnrichedEntity>"
+    },
+    {
+     "name": "statements",
+     "serde": {},
+     "type": "Vec<EnrichedStatement>"
+    },
+    {
+     "name": "relations",
+     "serde": {},
+     "type": "Vec<EnrichedRelation>"
+    }
+   ],
+   "serde": {}
+  },
+  "GraphFetchRequest": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "include_statements",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_memories",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_memory_edges",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "GraphFetchResponseFrame": {
+   "fields": [
+    {
+     "name": "nodes",
+     "serde": {},
+     "type": "Vec<GraphNode>"
+    },
+    {
+     "name": "edges",
+     "serde": {},
+     "type": "Vec<GraphEdge>"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "GraphNode": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "label",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "type_qname",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "Header": {
+   "fields": [
+    {
+     "name": "magic",
+     "serde": {},
+     "type": "[u8; 4]"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "opcode",
+     "serde": {},
+     "type": "[u8; 2]"
+    },
+    {
+     "name": "flags",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "header_crc32c",
+     "serde": {},
+     "type": "[u8; 4]"
+    },
+    {
+     "name": "stream_id",
+     "serde": {},
+     "type": "[u8; 4]"
+    },
+    {
+     "name": "payload_len",
+     "serde": {},
+     "type": "[u8; 3]"
+    },
+    {
+     "name": "reserved_a",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "payload_crc32c",
+     "serde": {},
+     "type": "[u8; 4]"
+    },
+    {
+     "name": "reserved_b",
+     "serde": {},
+     "type": "[u8; 8]"
+    }
+   ],
+   "serde": {}
+  },
+  "HelloCapabilities": {
+   "fields": [
+    {
+     "name": "streaming",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "compression_zstd",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "server_push",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "HelloPayload": {
+   "fields": [
+    {
+     "name": "client_id",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "supported_versions",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "capabilities",
+     "serde": {},
+     "type": "HelloCapabilities"
+    },
+    {
+     "name": "client_connection_token",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "Option<[u8; 32]>"
+    }
+   ],
+   "serde": {}
+  },
+  "InferenceStep": {
+   "fields": [
+    {
+     "name": "step_index",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "claim",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "supporting_memories",
+     "serde": {},
+     "type": "Vec<u128>"
+    },
+    {
+     "name": "contradicting_memories",
+     "serde": {},
+     "type": "Vec<u128>"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "inference_kind",
+     "serde": {},
+     "type": "InferenceKind"
+    }
+   ],
+   "serde": {}
+  },
+  "IntegrityIssue": {
+   "fields": [
+    {
+     "name": "issue_type",
+     "serde": {},
+     "type": "IntegrityIssueType"
+    },
+    {
+     "name": "affected_memory_id",
+     "serde": {},
+     "type": "Option<u128>"
+    },
+    {
+     "name": "affected_shard_id",
+     "serde": {},
+     "type": "Option<u16>"
+    },
+    {
+     "name": "description",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "repaired",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "KindDef": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "cardinality",
+     "serde": {},
+     "type": "KindCardinalityAst"
+    },
+    {
+     "name": "temporal",
+     "serde": {},
+     "type": "TemporalModelAst"
+    },
+    {
+     "name": "object",
+     "serde": {
+      "default": true
+     },
+     "type": "Vec<ObjectKindAst>"
+    },
+    {
+     "name": "polarity",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "hint",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "LinkRequest": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "EdgeKindWire"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "LinkResponse": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "EdgeKindWire"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "already_existed",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "MaterializeProceduralRequest": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "session_filter",
+     "serde": {},
+     "type": "Option<Vec<u64>>"
+    },
+    {
+     "name": "top_k",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "min_confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "categories",
+     "serde": {},
+     "type": "Vec<String>"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "MaterializeProceduralResponse": {
+   "fields": [
+    {
+     "name": "system_block",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "statement_ids",
+     "serde": {
+      "with": "vec_byte_array16"
+     },
+     "type": "Vec<[u8; 16]>"
+    },
+    {
+     "name": "total_candidates",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "trimmed_by_budget",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "MemoryInspectRequest": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "MemoryInspectResponse": {
+   "fields": [
+    {
+     "name": "found",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "memory_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "artifact",
+     "serde": {},
+     "type": "EncodeStageArtifact"
+    }
+   ],
+   "serde": {}
+  },
+  "MemoryListItem": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "space_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "state",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "occurred_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_accessed_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "access_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "source_request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "statement_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "entity_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "relation_count",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "MemoryListRequest": {
+   "fields": [
+    {
+     "name": "sort",
+     "serde": {},
+     "type": "MemoryListSortWire"
+    },
+    {
+     "name": "dir",
+     "serde": {},
+     "type": "MemoryListDirWire"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "kinds",
+     "serde": {},
+     "type": "Vec<MemoryKindWire>"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "time_axis",
+     "serde": {},
+     "type": "MemoryListTimeAxisWire"
+    },
+    {
+     "name": "from_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "to_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "salience_min",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "salience_max",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "text_contains",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "MemoryListResponseFrame": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<MemoryListItem>"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "cumulative_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "MemoryResult": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "similarity_score",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "MemoryKindWire"
+    },
+    {
+     "name": "space_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_accessed_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "edges",
+     "serde": {},
+     "type": "Option<Vec<EdgeView>>"
+    },
+    {
+     "name": "contributing_retrievers",
+     "serde": {},
+     "type": "Vec<RetrieverNameWire>"
+    },
+    {
+     "name": "fused_score",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "rerank_score",
+     "serde": {},
+     "type": "Option<f32>"
+    },
+    {
+     "name": "salience_initial",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "access_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "lsn",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "flags",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "consolidated_at_unix_nanos",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "occurred_at_unix_nanos",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "edges_out_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "edges_in_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "graph",
+     "serde": {},
+     "type": "Option<GraphEnrichment>"
+    }
+   ],
+   "serde": {}
+  },
+  "MigrationProgress": {
+   "fields": [
+    {
+     "name": "total_memories",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "migrated_so_far",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "failed_so_far",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "current_qps",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "estimated_remaining_seconds",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "ModelIdentifier": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "fingerprint",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "MtlsClaim": {
+   "fields": [
+    {
+     "name": "cert_fingerprint",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 32]"
+    },
+    {
+     "name": "asserted_subject",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "NegotiatedSession": {
+   "fields": [
+    {
+     "name": "chosen_version",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "capabilities",
+     "serde": {},
+     "type": "HelloCapabilities"
+    }
+   ],
+   "serde": {}
+  },
+  "PingRequest": {
+   "fields": [
+    {
+     "name": "client_timestamp_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "PlanBudget": {
+   "fields": [
+    {
+     "name": "max_steps",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "max_wall_time_ms",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "max_branches_explored",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "PlanRequest": {
+   "fields": [
+    {
+     "name": "start",
+     "serde": {},
+     "type": "PlanState"
+    },
+    {
+     "name": "goal",
+     "serde": {},
+     "type": "PlanState"
+    },
+    {
+     "name": "budget",
+     "serde": {},
+     "type": "PlanBudget"
+    },
+    {
+     "name": "strategy_hint",
+     "serde": {},
+     "type": "Option<PlanStrategy>"
+    },
+    {
+     "name": "session_filter",
+     "serde": {},
+     "type": "Option<Vec<u64>>"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "PlanResponseFrame": {
+   "fields": [
+    {
+     "name": "steps",
+     "serde": {},
+     "type": "Vec<PlanStep>"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "plan_status",
+     "serde": {},
+     "type": "Option<PlanStatus>"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<PlanTrace>"
+    }
+   ],
+   "serde": {}
+  },
+  "PlanStep": {
+   "fields": [
+    {
+     "name": "step_index",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "transition_kind",
+     "serde": {},
+     "type": "TransitionKind"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "estimated_distance_to_goal",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "PlanTrace": {
+   "fields": [
+    {
+     "name": "explored",
+     "serde": {},
+     "type": "Vec<PlanTraceNode>"
+    },
+    {
+     "name": "meeting_points",
+     "serde": {},
+     "type": "Vec<PlanTraceMeetingPoint>"
+    }
+   ],
+   "serde": {}
+  },
+  "PlanTraceMeetingPoint": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "included_in_result",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "PlanTraceNode": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "direction",
+     "serde": {},
+     "type": "PlanTraceDirection"
+    },
+    {
+     "name": "depth",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "parent_edge",
+     "serde": {},
+     "type": "Option<u128>"
+    },
+    {
+     "name": "alignment_score",
+     "serde": {},
+     "type": "Option<f32>"
+    }
+   ],
+   "serde": {}
+  },
+  "PongResponse": {
+   "fields": [
+    {
+     "name": "client_timestamp_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "server_timestamp_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "PredicateDef": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "StatementKindAst"
+    },
+    {
+     "name": "object",
+     "serde": {},
+     "type": "ObjectTypeDecl"
+    },
+    {
+     "name": "stateful",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<bool>"
+    },
+    {
+     "name": "description",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "QueryExplainRequest": {
+   "fields": [
+    {
+     "name": "query",
+     "serde": {},
+     "type": "QueryRequest"
+    }
+   ],
+   "serde": {}
+  },
+  "QueryExplainResponse": {
+   "fields": [
+    {
+     "name": "plan_text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "estimated_cost_ms",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "QueryRequest": {
+   "fields": [
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "entity_anchor",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "kind_filter",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "predicate_filter",
+     "serde": {},
+     "type": "Vec<String>"
+    },
+    {
+     "name": "session_filter",
+     "serde": {},
+     "type": "Option<Vec<u64>>"
+    },
+    {
+     "name": "time_filter",
+     "serde": {},
+     "type": "Option<TimeRangeWire>"
+    },
+    {
+     "name": "as_of_record_time_unix_nanos",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "confidence_min",
+     "serde": {},
+     "type": "Option<f32>"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_superseded",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "retrievers",
+     "serde": {},
+     "type": "RetrieverSelectionWire"
+    },
+    {
+     "name": "fusion_config",
+     "serde": {},
+     "type": "Option<FusionConfigWire>"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "QueryTraceRequest": {
+   "fields": [
+    {
+     "name": "query",
+     "serde": {},
+     "type": "QueryRequest"
+    }
+   ],
+   "serde": {}
+  },
+  "QueryTraceResponse": {
+   "fields": [
+    {
+     "name": "trace_text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "total_latency_ms",
+     "serde": {},
+     "type": "f64"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonRequest": {
+   "fields": [
+    {
+     "name": "observation",
+     "serde": {},
+     "type": "ObservationInput"
+    },
+    {
+     "name": "depth",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "confidence_threshold",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "session_filter",
+     "serde": {},
+     "type": "Option<Vec<u64>>"
+    },
+    {
+     "name": "max_inferences",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "budget_wall_time_ms",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonResponseFrame": {
+   "fields": [
+    {
+     "name": "inferences",
+     "serde": {},
+     "type": "Vec<InferenceStep>"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "reason_status",
+     "serde": {},
+     "type": "Option<ReasonStatus>"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ReasonTrace>"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTrace": {
+   "fields": [
+    {
+     "name": "base",
+     "serde": {},
+     "type": "ReasonTraceBase"
+    },
+    {
+     "name": "walk",
+     "serde": {},
+     "type": "ReasonTraceWalk"
+    },
+    {
+     "name": "scoring",
+     "serde": {},
+     "type": "Vec<ReasonTraceScoreBreakdown>"
+    },
+    {
+     "name": "centroid",
+     "serde": {},
+     "type": "ReasonTraceCentroid"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTraceBase": {
+   "fields": [
+    {
+     "name": "candidates",
+     "serde": {},
+     "type": "Vec<ReasonTraceCandidate>"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTraceCandidate": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "score",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTraceCentroid": {
+   "fields": [
+    {
+     "name": "computed",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "skipped_reason",
+     "serde": {},
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTraceEdgeCandidate": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "edge_kind",
+     "serde": {},
+     "type": "EdgeKindWire"
+    },
+    {
+     "name": "depth",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "from_memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "raw_score",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTraceIdWithText": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTraceScoreBreakdown": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "base_similarity",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "decay",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "weight_product",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "alignment",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "analogical_fit",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "final_score",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTraceScoredId": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "score",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "ReasonTraceWalk": {
+   "fields": [
+    {
+     "name": "considered",
+     "serde": {},
+     "type": "Vec<ReasonTraceEdgeCandidate>"
+    },
+    {
+     "name": "dropped_by_edge_kind",
+     "serde": {},
+     "type": "Vec<ReasonTraceEdgeCandidate>"
+    },
+    {
+     "name": "dropped_by_tombstone",
+     "serde": {},
+     "type": "Vec<ReasonTraceIdWithText>"
+    },
+    {
+     "name": "dropped_by_visited",
+     "serde": {},
+     "type": "Vec<ReasonTraceIdWithText>"
+    },
+    {
+     "name": "dropped_by_confidence",
+     "serde": {},
+     "type": "Vec<ReasonTraceScoredId>"
+    },
+    {
+     "name": "dropped_by_max_supporting",
+     "serde": {},
+     "type": "Vec<ReasonTraceIdWithText>"
+    },
+    {
+     "name": "dropped_by_max_contradicting",
+     "serde": {},
+     "type": "Vec<ReasonTraceIdWithText>"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallRequest": {
+   "fields": [
+    {
+     "name": "cue_text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "subject_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "max_results",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "confidence_threshold",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "session_filter",
+     "serde": {},
+     "type": "Option<Vec<u64>>"
+    },
+    {
+     "name": "age_bound_unix_nanos",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "as_of_record_time_unix_nanos",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "kind_filter",
+     "serde": {},
+     "type": "Option<Vec<MemoryKindWire>>"
+    },
+    {
+     "name": "salience_floor",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "include_edges",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_graph",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_text",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallResponseFrame": {
+   "fields": [
+    {
+     "name": "answer_kind",
+     "serde": {},
+     "type": "AnswerKindWire"
+    },
+    {
+     "name": "memories",
+     "serde": {},
+     "type": "Vec<MemoryResult>"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "cumulative_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "estimated_remaining",
+     "serde": {},
+     "type": "Option<u32>"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<RecallTrace>"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallTrace": {
+   "fields": [
+    {
+     "name": "retrievers",
+     "serde": {},
+     "type": "Vec<RecallTraceRetriever>"
+    },
+    {
+     "name": "filter_chain",
+     "serde": {},
+     "type": "RecallTraceFilterChain"
+    },
+    {
+     "name": "rerank",
+     "serde": {},
+     "type": "Option<RecallTraceRerank>"
+    },
+    {
+     "name": "total_latency_ms",
+     "serde": {},
+     "type": "f64"
+    },
+    {
+     "name": "fusion",
+     "serde": {},
+     "type": "Option<RecallTraceFusion>"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallTraceCandidate": {
+   "fields": [
+    {
+     "name": "item_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "RecallCandidateKind"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "score",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallTraceDroppedId": {
+   "fields": [
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "RankedItemKindWire"
+    },
+    {
+     "name": "id",
+     "serde": {},
+     "type": "u128"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallTraceFilterChain": {
+   "fields": [
+    {
+     "name": "before",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "after_type",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "after_temporal",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "after_confidence",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "after_tombstone",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "after_supersession",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "after_as_of",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "after_limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "dropped_by_type",
+     "serde": {},
+     "type": "Vec<u128>"
+    },
+    {
+     "name": "dropped_by_temporal",
+     "serde": {},
+     "type": "Vec<u128>"
+    },
+    {
+     "name": "dropped_by_confidence",
+     "serde": {},
+     "type": "Vec<u128>"
+    },
+    {
+     "name": "dropped_by_tombstone",
+     "serde": {},
+     "type": "Vec<u128>"
+    },
+    {
+     "name": "dropped_by_supersession",
+     "serde": {},
+     "type": "Vec<RecallTraceDroppedId>"
+    },
+    {
+     "name": "dropped_by_as_of",
+     "serde": {},
+     "type": "Vec<RecallTraceDroppedId>"
+    },
+    {
+     "name": "dropped_by_limit",
+     "serde": {},
+     "type": "Vec<RecallTraceDroppedId>"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallTraceFusion": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<RecallTraceFusionItem>"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallTraceFusionItem": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "rrf_score",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "lane_scores",
+     "serde": {},
+     "type": "Vec<(RetrieverNameWire, f32)>"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallTraceRerank": {
+   "fields": [
+    {
+     "name": "applied",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "candidates",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "latency_ms",
+     "serde": {},
+     "type": "f64"
+    },
+    {
+     "name": "before_order",
+     "serde": {},
+     "type": "Vec<u128>"
+    },
+    {
+     "name": "after_order",
+     "serde": {},
+     "type": "Vec<u128>"
+    }
+   ],
+   "serde": {}
+  },
+  "RecallTraceRetriever": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "RetrieverNameWire"
+    },
+    {
+     "name": "status",
+     "serde": {},
+     "type": "RecallTraceRetrieverStatus"
+    },
+    {
+     "name": "status_detail",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "latency_ms",
+     "serde": {},
+     "type": "f64"
+    },
+    {
+     "name": "candidate_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "candidates",
+     "serde": {},
+     "type": "Vec<RecallTraceCandidate>"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationCreateRequest": {
+   "fields": [
+    {
+     "name": "relation_type",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "from_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "to_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "properties_blob",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "evidence",
+     "serde": {},
+     "type": "EvidenceRefWire"
+    },
+    {
+     "name": "extractor_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "valid_from_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "valid_to_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "session_id",
+     "serde": {
+      "default": true
+     },
+     "type": "u64"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationCreateResponse": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationCreatedEvent": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "relation_type",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "from",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "to",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationGetRequest": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "follow_supersession",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationGetResponse": {
+   "fields": [
+    {
+     "name": "relation",
+     "serde": {},
+     "type": "RelationView"
+    },
+    {
+     "name": "returned_via_supersession",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationListFromRequest": {
+   "fields": [
+    {
+     "name": "from_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "relation_type_filter",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "time_range_start_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "time_range_end_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "include_superseded",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationListFromResponseFrame": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<RelationView>"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "cumulative_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationListToRequest": {
+   "fields": [
+    {
+     "name": "to_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "relation_type_filter",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "time_range_start_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "time_range_end_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "include_superseded",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationListToResponseFrame": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<RelationView>"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "cumulative_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationSupersedeRequest": {
+   "fields": [
+    {
+     "name": "old_relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "new_relation",
+     "serde": {},
+     "type": "RelationCreateRequest"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationSupersedeResponse": {
+   "fields": [
+    {
+     "name": "new_relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationSupersededEvent": {
+   "fields": [
+    {
+     "name": "old_relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "new_relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationTombstoneRequest": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationTombstoneResponse": {
+   "fields": [
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationTombstonedEvent": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationTraverseRequest": {
+   "fields": [
+    {
+     "name": "start_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "relation_types",
+     "serde": {},
+     "type": "Vec<String>"
+    },
+    {
+     "name": "direction",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "max_depth",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "max_nodes",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "time_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "include_superseded",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationTraverseResponseFrame": {
+   "fields": [
+    {
+     "name": "paths",
+     "serde": {},
+     "type": "Vec<TraversalPathWire>"
+    },
+    {
+     "name": "total_paths",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "truncated",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationTypeDef": {
+   "fields": [
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "from_type",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "to_type",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "cardinality",
+     "serde": {},
+     "type": "CardinalityAst"
+    },
+    {
+     "name": "symmetric",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "properties",
+     "serde": {
+      "default": true
+     },
+     "type": "Vec<AttributeDecl>"
+    },
+    {
+     "name": "description",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "RelationView": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "chain_root",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "relation_type",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "from_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "to_entity",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "properties_blob",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "evidence",
+     "serde": {},
+     "type": "EvidenceRefWire"
+    },
+    {
+     "name": "extractor_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "extracted_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "valid_from_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "valid_to_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "superseded_by",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "supersedes",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "flags",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "ResolverConfig": {
+   "fields": [],
+   "serde": {}
+  },
+  "SalienceHistogram": {
+   "fields": [
+    {
+     "name": "buckets",
+     "serde": {},
+     "type": "[u32; 10]"
+    }
+   ],
+   "serde": {}
+  },
+  "Schema": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<SchemaItem>"
+    },
+    {
+     "name": "source",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaGetRequest": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaGetResponse": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "schema_document",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "source_blob",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "uploaded_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "validator_version",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaListItemWire": {
+   "fields": [
+    {
+     "name": "schema_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "uploaded_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "validator_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "has_source_text",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaListRequest": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaListResponseFrame": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<SchemaListItemWire>"
+    },
+    {
+     "name": "total",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaReplaceRequest": {
+   "fields": [
+    {
+     "name": "schema_document",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "force_drop_existing",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaReplaceResponse": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "dropped_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "validation_errors",
+     "serde": {},
+     "type": "Vec<SchemaValidationErrorWire>"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaUpdatedEvent": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "from_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "to_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "backward_compatible",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaUploadRequest": {
+   "fields": [
+    {
+     "name": "schema_document",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "dry_run",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "allow_breaking",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaUploadResponse": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "validation_errors",
+     "serde": {},
+     "type": "Vec<SchemaValidationErrorWire>"
+    },
+    {
+     "name": "backward_compatible",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "migration_summary_blob",
+     "serde": {},
+     "type": "Vec<u8>"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaValidateRequest": {
+   "fields": [
+    {
+     "name": "schema_document",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaValidateResponse": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "would_be_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "validation_errors",
+     "serde": {},
+     "type": "Vec<SchemaValidationErrorWire>"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaValidationErrorWire": {
+   "fields": [
+    {
+     "name": "code",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "message",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "line",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "column",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "length",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "severity",
+     "serde": {},
+     "type": "u8"
+    }
+   ],
+   "serde": {}
+  },
+  "ServerCapabilities": {
+   "fields": [
+    {
+     "name": "supported_versions",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "capabilities",
+     "serde": {},
+     "type": "HelloCapabilities"
+    },
+    {
+     "name": "server_features",
+     "serde": {},
+     "type": "ServerFeatures"
+    },
+    {
+     "name": "server_id",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "ServerFeatures": {
+   "fields": [
+    {
+     "name": "max_payload_size",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "max_concurrent_streams",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "idle_timeout_seconds",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "auth_methods",
+     "serde": {},
+     "type": "Vec<AuthMethod>"
+    }
+   ],
+   "serde": {}
+  },
+  "ServerPingResponse": {
+   "fields": [
+    {
+     "name": "server_timestamp_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "SessionCreateRequest": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "title",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "SessionCreateResponse": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "created",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_active_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "SessionDeleteRequest": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "hard",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "SessionDeleteResponse": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "existed",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "memories_forgotten",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "SessionListRequest": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "SessionListResponse": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "sessions",
+     "serde": {},
+     "type": "Vec<SessionView>"
+    }
+   ],
+   "serde": {}
+  },
+  "SessionStats": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_encoded_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_recalled_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "SessionView": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_active_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "title",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "ShardStats": {
+   "fields": [
+    {
+     "name": "shard_id",
+     "serde": {},
+     "type": "u16"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "salience_distribution",
+     "serde": {},
+     "type": "SalienceHistogram"
+    },
+    {
+     "name": "wal_segment_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "last_checkpoint_lsn",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "arena_used_bytes",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "SimilarityFilter": {
+   "fields": [
+    {
+     "name": "reference_memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "threshold",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "SourceSpan": {
+   "fields": [
+    {
+     "name": "line",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "column",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "length",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "SpaceCreateRequest": {
+   "fields": [
+    {
+     "name": "metadata",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<Vec<u8>>"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "SpaceCreateResponse": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "created",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_active_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "session_count",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "SpaceDeleteRequest": {
+   "fields": [
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "SpaceDeleteResponse": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "existed",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "memories_forgotten",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "SpaceListRequest": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "SpaceListResponse": {
+   "fields": [
+    {
+     "name": "spaces",
+     "serde": {},
+     "type": "Vec<SpaceView>"
+    },
+    {
+     "name": "cross_shard_complete",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "SpacePermissions": {
+   "fields": [
+    {
+     "name": "can_encode",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "can_recall",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "can_plan",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "can_reason",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "can_forget",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "can_admin",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "can_act_as",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "SpaceView": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "last_active_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "session_count",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "StageAutoEdgePayload": {
+   "fields": [
+    {
+     "name": "edges_written",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "StageCompletedEventBody": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "stage_kind",
+     "serde": {},
+     "type": "StageKind"
+    },
+    {
+     "name": "stage_outcome",
+     "serde": {},
+     "type": "StageOutcome"
+    },
+    {
+     "name": "stage_payload",
+     "serde": {},
+     "type": "StagePayload"
+    }
+   ],
+   "serde": {}
+  },
+  "StageExtractorPayload": {
+   "fields": [
+    {
+     "name": "entity_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "statement_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "relation_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "audit_status",
+     "serde": {},
+     "type": "StageAuditStatus"
+    },
+    {
+     "name": "error_message",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "StageHypePayload": {
+   "fields": [
+    {
+     "name": "questions_written",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cost_micro_usd",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "StageTemporalEdgePayload": {
+   "fields": [
+    {
+     "name": "edges_written",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementCreateRequest": {
+   "fields": [
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "StatementKindWire"
+    },
+    {
+     "name": "subject",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "object",
+     "serde": {},
+     "type": "StatementObjectWire"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "evidence",
+     "serde": {},
+     "type": "EvidenceRefWire"
+    },
+    {
+     "name": "extractor_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "valid_from_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "valid_to_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "session_id",
+     "serde": {
+      "default": true
+     },
+     "type": "u64"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementCreateResponse": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "auto_superseded",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "chain_root",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementCreatedEvent": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "subject",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementGetRequest": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "follow_supersession",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementGetResponse": {
+   "fields": [
+    {
+     "name": "statement",
+     "serde": {},
+     "type": "StatementView"
+    },
+    {
+     "name": "returned_via_supersession",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementHistoryRequest": {
+   "fields": [
+    {
+     "name": "anchor_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementHistoryResponseFrame": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<StatementView>"
+    },
+    {
+     "name": "chain_root",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "total_versions",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementListRequest": {
+   "fields": [
+    {
+     "name": "subject",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "min_confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "time_range_start_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "time_range_end_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "only_current",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementListResponseFrame": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<StatementView>"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
+    },
+    {
+     "name": "cumulative_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "is_final",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementRetractRequest": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "reason_message",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementRetractResponse": {
+   "fields": [
+    {
+     "name": "retracted_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "will_zero_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementSupersedeRequest": {
+   "fields": [
+    {
+     "name": "old_statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "new_statement",
+     "serde": {},
+     "type": "StatementCreateRequest"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementSupersedeResponse": {
+   "fields": [
+    {
+     "name": "new_statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "chain_root",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementSupersededEvent": {
+   "fields": [
+    {
+     "name": "old_statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "new_statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "chain_root",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementTombstoneRequest": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "reason_message",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementTombstoneResponse": {
+   "fields": [
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementTombstonedEvent": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "type": "String"
+    }
+   ],
+   "serde": {}
+  },
+  "StatementView": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "StatementKindWire"
+    },
+    {
+     "name": "subject",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "subject_pending_audit_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "object",
+     "serde": {},
+     "type": "StatementObjectWire"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "evidence",
+     "serde": {},
+     "type": "EvidenceRefWire"
+    },
+    {
+     "name": "extractor_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "extracted_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "valid_from_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "valid_to_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "superseded_by",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "supersedes",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "chain_root",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "tombstoned",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "tombstone_reason",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "flags",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "is_stateful",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "StatsSummary": {
+   "fields": [
+    {
+     "name": "total_memories",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "total_active_memories",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "total_tombstoned_memories",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "total_sessions",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "encode_qps",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "recall_qps",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "p99_encode_latency_ms",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "p99_recall_latency_ms",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "resident_memory_bytes",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "disk_used_bytes",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "SubscribeRequest": {
+   "fields": [
+    {
+     "name": "filter",
+     "serde": {},
+     "type": "SubscriptionFilter"
+    },
+    {
+     "name": "include_history",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "from_lsn",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "max_inflight",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "SubscriptionEvent": {
+   "fields": [
+    {
+     "name": "event_type",
+     "serde": {},
+     "type": "EventType"
+    },
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "MemoryKindWire"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "timestamp_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "lsn",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "graph_payload",
+     "serde": {},
+     "type": "Option<GraphEventPayload>"
+    },
+    {
+     "name": "edge_payload",
+     "serde": {},
+     "type": "Option<EdgeEventPayload>"
+    },
+    {
+     "name": "stage_kind",
+     "serde": {},
+     "type": "Option<StageKind>"
+    },
+    {
+     "name": "stage_outcome",
+     "serde": {},
+     "type": "Option<StageOutcome>"
+    },
+    {
+     "name": "stage_payload",
+     "serde": {},
+     "type": "Option<StagePayload>"
+    }
+   ],
+   "serde": {}
+  },
+  "SubscriptionFilter": {
+   "fields": [
+    {
+     "name": "session_filter",
+     "serde": {},
+     "type": "Option<Vec<u64>>"
+    },
+    {
+     "name": "kinds",
+     "serde": {},
+     "type": "Option<Vec<MemoryKindWire>>"
+    },
+    {
+     "name": "similar_to",
+     "serde": {},
+     "type": "Option<SimilarityFilter>"
+    },
+    {
+     "name": "spaces",
+     "serde": {
+      "with": "opt_vec_byte_array16"
+     },
+     "type": "Option<Vec<[u8; 16]>>"
+    },
+    {
+     "name": "memory_ids",
+     "serde": {},
+     "type": "Option<Vec<u128>>"
+    }
+   ],
+   "serde": {}
+  },
+  "TimeRangeWire": {
+   "fields": [
+    {
+     "name": "from_unix_ms",
+     "serde": {},
+     "type": "Option<u64>"
+    },
+    {
+     "name": "to_unix_ms",
+     "serde": {},
+     "type": "Option<u64>"
+    }
+   ],
+   "serde": {}
+  },
+  "TombstonedMemoryInfo": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "forgot_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "forget_mode",
+     "serde": {},
+     "type": "ForgetMode"
+    },
+    {
+     "name": "age_seconds",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "eligible_for_reclaim",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "TraversalPathWire": {
+   "fields": [
+    {
+     "name": "steps",
+     "serde": {},
+     "type": "Vec<TraversalStepWire>"
+    }
+   ],
+   "serde": {}
+  },
+  "TraversalStepWire": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "from",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "to",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "relation_type",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "depth",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "TxnAbortRequest": {
+   "fields": [
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "TxnAbortResponse": {
+   "fields": [
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "operations_discarded",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "TxnBeginRequest": {
+   "fields": [
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "timeout_seconds",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "TxnBeginResponse": {
+   "fields": [
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "timeout_seconds",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "started_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "TxnCommitRequest": {
+   "fields": [
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    }
+   ],
+   "serde": {}
+  },
+  "TxnCommitResponse": {
+   "fields": [
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "committed_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "operations_applied",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "UnlinkRequest": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "EdgeKindWire"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "txn_id",
+     "serde": {
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "UnlinkResponse": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "EdgeKindWire"
+    },
+    {
+     "name": "removed",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "UnsubscribeRequest": {
+   "fields": [
+    {
+     "name": "target_stream_id",
+     "serde": {},
+     "type": "u32"
+    }
+   ],
+   "serde": {}
+  },
+  "UnsubscribeResponse": {
+   "fields": [
+    {
+     "name": "target_stream_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "final_lsn",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "ValidationError": {
+   "fields": [
+    {
+     "name": "code",
+     "serde": {},
+     "type": "ValidationErrorCode"
+    },
+    {
+     "name": "message",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "source_span",
+     "serde": {},
+     "type": "Option<SourceSpan>"
+    }
+   ],
+   "serde": {}
+  },
+  "WelcomePayload": {
+   "fields": [
+    {
+     "name": "server_id",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "chosen_version",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "connection_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "capabilities",
+     "serde": {},
+     "type": "HelloCapabilities"
+    },
+    {
+     "name": "server_features",
+     "serde": {},
+     "type": "ServerFeatures"
+    }
+   ],
+   "serde": {}
+  }
+ },
+ "unparsed": []
+}

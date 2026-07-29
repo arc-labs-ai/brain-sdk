@@ -11,6 +11,20 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  protocol:
+    name: Protocol types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Compares all three SDKs' declared wire types against the vendored
+      # server manifest. Runs first and gates nothing else explicitly, but a
+      # failure here explains most failures below.
+      - name: Check protocol types
+        run: ./tools/check_protocol.sh
+
   rust:
     name: Rust SDK
     runs-on: ubuntu-latest
