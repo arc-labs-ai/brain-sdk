@@ -154,11 +154,20 @@ export enum ResolutionOutcomeWire {
 }
 
 /** Retriever identity tag carried on a QUERY per-retriever contribution or outcome (semantic, lexical, graph). */
-export enum RetrieverWire {
-  Semantic = 0,
-  Lexical = 1,
-  Graph = 2,
-}
+/**
+ * Which retriever family, as carried inside `RetrieverSelection::Explicit`.
+ *
+ * A **string** on the wire, not an integer. The server declares this with plain
+ * `serde::Serialize` plus `#[repr(u8)]`; serde ignores `repr` and emits the
+ * variant name, so `Explicit([Semantic, Graph])` encodes as
+ * `{"Explicit": ["Semantic", "Graph"]}`. The `repr` attribute is a Rust memory
+ * layout hint and says nothing about the encoding — reading it as one is how
+ * this ended up sending integers.
+ *
+ * Contrast `RetrieverNameWire`, which carries the same three families but *is*
+ * an integer, because that one uses `serde_repr`.
+ */
+export type RetrieverWire = "Semantic" | "Lexical" | "Graph";
 
 /** Coarse class of a server ERROR frame; drives whether the client may retry. */
 export enum ErrorCategoryWire {
@@ -3229,7 +3238,7 @@ export type RetrieverSelectionWire =
 
 function encodeRetrieverSelection(s: RetrieverSelectionWire): unknown {
   if (s.kind === "Auto") return "Auto";
-  return new Map<string, unknown>([["Explicit", s.retrievers.map((r) => r as number)]]);
+  return new Map<string, unknown>([["Explicit", s.retrievers.map((r) => r as string)]]);
 }
 
 function decodeRetrieverSelection(value: unknown): RetrieverSelectionWire {
@@ -3238,7 +3247,7 @@ function decodeRetrieverSelection(value: unknown): RetrieverSelectionWire {
   if (m.has("Explicit")) {
     return {
       kind: "Explicit",
-      retrievers: asArray(m.get("Explicit")).map((r) => asNum(r) as RetrieverWire),
+      retrievers: asArray(m.get("Explicit")).map((r) => asStr(r) as RetrieverWire),
     };
   }
   throw new CborError("unknown RetrieverSelection variant");

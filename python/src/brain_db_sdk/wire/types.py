@@ -30,7 +30,7 @@ trailing-vector section that only ``EncodeVectorDirectRequest`` carries.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union
 
 from .cbor import (
     f32_list_to_le_bytes,
@@ -110,11 +110,31 @@ class AuthMethod:
 
 
 class RetrieverName:
-    """Which of the three fused retrievers a result came from, as its on-wire integer discriminant."""
+    """Which of the three fused retrievers a result came from, as its on-wire integer discriminant.
+
+    This is the *response*-side value (``MemoryResult.contributing_retrievers``),
+    which the server declares with ``serde_repr`` and so encodes as an integer.
+    The *request*-side selector is :class:`Retriever` and encodes as a string —
+    same three families, two encodings.
+    """
 
     SEMANTIC = 0
     LEXICAL = 1
     GRAPH = 2
+
+
+class Retriever:
+    """Which retriever family to run, as carried in ``RetrieverSelection.explicit``.
+
+    A **string** on the wire. The server's ``RetrieverWire`` uses plain
+    ``serde::Serialize`` with ``#[repr(u8)]``; serde ignores ``repr`` and emits
+    the variant name, so this is ``"Semantic"`` and not ``0``. See
+    :class:`RetrieverName` for the integer-encoded response-side counterpart.
+    """
+
+    SEMANTIC = "Semantic"
+    LEXICAL = "Lexical"
+    GRAPH = "Graph"
 
 
 class ErrorCategory:
@@ -2422,7 +2442,8 @@ class EntityCreateResponse:
 class StatementCreateRequest:
     """STATEMENT_CREATE (``0x0140``). Assert a typed-graph statement: kind, subject, predicate, object, confidence, evidence, extractor, and bi-temporal validity."""
 
-    kind: str  # StatementKind variant-name string
+    # StatementKind: a variant-name str, or {"Custom": int} for the catch-all.
+    kind: Union[str, dict]
     subject: bytes  # 16-byte byte string
     predicate: str
     object: StatementObject
@@ -2660,7 +2681,7 @@ class SchemaReplaceResponse:
     namespace: str
     schema_version: int
     dropped_count: int
-    validation_errors: list
+    validation_errors: list[SchemaValidationError]
 
     def to_map(self) -> dict:
         return {
@@ -2790,8 +2811,18 @@ class FusionConfig:
 
 @dataclass
 class RetrieverSelection:
-    """Externally-tagged routing: ``"Auto"`` unit string or
-    ``{"Explicit": [retriever ints]}``.
+    """Externally-tagged routing: ``"Auto"`` unit string, or
+    ``{"Explicit": ["Semantic", ...]}``.
+
+    The retrievers are **variant-name strings**, not integers. The server
+    declares ``RetrieverWire`` with plain ``serde::Serialize`` and
+    ``#[repr(u8)]``; serde ignores ``repr`` and emits the variant name. The
+    ``repr`` attribute is a Rust memory-layout hint and says nothing about the
+    encoding — reading it as one is how this previously sent integers, which the
+    server cannot deserialize.
+
+    Contrast :class:`RetrieverName`, which carries the same three families as
+    integers, because that one uses ``serde_repr``.
     """
 
     variant: str
@@ -2802,7 +2833,8 @@ class RetrieverSelection:
         return cls("Auto")
 
     @classmethod
-    def explicit(cls, retrievers: list[int]) -> "RetrieverSelection":
+    def explicit(cls, retrievers: list[str]) -> "RetrieverSelection":
+        """``retrievers`` are :class:`Retriever` name strings."""
         return cls("Explicit", list(retrievers))
 
     def to_cbor_value(self) -> object:
@@ -5044,7 +5076,8 @@ class StatementView:
     """The full stored view of a statement: subject/predicate/object, confidence and evidence, bi-temporal validity, supersession-chain links, and tombstone state."""
 
     statement_id: bytes
-    kind: str  # StatementKind variant-name string
+    # StatementKind: a variant-name str, or {"Custom": int} for the catch-all.
+    kind: Union[str, dict]
     subject: bytes
     subject_pending_audit_id: bytes
     predicate: str

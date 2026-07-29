@@ -13,6 +13,7 @@ Two layers of coverage:
 
 from __future__ import annotations
 
+import cbor2
 import socket
 import threading
 import uuid
@@ -46,6 +47,7 @@ from brain_db_sdk.wire.types import (
     RelationTraverseRequest,
     RelationTraverseResponseFrame,
     RelationView,
+    Retriever,
     RetrieverSelection,
     ServerFeatures,
     TraversalPathWire,
@@ -123,7 +125,10 @@ def _query_request() -> QueryRequest:
         include_tombstoned=False,
         include_superseded=False,
         limit=10,
-        retrievers=RetrieverSelection.auto(),
+        # Explicit, not Auto: `Auto` is a bare string either way, so it exercises
+        # nothing. The Explicit arm is where RetrieverWire's encoding shows, and
+        # it was sending integers where the server expects variant-name strings.
+        retrievers=RetrieverSelection.explicit([Retriever.SEMANTIC, Retriever.GRAPH]),
         fusion_config=None,
         request_id=_rid(),
     )
@@ -323,6 +328,14 @@ def _serve(sock: socket.socket) -> None:
     explain_req = decode_payload(QueryExplainRequest, f.payload)
     assert explain_req.query.session_filter == [7, 9], (
         "session_filter must survive the round trip"
+    )
+    # Read the RAW CBOR, not the SDK's decode: a decoder and encoder that are
+    # wrong the same way agree with each other. The server's RetrieverWire is a
+    # plain serde enum, so the wire carries variant-name strings.
+    raw = cbor2.loads(f.payload)
+    assert raw["query"]["retrievers"] == {"Explicit": ["Semantic", "Graph"]}, (
+        "RetrieverWire encodes as the variant-name string; #[repr(u8)] is a "
+        f"memory-layout hint, not a wire encoding. Got {raw['query']['retrievers']!r}"
     )
     _write(
         sock,

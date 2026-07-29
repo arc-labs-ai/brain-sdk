@@ -2106,7 +2106,19 @@ pub struct TimeRangeWire {
     pub to_unix_ms: Option<u64>,
 }
 
-/// Retriever family selector enum. Integer discriminant.
+/// Retriever family selector, as carried inside [`RetrieverSelectionWire`].
+///
+/// Encodes as the **variant-name string**, not the discriminant. `#[repr(u8)]`
+/// is a memory-layout hint; serde ignores it because this derives plain
+/// `Serialize`, not `serde_repr::Serialize_repr`. So
+/// `Explicit([Semantic, Graph])` goes on the wire as
+/// `{"Explicit": ["Semantic", "Graph"]}`.
+///
+/// The discriminants are kept because the server pins them for its own storage,
+/// and because [`RetrieverNameWire`] — the response-side twin that really is an
+/// integer — shares them. Reading `#[repr(u8)]` as "this is an integer on the
+/// wire" is what previously made the Python and TypeScript SDKs send `0`/`2`
+/// here, which the server cannot deserialize.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum RetrieverWire {

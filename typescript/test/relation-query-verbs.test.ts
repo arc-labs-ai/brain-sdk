@@ -20,6 +20,7 @@ import { SERVER_AGENT_ID, TEST_AUTH } from "./_auth.js";
 import { FrameChannel } from "../src/transport.js";
 import { FLAG_EOS } from "../src/wire/frame.js";
 import { Opcode } from "../src/wire/opcode.js";
+import { fromCbor } from "../src/wire/cbor.js";
 import {
   type AuthOkPayload,
   type EncodeResponse,
@@ -31,6 +32,7 @@ import {
   type RelationTombstoneResponse,
   type RelationTraverseResponseFrame,
   type RelationView,
+  type RetrieverWire,
   type WelcomePayload,
   decodeAuth,
   decodeEncodeVectorDirect,
@@ -207,6 +209,25 @@ async function serve(sock: net.Socket): Promise<void> {
     7n,
     9n,
   ]);
+  // Read the RAW CBOR, not the SDK's decode: a decoder and encoder that are
+  // wrong the same way agree with each other. The server's RetrieverWire is a
+  // plain serde enum, so the wire carries variant-name strings.
+  // cborg yields maps as either `Map` or a plain object depending on the
+  // decode options, so normalize before asserting rather than assuming one.
+  const plain = (v: unknown): unknown =>
+    v instanceof Map
+      ? Object.fromEntries([...v].map(([k, x]) => [k, plain(x)]))
+      : Array.isArray(v)
+        ? v.map(plain)
+        : v && typeof v === "object" && !(v instanceof Uint8Array)
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]))
+          : v;
+  const rawQuery = (plain(fromCbor(f.payload)) as Record<string, Record<string, unknown>>)
+    .query as Record<string, unknown>;
+  expect(
+    rawQuery.retrievers,
+    "RetrieverWire encodes as the variant-name string; #[repr(u8)] is a memory-layout hint, not a wire encoding",
+  ).toEqual({ Explicit: ["Semantic", "Graph"] });
   const explainResp: QueryExplainResponse = { planText: "semantic ∪ graph", estimatedCostMs: 1.25 };
   await chan.write({ opcode: Opcode.QueryExplainResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeQueryExplainResponse(explainResp) });
 
@@ -237,7 +258,13 @@ const QUERY_BASE = {
   includeTombstoned: false,
   includeSuperseded: false,
   limit: 10,
-  retrievers: { kind: "Auto" as const },
+  // Explicit, not Auto: `Auto` is a bare string either way, so it exercises
+  // nothing. The Explicit arm is where RetrieverWire's encoding shows, and it
+  // was sending integers where the server expects variant-name strings.
+  retrievers: {
+    kind: "Explicit" as const,
+    retrievers: ["Semantic", "Graph"] as RetrieverWire[],
+  },
   fusionConfig: null,
 };
 
