@@ -25,6 +25,13 @@ jobs:
       - name: Check protocol types
         run: ./tools/check_protocol.sh
 
+      # The HTTP boundary's equivalent: brain-edge serves 25 method+path
+      # combos and the clients covered 9, so a whole tier of the product was
+      # unreachable over JSON. This fails when an SDK misses a route the edge
+      # serves, or serves one it does not.
+      - name: Check HTTP contract
+        run: python3 tools/check_http_contract.py
+
   rust:
     name: Rust SDK
     runs-on: ubuntu-latest
