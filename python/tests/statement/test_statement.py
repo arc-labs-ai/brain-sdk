@@ -25,7 +25,12 @@ from brain_db_sdk.wire.types import (
 def _subject(client) -> bytes:
     return client.create_entity(
         EntityCreateRequest(
-            entity_type_id=1, canonical_name="Ada", aliases=[], attributes_blob=[], request_id=new_id()
+            entity_type_id=1,
+            canonical_name="Ada",
+            aliases=[],
+            attributes_blob=[],
+            session_id=0,
+            request_id=new_id(),
         )
     ).entity_id
 
@@ -44,6 +49,7 @@ def _fact(subject: bytes, obj: str) -> StatementCreateRequest:
         valid_to_unix_nanos=(1 << 64) - 1,
         event_at_unix_nanos=0,
         schema_version=1,
+        session_id=0,
         request_id=new_id(),
     )
 

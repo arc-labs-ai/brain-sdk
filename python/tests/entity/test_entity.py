@@ -24,6 +24,7 @@ def _create(client, name: str) -> bytes:
             canonical_name=name,
             aliases=[],
             attributes_blob=[],
+            session_id=0,
             request_id=new_id(),
         )
     ).entity_id

@@ -20,10 +20,15 @@
 #   scripts/it-server.sh down
 #
 # The container binds three planes: data (wire), metrics/health, and admin
-# (key minting). Only localhost publishes them. The admin secret and the LLM
-# key here are throwaway test values — the admin plane is reachable only from
-# this host, and the LLM tier is never exercised by wire-op tests (a dummy key
-# only satisfies the server's mandatory-provider boot gate).
+# (key minting). Only localhost publishes them. The admin secret is a throwaway
+# test value — the admin plane is reachable only from this host.
+#
+# A REAL provider key is required. The server makes a 1-token completion at
+# boot and refuses to start if it is rejected, so a placeholder no longer works
+# even though wire-op tests never trigger an LLM call themselves:
+#
+#     BRAIN__LLM__API_KEY="$(tr -d '[:space:]' < ~/.brain_llm_key)" \
+#       scripts/it-server.sh up
 set -euo pipefail
 
 NAME="${BRAIN_SDK_IT_NAME:-brain-sdk-it}"
@@ -34,11 +39,12 @@ METRICS_PORT="${BRAIN_SDK_IT_METRICS_PORT:-19091}"
 ADMIN_PORT="${BRAIN_SDK_IT_ADMIN_PORT:-19092}"
 ADMIN_SECRET="${BRAIN_SDK_IT_ADMIN_SECRET:-sdk-it-admin-secret}"
 NAMESPACE="${BRAIN_SDK_IT_NAMESPACE:-sdk-it}"
-# The server refuses to boot without a provider key (write-time HyPE is
-# mandatory). Wire-op tests never trigger a real LLM call, so a dummy key that
-# only clears the presence check is enough. A real key can be forwarded by
-# exporting BRAIN__LLM__API_KEY before `up`.
-LLM_KEY="${BRAIN__LLM__API_KEY:-dummy-sdk-it-key}"
+# The server refuses to boot without a WORKING provider key: write-time HyPE
+# and extraction are always-on, and the boot preflight sends a 1-token
+# completion, failing the start on a rejected key. An empty key is rejected
+# earlier still, at config validation — so there is no placeholder path and no
+# "disabled" mode. Export BRAIN__LLM__API_KEY before `up`.
+LLM_KEY="${BRAIN__LLM__API_KEY:-}"
 
 print_env() {
   echo "export BRAIN_SDK_IT_DATA=127.0.0.1:${DATA_PORT}"
@@ -48,6 +54,17 @@ print_env() {
 }
 
 cmd_up() {
+  if [ -z "$LLM_KEY" ]; then
+    cat >&2 <<'MSG'
+BRAIN__LLM__API_KEY is unset and the server will refuse to start without it.
+The boot preflight sends a real 1-token completion; a placeholder is rejected,
+and an empty key fails config validation earlier still.
+
+    BRAIN__LLM__API_KEY="$(tr -d '[:space:]' < ~/.brain_llm_key)" \
+      scripts/it-server.sh up
+MSG
+    return 2
+  fi
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   docker run -d --name "$NAME" \
     --security-opt seccomp=unconfined --ulimit memlock=-1 \
