@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import { EncodeBuilder } from "../../src/verbs.js";
 import { PlanStrategy } from "../../src/wire/types.js";
-import type { PlanBudget, PlanState } from "../../src/wire/types.js";
+import type { PlanBudget } from "../../src/wire/types.js";
 import { connectFresh, itTarget } from "../common/harness.js";
 
 const T = itTarget();
@@ -50,8 +50,8 @@ describe.skipIf(T === null)("plan and reason (integration)", () => {
         .memoryId;
 
       const steps = await client.plan({
-        start: { kind: "ByMemoryId", memoryId: start } as PlanState,
-        goal: { kind: "ByMemoryId", memoryId: goal } as PlanState,
+        start: { kind: "ByMemoryId", memoryId: start },
+        goal: { kind: "ByMemoryId", memoryId: goal },
         budget: BUDGET,
         strategyHint: PlanStrategy.Auto,
         sessionFilter: null,
@@ -79,8 +79,8 @@ describe.skipIf(T === null)("plan and reason (integration)", () => {
       ).memoryId;
 
       const steps = await client.plan({
-        start: { kind: "ByMemoryId", memoryId: start } as PlanState,
-        goal: { kind: "ByText", text: "the project shipped" } as PlanState,
+        start: { kind: "ByMemoryId", memoryId: start },
+        goal: { kind: "ByText", text: "the project shipped" },
         budget: BUDGET,
         strategyHint: PlanStrategy.AStar,
         sessionFilter: null,

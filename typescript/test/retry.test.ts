@@ -125,7 +125,7 @@ describe("withRetry integration", () => {
       expect(second.opcode).toBe(Opcode.ForgetReq);
       const secondReq = decodeForget(second.payload);
       // Same request_id proves the retry is idempotent.
-      expect([...secondReq.requestId]).toEqual([...firstRequestId!]);
+      expect([...secondReq.requestId]).toEqual([...firstRequestId]);
       const resp: ForgetResponse = {
         memoryId: secondReq.memoryId,
         wasAlreadyForgotten: false,

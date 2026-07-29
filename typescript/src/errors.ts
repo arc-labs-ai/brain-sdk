@@ -53,7 +53,7 @@ export class VersionMismatch extends BrainError {
     public readonly chosen: number,
     public readonly supported: number[],
   ) {
-    super(`version mismatch: server chose ${chosen}, client supports ${supported}`);
+    super(`version mismatch: server chose ${chosen}, client supports [${supported.join(", ")}]`);
     this.name = "VersionMismatch";
   }
 }
@@ -106,5 +106,9 @@ export function isRetryable(err: unknown): boolean {
  * multi-tenant caller distinguish this from an ordinary permission denial.
  */
 export function isActAsDenied(err: unknown): boolean {
+  // `code` is deliberately `number`, not `WireErrorCode`: a newer server may
+  // send a code this SDK does not declare, and typing the field as the enum
+  // would assert otherwise. Comparing the two is the intended use.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
   return err instanceof ServerError && err.code === WireErrorCode.ActAsDenied;
 }

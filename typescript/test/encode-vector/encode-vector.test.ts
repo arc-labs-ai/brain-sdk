@@ -108,7 +108,7 @@ describe.skipIf(T === null)("encode_vector_direct (integration)", () => {
     const { client } = await connectFresh(t);
     try {
       const err = await client
-        .encodeVectorDirect(request(fp, unitVector(dim as number), `dim ${dim}`))
+        .encodeVectorDirect(request(fp, unitVector(dim), `dim ${dim}`))
         .catch((e) => e);
       expect(String(err), `expected a dimension complaint for ${dim} floats`).toContain(
         "dimension",

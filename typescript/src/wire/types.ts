@@ -40,14 +40,17 @@ function field(map: Map<string, unknown>, name: string): unknown {
 }
 
 function asMap(value: unknown): Map<string, unknown> {
-  if (value instanceof Map) return value;
+  // `instanceof Map` narrows only to `Map<any, any>`. The CBOR reader builds
+  // map keys exclusively from major-type-3 text strings, so the key type is
+  // known here even though the narrowing cannot express it.
+  if (value instanceof Map) return value as Map<string, unknown>;
   if (
     value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     !(value instanceof Uint8Array)
   ) {
-    return new Map(Object.entries(value as object));
+    return new Map(Object.entries(value));
   }
   throw new CborError("expected a CBOR map");
 }
@@ -288,7 +291,7 @@ export function encodeWelcome(p: WelcomePayload): Uint8Array {
           ["max_payload_size", sf.maxPayloadSize],
           ["max_concurrent_streams", sf.maxConcurrentStreams],
           ["idle_timeout_seconds", sf.idleTimeoutSeconds],
-          ["auth_methods", sf.authMethods.map((m) => m as number)],
+          ["auth_methods", sf.authMethods.map((m) => m)],
         ]),
       ],
     ]),
@@ -308,7 +311,7 @@ export function decodeWelcome(bytes: Uint8Array): WelcomePayload {
       maxPayloadSize: asNum(field(sf, "max_payload_size")),
       maxConcurrentStreams: asNum(field(sf, "max_concurrent_streams")),
       idleTimeoutSeconds: asNum(field(sf, "idle_timeout_seconds")),
-      authMethods: asArray(field(sf, "auth_methods")).map((v) => asNum(v) as AuthMethod),
+      authMethods: asArray(field(sf, "auth_methods")).map((v) => asNum(v)),
     },
   };
 }
@@ -370,7 +373,7 @@ export interface AuthPayload {
 export function encodeAuth(p: AuthPayload): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
-      ["method", p.method as number],
+      ["method", p.method],
       ["credentials", encodeCredentials(p.credentials)],
     ]),
   );
@@ -380,7 +383,7 @@ export function encodeAuth(p: AuthPayload): Uint8Array {
 export function decodeAuth(bytes: Uint8Array): AuthPayload {
   const m = asMap(fromCbor(bytes));
   return {
-    method: asNum(field(m, "method")) as AuthMethod,
+    method: asNum(field(m, "method")),
     credentials: decodeCredentials(field(m, "credentials")),
   };
 }
@@ -1109,7 +1112,7 @@ export interface EdgeRequest {
 function encodeEdge(e: EdgeRequest): Map<string, unknown> {
   return new Map<string, unknown>([
     ["target", e.target],
-    ["kind", e.kind as number],
+    ["kind", e.kind],
     ["weight", f32(e.weight)],
   ]);
 }
@@ -1118,7 +1121,7 @@ function decodeEdge(value: unknown): EdgeRequest {
   const m = asMap(value);
   return {
     target: asBig(field(m, "target")),
-    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    kind: asNum(field(m, "kind")),
     weight: asNum(field(m, "weight")),
   };
 }
@@ -1175,7 +1178,7 @@ export function encodeEncode(p: EncodeRequest): Uint8Array {
     ],
     p.actAs,
   );
-  if (p.wait != null && p.wait !== WaitMode.Ack) map.set("wait", p.wait as number);
+  if (p.wait != null && p.wait !== WaitMode.Ack) map.set("wait", p.wait);
   if (p.allowDuplicates) map.set("allow_duplicates", true);
   return toCbor(map);
 }
@@ -1190,7 +1193,7 @@ export function decodeEncode(bytes: Uint8Array): EncodeRequest {
     txnId: asOptBytes(field(m, "txn_id")),
     occurredAtUnixNanos: asOpt(field(m, "occurred_at_unix_nanos"), asBig),
     actAs: decodeOptActAs(m),
-    wait: m.has("wait") ? (asNum(field(m, "wait")) as WaitMode) : WaitMode.Ack,
+    wait: m.has("wait") ? (asNum(field(m, "wait"))) : WaitMode.Ack,
     allowDuplicates: m.has("allow_duplicates") ? asBool(field(m, "allow_duplicates")) : false,
   };
 }
@@ -1217,7 +1220,7 @@ export function encodeEncodeVectorDirect(p: EncodeVectorDirectRequest): Uint8Arr
       ["text", p.text],
       ["model_fingerprint", p.modelFingerprint],
       ["session_id", p.sessionId],
-      ["kind", p.kind as number],
+      ["kind", p.kind],
       ["salience_hint", f32(p.salienceHint)],
       ["edges", p.edges.map(encodeEdge)],
       ["request_id", p.requestId],
@@ -1242,7 +1245,7 @@ export function decodeEncodeVectorDirect(bytes: Uint8Array): EncodeVectorDirectR
     vector,
     modelFingerprint: asBytes(field(m, "model_fingerprint")),
     sessionId: asBig(field(m, "session_id")),
-    kind: asNum(field(m, "kind")) as MemoryKindWire,
+    kind: asNum(field(m, "kind")),
     salienceHint: asNum(field(m, "salience_hint")),
     edges: asArray(field(m, "edges")).map(decodeEdge),
     requestId: asBytes(field(m, "request_id")),
@@ -1282,11 +1285,11 @@ export function encodeEncodeResponse(p: EncodeResponse): Uint8Array {
     ["lsn", p.lsn],
     ["space_id", p.spaceId],
     ["session_id", p.sessionId],
-    ["kind", p.kind as number],
+    ["kind", p.kind],
     ["created_at_unix_nanos", p.createdAtUnixNanos],
     ["edges_out_count", p.edgesOutCount],
     ["embedding_model_fp", p.embeddingModelFp],
-    ["pending_stages", p.pendingStages.map((s) => s as number)],
+    ["pending_stages", p.pendingStages.map((s) => s)],
     ["has_active_schema", p.hasActiveSchema],
   ]);
   if (p.trace != null) map.set("trace", encodeEncodeTrace(p.trace));
@@ -1304,11 +1307,11 @@ export function decodeEncodeResponse(bytes: Uint8Array): EncodeResponse {
     lsn: asBig(field(m, "lsn")),
     spaceId: asBytes(field(m, "space_id")),
     sessionId: asBig(field(m, "session_id")),
-    kind: asNum(field(m, "kind")) as MemoryKindWire,
+    kind: asNum(field(m, "kind")),
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
     edgesOutCount: asNum(field(m, "edges_out_count")),
     embeddingModelFp: asBytes(field(m, "embedding_model_fp")),
-    pendingStages: asArray(field(m, "pending_stages")).map((v) => asNum(v) as StageKind),
+    pendingStages: asArray(field(m, "pending_stages")).map((v) => asNum(v)),
     hasActiveSchema: asBool(field(m, "has_active_schema")),
   };
   if (m.has("trace")) out.trace = decodeEncodeTrace(field(m, "trace"));
@@ -1403,7 +1406,7 @@ function encodeEncodeTrace(t: EncodeTrace): Map<string, unknown> {
       t.stages.map((s) => {
         const stage = new Map<string, unknown>([
           ["name", s.name],
-          ["status", s.status as number],
+          ["status", s.status],
           ["latency_us", s.latencyUs],
           ["detail", s.detail],
         ]);
@@ -1461,7 +1464,7 @@ function encodeEncodeTraceArtifacts(a: EncodeTraceArtifacts): Map<string, unknow
         (i) =>
           new Map<string, unknown>([
             ["name", i.name],
-            ["status", i.status as number],
+            ["status", i.status],
           ]),
       ),
     ],
@@ -1482,7 +1485,7 @@ function decodeEncodeTrace(value: unknown): EncodeTrace {
       const s = asMap(v);
       const stage: EncodeTraceStage = {
         name: asStr(field(s, "name")),
-        status: asNum(field(s, "status")) as EncodeTraceStageStatus,
+        status: asNum(field(s, "status")),
         latencyUs: asBig(field(s, "latency_us")),
         detail: asStr(field(s, "detail")),
       };
@@ -1530,7 +1533,7 @@ function decodeEncodeTraceArtifacts(value: unknown): EncodeTraceArtifacts {
       const i = asMap(v);
       return {
         name: asStr(field(i, "name")),
-        status: asNum(field(i, "status")) as EncodeTraceStageStatus,
+        status: asNum(field(i, "status")),
       };
     }),
     dedup: (() => {
@@ -1877,7 +1880,7 @@ export function encodeRecall(p: RecallRequest): Uint8Array {
         ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
         ["age_bound_unix_nanos", p.ageBoundUnixNanos],
         ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
-        ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k as number)],
+        ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k)],
         ["salience_floor", f32(p.salienceFloor)],
         ["include_edges", p.includeEdges],
         ["include_graph", p.includeGraph],
@@ -1903,7 +1906,7 @@ export function decodeRecall(bytes: Uint8Array): RecallRequest {
     ageBoundUnixNanos: asOpt(field(m, "age_bound_unix_nanos"), asBig),
     asOfRecordTimeUnixNanos: asOpt(field(m, "as_of_record_time_unix_nanos"), asBig),
     kindFilter: asOpt(field(m, "kind_filter"), (v) =>
-      asArray(v).map((k) => asNum(k) as MemoryKindWire),
+      asArray(v).map((k) => asNum(k)),
     ),
     salienceFloor: asNum(field(m, "salience_floor")),
     includeEdges: asBool(field(m, "include_edges")),
@@ -1960,7 +1963,7 @@ export interface GraphEnrichment {
 function encodeEdgeView(e: EdgeView): Map<string, unknown> {
   return new Map<string, unknown>([
     ["target", e.target],
-    ["kind", e.kind as number],
+    ["kind", e.kind],
     ["weight", f32(e.weight)],
   ]);
 }
@@ -2042,13 +2045,13 @@ function encodeMemoryResult(r: MemoryResult): Map<string, unknown> {
     ["similarity_score", f32(r.similarityScore)],
     ["confidence", f32(r.confidence)],
     ["salience", f32(r.salience)],
-    ["kind", r.kind as number],
+    ["kind", r.kind],
     ["space_id", r.spaceId],
     ["session_id", r.sessionId],
     ["created_at_unix_nanos", r.createdAtUnixNanos],
     ["last_accessed_at_unix_nanos", r.lastAccessedAtUnixNanos],
     ["edges", r.edges === null ? null : r.edges.map(encodeEdgeView)],
-    ["contributing_retrievers", r.contributingRetrievers.map((x) => x as number)],
+    ["contributing_retrievers", r.contributingRetrievers.map((x) => x)],
     ["fused_score", f32(r.fusedScore)],
     ["rerank_score", r.rerankScore === null ? null : f32(r.rerankScore)],
     ["salience_initial", f32(r.salienceInitial)],
@@ -2067,7 +2070,7 @@ function decodeEdgeView(value: unknown): EdgeView {
   const m = asMap(value);
   return {
     target: asBig(field(m, "target")),
-    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    kind: asNum(field(m, "kind")),
     weight: asNum(field(m, "weight")),
   };
 }
@@ -2115,14 +2118,14 @@ function decodeMemoryResult(value: unknown): MemoryResult {
     similarityScore: asNum(field(m, "similarity_score")),
     confidence: asNum(field(m, "confidence")),
     salience: asNum(field(m, "salience")),
-    kind: asNum(field(m, "kind")) as MemoryKindWire,
+    kind: asNum(field(m, "kind")),
     spaceId: asBytes(field(m, "space_id")),
     sessionId: asBig(field(m, "session_id")),
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
     lastAccessedAtUnixNanos: asBig(field(m, "last_accessed_at_unix_nanos")),
     edges: asOpt(field(m, "edges"), (v) => asArray(v).map(decodeEdgeView)),
     contributingRetrievers: asArray(field(m, "contributing_retrievers")).map(
-      (x) => asNum(x) as RetrieverNameWire,
+      (x) => asNum(x),
     ),
     fusedScore: asNum(field(m, "fused_score")),
     rerankScore: asOpt(field(m, "rerank_score"), asNum),
@@ -2320,7 +2323,7 @@ export interface RecallTrace {
 function encodeRecallTraceCandidate(c: RecallTraceCandidate): Map<string, unknown> {
   return new Map<string, unknown>([
     ["item_id", c.itemId],
-    ["kind", c.kind as number],
+    ["kind", c.kind],
     ["text", c.text],
     ["score", f32(c.score)],
   ]);
@@ -2330,7 +2333,7 @@ function decodeRecallTraceCandidate(value: unknown): RecallTraceCandidate {
   const c = asMap(value);
   return {
     itemId: asBig(field(c, "item_id")),
-    kind: asNum(field(c, "kind")) as RankedItemKindWire,
+    kind: asNum(field(c, "kind")),
     text: asStr(field(c, "text")),
     score: asNum(field(c, "score")),
   };
@@ -2338,7 +2341,7 @@ function decodeRecallTraceCandidate(value: unknown): RecallTraceCandidate {
 
 function encodeRecallTraceDroppedId(d: RecallTraceDroppedId): Map<string, unknown> {
   return new Map<string, unknown>([
-    ["kind", d.kind as number],
+    ["kind", d.kind],
     ["id", d.id],
   ]);
 }
@@ -2346,7 +2349,7 @@ function encodeRecallTraceDroppedId(d: RecallTraceDroppedId): Map<string, unknow
 function decodeRecallTraceDroppedId(value: unknown): RecallTraceDroppedId {
   const d = asMap(value);
   return {
-    kind: asNum(field(d, "kind")) as RankedItemKindWire,
+    kind: asNum(field(d, "kind")),
     id: asBig(field(d, "id")),
   };
 }
@@ -2358,8 +2361,8 @@ function encodeRecallTrace(t: RecallTrace): Map<string, unknown> {
       t.retrievers.map(
         (r) =>
           new Map<string, unknown>([
-            ["name", r.name as number],
-            ["status", r.status as number],
+            ["name", r.name],
+            ["status", r.status],
             ["status_detail", r.statusDetail],
             ["latency_ms", f64(r.latencyMs)],
             ["candidate_count", r.candidateCount],
@@ -2412,7 +2415,7 @@ function encodeRecallTrace(t: RecallTrace): Map<string, unknown> {
                   new Map<string, unknown>([
                     ["memory_id", i.memoryId],
                     ["rrf_score", f32(i.rrfScore)],
-                    ["lane_scores", i.laneScores.map(([name, score]) => [name as number, f32(score)])],
+                    ["lane_scores", i.laneScores.map(([name, score]) => [name, f32(score)])],
                   ]),
               ),
             ],
@@ -2428,8 +2431,8 @@ function decodeRecallTrace(value: unknown): RecallTrace {
     retrievers: asArray(field(m, "retrievers")).map((v) => {
       const r = asMap(v);
       return {
-        name: asNum(field(r, "name")) as RetrieverNameWire,
-        status: asNum(field(r, "status")) as RecallTraceRetrieverStatus,
+        name: asNum(field(r, "name")),
+        status: asNum(field(r, "status")),
         statusDetail: asStr(field(r, "status_detail")),
         latencyMs: asNum(field(r, "latency_ms")),
         candidateCount: asNum(field(r, "candidate_count")),
@@ -2474,7 +2477,7 @@ function decodeRecallTrace(value: unknown): RecallTrace {
             rrfScore: asNum(field(i, "rrf_score")),
             laneScores: asArray(field(i, "lane_scores")).map((lsv) => {
               const ls = asArray(lsv);
-              return [asNum(ls[0]) as RetrieverNameWire, asNum(ls[1])] as [
+              return [asNum(ls[0]), asNum(ls[1])] as [
                 RetrieverNameWire,
                 number,
               ];
@@ -2507,7 +2510,7 @@ export function encodeForget(p: ForgetRequest): Uint8Array {
     requestMapWithActAs(
       [
         ["memory_id", p.memoryId],
-        ["mode", p.mode as number],
+        ["mode", p.mode],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
       ],
@@ -2521,7 +2524,7 @@ export function decodeForget(bytes: Uint8Array): ForgetRequest {
   const m = asMap(fromCbor(bytes));
   return {
     memoryId: asBig(field(m, "memory_id")),
-    mode: asNum(field(m, "mode")) as ForgetMode,
+    mode: asNum(field(m, "mode")),
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
     actAs: decodeOptActAs(m),
@@ -2581,7 +2584,7 @@ export function encodeError(p: ErrorResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
       ["code", p.code],
-      ["category", p.category as number],
+      ["category", p.category],
       ["message", p.message],
       [
         "details",
@@ -2603,7 +2606,7 @@ export function decodeError(bytes: Uint8Array): ErrorResponse {
   const m = asMap(fromCbor(bytes));
   return {
     code: asNum(field(m, "code")),
-    category: asNum(field(m, "category")) as ErrorCategoryWire,
+    category: asNum(field(m, "category")),
     message: asStr(field(m, "message")),
     details: asOpt(field(m, "details"), (v) => {
       const d = asMap(v);
@@ -3500,7 +3503,7 @@ export function encodeLink(p: LinkRequest): Uint8Array {
       [
         ["source", p.source],
         ["target", p.target],
-        ["kind", p.kind as number],
+        ["kind", p.kind],
         ["weight", f32(p.weight)],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
@@ -3516,7 +3519,7 @@ export function decodeLink(bytes: Uint8Array): LinkRequest {
   return {
     source: asBig(field(m, "source")),
     target: asBig(field(m, "target")),
-    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    kind: asNum(field(m, "kind")),
     weight: asNum(field(m, "weight")),
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
@@ -3541,7 +3544,7 @@ export function encodeLinkResponse(p: LinkResponse): Uint8Array {
     new Map<string, unknown>([
       ["source", p.source],
       ["target", p.target],
-      ["kind", p.kind as number],
+      ["kind", p.kind],
       ["weight", f32(p.weight)],
       ["created_at_unix_nanos", p.createdAtUnixNanos],
       ["already_existed", p.alreadyExisted],
@@ -3555,7 +3558,7 @@ export function decodeLinkResponse(bytes: Uint8Array): LinkResponse {
   return {
     source: asBig(field(m, "source")),
     target: asBig(field(m, "target")),
-    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    kind: asNum(field(m, "kind")),
     weight: asNum(field(m, "weight")),
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
     alreadyExisted: asBool(field(m, "already_existed")),
@@ -3581,7 +3584,7 @@ export function encodeUnlink(p: UnlinkRequest): Uint8Array {
       [
         ["source", p.source],
         ["target", p.target],
-        ["kind", p.kind as number],
+        ["kind", p.kind],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
       ],
@@ -3596,7 +3599,7 @@ export function decodeUnlink(bytes: Uint8Array): UnlinkRequest {
   return {
     source: asBig(field(m, "source")),
     target: asBig(field(m, "target")),
-    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    kind: asNum(field(m, "kind")),
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
     actAs: decodeOptActAs(m),
@@ -3618,7 +3621,7 @@ export function encodeUnlinkResponse(p: UnlinkResponse): Uint8Array {
     new Map<string, unknown>([
       ["source", p.source],
       ["target", p.target],
-      ["kind", p.kind as number],
+      ["kind", p.kind],
       ["removed", p.removed],
     ]),
   );
@@ -3630,7 +3633,7 @@ export function decodeUnlinkResponse(bytes: Uint8Array): UnlinkResponse {
   return {
     source: asBig(field(m, "source")),
     target: asBig(field(m, "target")),
-    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    kind: asNum(field(m, "kind")),
     removed: asBool(field(m, "removed")),
   };
 }
@@ -3701,15 +3704,15 @@ export function encodeMemoryList(p: MemoryListRequest): Uint8Array {
   return toCbor(
     requestMapWithActAs(
       [
-        ["sort", p.sort as number],
-        ["dir", p.dir as number],
+        ["sort", p.sort],
+        ["dir", p.dir],
         ["limit", p.limit],
         // `cursor` is `Vec<u8>` without serde_bytes server-side → a CBOR array
         // of ints, not a byte string (matches statement/relation/entity list).
         ["cursor", Array.from(p.cursor)],
-        ["kinds", p.kinds.map((k) => k as number)],
+        ["kinds", p.kinds.map((k) => k)],
         ["include_tombstoned", p.includeTombstoned],
-        ["time_axis", p.timeAxis as number],
+        ["time_axis", p.timeAxis],
         ["from_unix_nanos", p.fromUnixNanos],
         ["to_unix_nanos", p.toUnixNanos],
         ["salience_min", f32(p.salienceMin)],
@@ -3725,13 +3728,13 @@ export function encodeMemoryList(p: MemoryListRequest): Uint8Array {
 export function decodeMemoryList(bytes: Uint8Array): MemoryListRequest {
   const m = asMap(fromCbor(bytes));
   return {
-    sort: asNum(field(m, "sort")) as MemoryListSort,
-    dir: asNum(field(m, "dir")) as MemoryListDir,
+    sort: asNum(field(m, "sort")),
+    dir: asNum(field(m, "dir")),
     limit: asNum(field(m, "limit")),
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
-    kinds: asArray(field(m, "kinds")).map((k) => asNum(k) as MemoryKindWire),
+    kinds: asArray(field(m, "kinds")).map((k) => asNum(k)),
     includeTombstoned: asBool(field(m, "include_tombstoned")),
-    timeAxis: asNum(field(m, "time_axis")) as MemoryListTimeAxis,
+    timeAxis: asNum(field(m, "time_axis")),
     fromUnixNanos: asBig(field(m, "from_unix_nanos")),
     toUnixNanos: asBig(field(m, "to_unix_nanos")),
     salienceMin: asNum(field(m, "salience_min")),
@@ -4101,7 +4104,7 @@ export function encodePlan(p: PlanRequest): Uint8Array {
         ["start", encodePlanState(p.start)],
         ["goal", encodePlanState(p.goal)],
         ["budget", encodePlanBudget(p.budget)],
-        ["strategy_hint", p.strategyHint === null ? null : (p.strategyHint as number)],
+        ["strategy_hint", p.strategyHint === null ? null : (p.strategyHint)],
         ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
@@ -4119,7 +4122,7 @@ export function decodePlan(bytes: Uint8Array): PlanRequest {
     start: decodePlanState(field(m, "start")),
     goal: decodePlanState(field(m, "goal")),
     budget: decodePlanBudget(field(m, "budget")),
-    strategyHint: asOpt(field(m, "strategy_hint"), (v) => asNum(v) as PlanStrategy),
+    strategyHint: asOpt(field(m, "strategy_hint"), (v) => asNum(v)),
     sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
     requestId: asOptBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
@@ -4208,7 +4211,7 @@ export function encodePlanResponse(p: PlanResponseFrame): Uint8Array {
   const map = new Map<string, unknown>([
     ["steps", p.steps.map(encodePlanStep)],
     ["is_final", p.isFinal],
-    ["plan_status", p.planStatus === null ? null : (p.planStatus as number)],
+    ["plan_status", p.planStatus === null ? null : (p.planStatus)],
   ]);
   if (p.trace != null) map.set("trace", encodePlanTrace(p.trace));
   return toCbor(map);
@@ -4220,7 +4223,7 @@ export function decodePlanResponse(bytes: Uint8Array): PlanResponseFrame {
   const out: PlanResponseFrame = {
     steps: asArray(field(m, "steps")).map(decodePlanStep),
     isFinal: asBool(field(m, "is_final")),
-    planStatus: asOpt(field(m, "plan_status"), (v) => asNum(v) as PlanStatus),
+    planStatus: asOpt(field(m, "plan_status"), (v) => asNum(v)),
   };
   if (m.has("trace")) out.trace = decodePlanTrace(field(m, "trace"));
   return out;
@@ -4277,7 +4280,7 @@ function encodePlanTraceNode(n: PlanTraceNode): Map<string, unknown> {
   return new Map<string, unknown>([
     ["memory_id", n.memoryId],
     ["text", n.text],
-    ["direction", n.direction as number],
+    ["direction", n.direction],
     ["depth", n.depth],
     ["parent_edge", n.parentEdge],
     ["alignment_score", n.alignmentScore === null ? null : f32(n.alignmentScore)],
@@ -4289,7 +4292,7 @@ function decodePlanTraceNode(value: unknown): PlanTraceNode {
   return {
     memoryId: asBig(field(m, "memory_id")),
     text: asStr(field(m, "text")),
-    direction: asNum(field(m, "direction")) as PlanTraceDirection,
+    direction: asNum(field(m, "direction")),
     depth: asNum(field(m, "depth")),
     parentEdge: asOpt(field(m, "parent_edge"), asBig),
     alignmentScore: asOpt(field(m, "alignment_score"), asNum),
@@ -4487,7 +4490,7 @@ export function encodeReasonResponse(p: ReasonResponseFrame): Uint8Array {
   const map = new Map<string, unknown>([
     ["inferences", p.inferences.map(encodeInferenceStep)],
     ["is_final", p.isFinal],
-    ["reason_status", p.reasonStatus === null ? null : (p.reasonStatus as number)],
+    ["reason_status", p.reasonStatus === null ? null : (p.reasonStatus)],
   ]);
   if (p.trace != null) map.set("trace", encodeReasonTrace(p.trace));
   return toCbor(map);
@@ -4499,7 +4502,7 @@ export function decodeReasonResponse(bytes: Uint8Array): ReasonResponseFrame {
   const out: ReasonResponseFrame = {
     inferences: asArray(field(m, "inferences")).map(decodeInferenceStep),
     isFinal: asBool(field(m, "is_final")),
-    reasonStatus: asOpt(field(m, "reason_status"), (v) => asNum(v) as ReasonStatus),
+    reasonStatus: asOpt(field(m, "reason_status"), (v) => asNum(v)),
   };
   if (m.has("trace")) out.trace = decodeReasonTrace(field(m, "trace"));
   return out;
@@ -4627,7 +4630,7 @@ function encodeReasonTraceEdgeCandidate(e: ReasonTraceEdgeCandidate): Map<string
   return new Map<string, unknown>([
     ["memory_id", e.memoryId],
     ["text", e.text],
-    ["edge_kind", e.edgeKind as number],
+    ["edge_kind", e.edgeKind],
     ["depth", e.depth],
     ["from_memory_id", e.fromMemoryId],
     ["raw_score", f32(e.rawScore)],
@@ -4639,7 +4642,7 @@ function decodeReasonTraceEdgeCandidate(value: unknown): ReasonTraceEdgeCandidat
   return {
     memoryId: asBig(field(e, "memory_id")),
     text: asStr(field(e, "text")),
-    edgeKind: asNum(field(e, "edge_kind")) as EdgeKindWire,
+    edgeKind: asNum(field(e, "edge_kind")),
     depth: asNum(field(e, "depth")),
     fromMemoryId: asBig(field(e, "from_memory_id")),
     rawScore: asNum(field(e, "raw_score")),
@@ -4921,8 +4924,11 @@ export function decodeTxnAbortResponse(bytes: Uint8Array): TxnAbortResponse {
 // GET_CAPABILITIES.
 // ---------------------------------------------------------------------------
 
-/** Empty request body — capabilities are server-side state. */
-export interface GetCapabilitiesRequest {}
+/** Empty request body — capabilities are server-side state.
+ *
+ * `Record<string, never>` rather than `{}`: an empty interface accepts every
+ * non-nullish value, so `encodeGetCapabilities(0)` would typecheck. */
+export type GetCapabilitiesRequest = Record<string, never>;
 
 /** Encode a GET_CAPABILITIES (`0x0032`) request (empty payload). */
 export function encodeGetCapabilities(_p: GetCapabilitiesRequest): Uint8Array {
@@ -4991,8 +4997,11 @@ export function decodeGetCapabilitiesResponse(bytes: Uint8Array): GetCapabilitie
 
 /** Empty request body — the registry is server-side state. Extraction is
  * always-on, so `EXTRACTOR_LIST` is the only extractor wire op and it takes no
- * arguments: every registered extractor is returned. */
-export interface ExtractorListRequest {}
+ * arguments: every registered extractor is returned.
+ *
+ * `Record<string, never>` rather than `{}`: an empty interface accepts every
+ * non-nullish value, so `encodeExtractorList(0)` would typecheck. */
+export type ExtractorListRequest = Record<string, never>;
 
 /** Encode an EXTRACTOR_LIST (`0x0124`) request (empty payload). */
 export function encodeExtractorList(_p: ExtractorListRequest): Uint8Array {
@@ -5333,7 +5342,7 @@ export function encodeEntityResolveResponse(p: EntityResolveResponse): Uint8Arra
 export function decodeEntityResolveResponse(bytes: Uint8Array): EntityResolveResponse {
   const m = asMap(fromCbor(bytes));
   return {
-    outcome: asNum(field(m, "outcome")) as ResolutionOutcomeWire,
+    outcome: asNum(field(m, "outcome")),
     tier: asNum(field(m, "tier")),
     confidence: asNum(field(m, "confidence")),
     resolvedEntity: asBytes(field(m, "resolved_entity")),
@@ -6523,7 +6532,7 @@ function encodeStagePayload(s: StagePayload): unknown {
             ["entity_count", s.value.entityCount],
             ["statement_count", s.value.statementCount],
             ["relation_count", s.value.relationCount],
-            ["audit_status", s.value.auditStatus as number],
+            ["audit_status", s.value.auditStatus],
             ["error_message", s.value.errorMessage],
           ]),
         ],
@@ -6562,7 +6571,7 @@ function decodeStagePayload(value: unknown): StagePayload {
         entityCount: asNum(field(inner, "entity_count")),
         statementCount: asNum(field(inner, "statement_count")),
         relationCount: asNum(field(inner, "relation_count")),
-        auditStatus: asNum(field(inner, "audit_status")) as StageAuditStatus,
+        auditStatus: asNum(field(inner, "audit_status")),
         errorMessage: asStr(field(inner, "error_message")),
       },
     };
@@ -6600,7 +6609,7 @@ export interface SubscriptionFilter {
 function encodeSubscriptionFilter(f: SubscriptionFilter): Map<string, unknown> {
   return new Map<string, unknown>([
     ["session_filter", f.sessionFilter === null ? null : f.sessionFilter],
-    ["kinds", f.kinds === null ? null : f.kinds.map((k) => k as number)],
+    ["kinds", f.kinds === null ? null : f.kinds.map((k) => k)],
     [
       "similar_to",
       f.similarTo === null
@@ -6619,7 +6628,7 @@ function decodeSubscriptionFilter(value: unknown): SubscriptionFilter {
   const m = asMap(value);
   return {
     sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
-    kinds: asOpt(field(m, "kinds"), (v) => asArray(v).map((k) => asNum(k) as MemoryKindWire)),
+    kinds: asOpt(field(m, "kinds"), (v) => asArray(v).map((k) => asNum(k))),
     similarTo: asOpt(field(m, "similar_to"), (v) => {
       const sf = asMap(v);
       return {
@@ -7104,18 +7113,18 @@ export interface SubscriptionEvent {
 export function encodeSubscriptionEvent(p: SubscriptionEvent): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
-      ["event_type", p.eventType as number],
+      ["event_type", p.eventType],
       ["memory_id", p.memoryId],
       ["session_id", p.sessionId],
       ["text", p.text],
-      ["kind", p.kind as number],
+      ["kind", p.kind],
       ["salience", f32(p.salience)],
       ["timestamp_unix_nanos", p.timestampUnixNanos],
       ["lsn", p.lsn],
       ["graph_payload", p.graphPayload === null ? null : encodeGraphEventPayload(p.graphPayload)],
       ["edge_payload", p.edgePayload === null ? null : encodeEdgeEventPayload(p.edgePayload)],
-      ["stage_kind", p.stageKind === null ? null : (p.stageKind as number)],
-      ["stage_outcome", p.stageOutcome === null ? null : (p.stageOutcome as number)],
+      ["stage_kind", p.stageKind === null ? null : (p.stageKind)],
+      ["stage_outcome", p.stageOutcome === null ? null : (p.stageOutcome)],
       ["stage_payload", p.stagePayload === null ? null : encodeStagePayload(p.stagePayload)],
     ]),
   );
@@ -7125,18 +7134,18 @@ export function encodeSubscriptionEvent(p: SubscriptionEvent): Uint8Array {
 export function decodeSubscriptionEvent(bytes: Uint8Array): SubscriptionEvent {
   const m = asMap(fromCbor(bytes));
   return {
-    eventType: asNum(field(m, "event_type")) as EventType,
+    eventType: asNum(field(m, "event_type")),
     memoryId: asBig(field(m, "memory_id")),
     sessionId: asBig(field(m, "session_id")),
     text: asStr(field(m, "text")),
-    kind: asNum(field(m, "kind")) as MemoryKindWire,
+    kind: asNum(field(m, "kind")),
     salience: asNum(field(m, "salience")),
     timestampUnixNanos: asBig(field(m, "timestamp_unix_nanos")),
     lsn: asBig(field(m, "lsn")),
     graphPayload: asOpt(field(m, "graph_payload"), decodeGraphEventPayload),
     edgePayload: asOpt(field(m, "edge_payload"), decodeEdgeEventPayload),
-    stageKind: asOpt(field(m, "stage_kind"), (v) => asNum(v) as StageKind),
-    stageOutcome: asOpt(field(m, "stage_outcome"), (v) => asNum(v) as StageOutcome),
+    stageKind: asOpt(field(m, "stage_kind"), (v) => asNum(v)),
+    stageOutcome: asOpt(field(m, "stage_outcome"), (v) => asNum(v)),
     stagePayload: asOpt(field(m, "stage_payload"), decodeStagePayload),
   };
 }

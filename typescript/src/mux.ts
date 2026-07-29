@@ -26,13 +26,11 @@ import {
 import { decodeFrame, encodeFrame, FLAG_EOS, type Frame, FrameError } from "./wire/frame.js";
 import { Opcode } from "./wire/opcode.js";
 import {
-  type AuthOkPayload,
   type AuthPayload,
   type HelloPayload,
   type SubscribeRequest,
   type SubscriptionEvent,
   type UnsubscribeResponse,
-  type WelcomePayload,
   decodeAuthOk,
   decodeError,
   decodeServerPing,
@@ -256,8 +254,11 @@ export class MuxConnection {
           clearTimeout(timer);
           resolve(f);
         },
-        (e) => {
+        (e: unknown) => {
           clearTimeout(timer);
+          // Forwarding the wrapped promise's own rejection, not creating one:
+          // whatever it rejected with is what the caller must see.
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
           reject(e);
         },
       );
@@ -459,9 +460,11 @@ export class Subscription implements AsyncIterableIterator<SubscriptionEvent> {
     return { done: false, value: event };
   }
 
-  async return(): Promise<IteratorResult<SubscriptionEvent>> {
+  // Not `async`: closing is synchronous, and the `AsyncIterableIterator`
+  // contract only asks for a promise.
+  return(): Promise<IteratorResult<SubscriptionEvent>> {
     this.close();
-    return { done: true, value: undefined };
+    return Promise.resolve({ done: true, value: undefined });
   }
 
   [Symbol.asyncIterator](): AsyncIterableIterator<SubscriptionEvent> {

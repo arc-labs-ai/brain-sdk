@@ -59,10 +59,17 @@ async fn live_bad_token_is_refused() {
         return common::skip("live_bad_token_is_refused");
     };
 
-    // A token the server never minted must not resolve to a session.
+    // A token the server never minted must not resolve to a session. Assert
+    // the specific rejection, not a blind `is_err()`: that would also pass on
+    // a connection refusal or a codec bug, which is the opposite of what this
+    // is checking.
     let bogus = Auth::Token(b"brain_not-a-real-key".to_vec());
-    assert!(
-        BrainClient::connect(it.data, bogus).await.is_err(),
-        "an unminted token must be refused"
-    );
+    match BrainClient::connect(it.data, bogus).await {
+        Err(brain_db_sdk::BrainError::Server { message, .. }) => assert!(
+            message.contains("unknown API key"),
+            "expected an authentication rejection, got: {message}"
+        ),
+        Err(other) => panic!("expected a server rejection, got: {other:?}"),
+        Ok(_) => panic!("an unminted token must be refused"),
+    }
 }

@@ -57,7 +57,7 @@ function payloadRoundTrip<T>(
   decode: (b: Uint8Array) => T,
   encode: (v: T) => Uint8Array,
 ): PayloadCodec {
-  return { decode, encode } as PayloadCodec;
+  return { decode, encode };
 }
 
 const frameRoundTrip = FRAME_CASE;

@@ -93,7 +93,7 @@ function build(c: FrameCase): Uint8Array {
   for (const m of c.mutate) {
     if (m.op === "set") buf[m.offset!] = m.value!;
     else if (m.op === "xor") buf[m.offset!] = (buf[m.offset!] ?? 0) ^ m.value!;
-    else if (m.op === "truncate") buf = buf.slice(0, m.len!);
+    else if (m.op === "truncate") buf = buf.slice(0, m.len);
     else throw new Error(`unknown mutation op ${JSON.stringify(m.op)}`);
   }
   if (c.recrc) recomputeHeaderCrc(buf);

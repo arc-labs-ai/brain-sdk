@@ -138,8 +138,8 @@ function isUnionNode(got: unknown, exp: unknown): boolean {
     exp !== null &&
     typeof exp === "object" &&
     !Array.isArray(exp) &&
-    Object.keys(exp as object).length === 1 &&
-    /^[A-Z]/.test(Object.keys(exp as object)[0]!);
+    Object.keys(exp).length === 1 &&
+    /^[A-Z]/.test(Object.keys(exp)[0]!);
   return gotTagged && expExternallyTagged;
 }
 
@@ -167,7 +167,9 @@ function compare(got: unknown, exp: unknown, path: string, errors: string[]): vo
     const g = asNumber(got);
     const e = asNumber(exp);
     if (g !== null && e !== null) {
-      if (Math.fround(g) !== Math.fround(e)) errors.push(`${path}: ${got} != ${exp}`);
+      if (Math.fround(g) !== Math.fround(e)) {
+        errors.push(`${path}: ${String(got)} != ${String(exp)}`);
+      }
       return;
     }
   }

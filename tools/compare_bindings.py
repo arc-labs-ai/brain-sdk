@@ -190,6 +190,21 @@ def extract_typescript(text: str) -> dict:
             fields.append({"name": fm.group(1), "shape": shape})
         structs[name] = {"fields": fields}
 
+    # An empty request body. TypeScript cannot spell this as `interface X {}` —
+    # an empty interface accepts every non-nullish value, so `encodeX(0)` would
+    # typecheck — and `Record<string, never>` is the idiomatic replacement. It is
+    # a struct with no fields, exactly like the server's `pub struct X {}`, so it
+    # is recorded as one.
+    #
+    # Reading only `export interface` made these two types VANISH from the
+    # comparison rather than mismatch in it. The gate caught it because it also
+    # checks the reverse direction (a Rust type with no TypeScript declaration) —
+    # without that, tightening the type would have silently dropped coverage.
+    for m in re.finditer(
+        r"^export type (\w+) = Record<string,\s*never>;\s*$", text, re.M
+    ):
+        structs[m.group(1)] = {"fields": []}
+
     for m in re.finditer(r"export enum (\w+)\s*\{", text):
         depth = 0
         for j in range(m.end() - 1, len(text)):

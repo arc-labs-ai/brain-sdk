@@ -107,8 +107,11 @@ export function withTimeout<T>(
         clearTimeout(timer);
         resolve(value);
       },
-      (err) => {
+      (err: unknown) => {
         clearTimeout(timer);
+        // Forwarding the wrapped promise's own rejection, not creating one:
+        // whatever it rejected with is what the caller must see.
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
         reject(err);
       },
     );

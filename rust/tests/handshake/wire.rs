@@ -7,10 +7,8 @@
 //! handshake, and request/response paths without needing a Linux
 //! `brain-server`.
 //!
-//! `live_server_handshake` runs the same flow against a real server when
-//! `BRAIN_TEST_ADDR` is set, and is skipped otherwise.
-
-use std::net::SocketAddr;
+//! The live-server counterparts live in `main.rs` and go through the
+//! `BRAIN_SDK_IT_*` harness, which mints a real data-plane key.
 
 use tokio::net::{TcpListener, TcpStream};
 
@@ -22,7 +20,7 @@ use brain_db_sdk::wire::types::{
     AuthOkPayload, AuthPayload, EncodeRequest, EncodeResponse, HelloPayload, MemoryKindWire,
     ServerFeatures, SpacePermissions, StageKind, WaitMode, WelcomePayload,
 };
-use brain_db_sdk::{new_id, Auth, BrainClient, BrainError, ClientConfig};
+use brain_db_sdk::{new_id, Auth, BrainClient, BrainError};
 
 const SESSION_ID: [u8; 16] = [0xAB; 16];
 /// The agent id the mock server assigns from the credential. The client never
@@ -212,21 +210,4 @@ async fn rejects_a_server_that_chooses_an_unoffered_version() {
         Err(other) => panic!("expected VersionMismatch, got {other:?}"),
         Ok(_) => panic!("expected the handshake to be rejected"),
     }
-}
-
-#[tokio::test]
-async fn live_server_handshake() {
-    let Ok(addr) = std::env::var("BRAIN_TEST_ADDR") else {
-        eprintln!("BRAIN_TEST_ADDR not set; skipping live handshake test");
-        return;
-    };
-    let addr: SocketAddr = addr.parse().expect("BRAIN_TEST_ADDR must be host:port");
-
-    let client =
-        BrainClient::connect_with(addr, ClientConfig::new(Auth::Token(b"test-token".to_vec())))
-            .await
-            .expect("connect to live server");
-    assert_eq!(client.connection().chosen_version, 1);
-    assert!(client.connection().permissions.can_encode);
-    client.close().await.expect("bye");
 }

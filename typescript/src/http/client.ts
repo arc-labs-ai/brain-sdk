@@ -175,6 +175,19 @@ function encodeQuery(query: Query | undefined): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(query as Record<string, unknown>)) {
     if (v === undefined) continue;
+    // Every query field on every route is a string, number or boolean. `Query`
+    // cannot say so in the type — a TypeScript `interface` is not assignable to
+    // an index-signature type, and all of these are interfaces — so the
+    // guarantee is enforced here instead. Without it a nested object would
+    // stringify to the literal `[object Object]` and the request would go out
+    // silently wrong; the edge would answer 400 or, worse, apply a default.
+    if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") {
+      throw new TypeError(
+        `query parameter \`${k}\` must be a string, number or boolean, got ${
+          v === null ? "null" : typeof v
+        }`,
+      );
+    }
     parts.push(`${encodeURIComponent(snakeCase(k))}=${encodeURIComponent(String(v))}`);
   }
   return parts.length === 0 ? "" : `?${parts.join("&")}`;

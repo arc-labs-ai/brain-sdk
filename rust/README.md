@@ -55,8 +55,10 @@ cargo test          # unit + conformance + handshake + verbs + retry (mock-serve
 cargo clippy --all-targets
 ```
 
-The `live_server_handshake` integration test runs against a real server when
-`BRAIN_TEST_ADDR=host:port` is set, and is skipped otherwise.
+The integration suites run against a real server when `BRAIN_SDK_IT_DATA` is
+set, and skip otherwise; `scripts/it-server.sh up` boots one and prints the
+vars. Set `BRAIN_SDK_IT_REQUIRED=1` wherever a server is meant to be reachable
+so a misconfigured one fails instead of reading as green.
 
 ## HTTP tier
 

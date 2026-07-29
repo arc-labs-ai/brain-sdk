@@ -177,6 +177,14 @@ function writeBignum(w: Writer, n: bigint): void {
 
 const textEncoder = new TextEncoder();
 
+/** Name a value's shape for an error message, without `[object Object]`. */
+function describe(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value !== "object") return typeof value;
+  const ctor = (value as { constructor?: { name?: string } }).constructor?.name;
+  return ctor ? `${ctor} instance` : "plain object";
+}
+
 function writeValue(w: Writer, value: unknown): void {
   if (value === null || value === undefined) {
     w.pushByte((MAJOR_SIMPLE << 5) | 22);
@@ -234,7 +242,11 @@ function writeValue(w: Writer, value: unknown): void {
     }
     return;
   }
-  throw new CborError(`cannot encode value of unexpected shape: ${String(value)}`);
+  // `String(value)` renders every plain object as the literal `[object
+  // Object]`, which is exactly the case that reaches here most often (a caller
+  // passing an object literal where the codec wants a Map). Name the shape
+  // instead, so the message says what to fix.
+  throw new CborError(`cannot encode value of unexpected shape: ${describe(value)}`);
 }
 
 // `ciborium` writes floats in shortest form: a value is emitted as half
@@ -383,7 +395,7 @@ function detachByteStrings(value: unknown): unknown {
   }
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as object)) out[k] = detachByteStrings(v);
+    for (const [k, v] of Object.entries(value)) out[k] = detachByteStrings(v);
     return out;
   }
   return value;

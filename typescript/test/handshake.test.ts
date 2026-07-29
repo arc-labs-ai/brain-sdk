@@ -7,8 +7,8 @@
  * against it — exercising the TCP connect, transport, handshake, and
  * request/response paths without needing a Linux `brain-server`.
  *
- * `live server handshake` runs the same flow against a real server when
- * `BRAIN_TEST_ADDR=host:port` is set, and is skipped otherwise.
+ * The live-server counterparts live in `test/handshake/` and go through the
+ * `BRAIN_SDK_IT_*` harness, which mints a real data-plane key.
  */
 
 import { describe, expect, it } from "vitest";
@@ -224,14 +224,4 @@ describe("connection / handshake", () => {
     }
   });
 
-  const liveAddr = process.env.BRAIN_TEST_ADDR;
-  (liveAddr ? it : it.skip)("live server handshake", async () => {
-    const idx = liveAddr!.lastIndexOf(":");
-    const host = liveAddr!.slice(0, idx);
-    const port = Number(liveAddr!.slice(idx + 1));
-    const client = await BrainClient.connect(host, port, { auth: TEST_AUTH });
-    expect(client.connection.chosenVersion).toBe(1);
-    expect(client.connection.permissions.canEncode).toBe(true);
-    await client.close();
-  });
 });

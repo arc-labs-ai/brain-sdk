@@ -7,13 +7,12 @@ BYE) and drives a real :class:`BrainClient` against it — exercising the TCP
 connect, transport, handshake, and request/response paths without needing
 a Linux ``brain-server``.
 
-``test_live_server_handshake`` runs the same flow against a real server
-when ``BRAIN_TEST_ADDR=host:port`` is set, and is skipped otherwise.
+The live-server counterparts live in ``tests/handshake/`` and go through the
+``BRAIN_SDK_IT_*`` harness, which mints a real data-plane key.
 """
 
 from __future__ import annotations
 
-import os
 import socket
 import threading
 
@@ -264,13 +263,3 @@ def test_rejects_a_server_that_chooses_an_unoffered_version() -> None:
         thread.join(timeout=5)
 
 
-@pytest.mark.skipif(
-    "BRAIN_TEST_ADDR" not in os.environ,
-    reason="BRAIN_TEST_ADDR not set; skipping live handshake test",
-)
-def test_live_server_handshake() -> None:
-    host, _, port = os.environ["BRAIN_TEST_ADDR"].rpartition(":")
-    client = BrainClient.connect(host, int(port), Auth.token(b"opaque-token"))
-    assert client.connection.chosen_version == 1
-    assert client.connection.permissions.can_encode
-    client.close()
