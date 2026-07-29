@@ -9,18 +9,48 @@
 import { BrainHttpError } from "./errors.js";
 import type {
   Capabilities,
+  CreateEntityInput,
+  CreateEntityResult,
   EncodeInput,
   EncodeResult,
+  EntityDetail,
   ForgetInput,
   ForgetResult,
+  GetRelationQuery,
+  GetStatementQuery,
+  GraphFetchQuery,
+  GraphPage,
   LinkInput,
   LinkResult,
+  ListEntitiesQuery,
+  ListEntitiesResult,
+  ListRelationsQuery,
+  ListRelationsResult,
+  ListStatementsQuery,
+  ListStatementsResult,
+  MemoryInspect,
+  MemoryListPage,
+  MemoryListQuery,
   PlanInput,
   PlanResult,
   ReasonInput,
   ReasonResult,
   RecallInput,
   RecallResult,
+  RelationDetail,
+  ResolveEntityInput,
+  ResolveEntityResult,
+  Schema,
+  SchemaGetQuery,
+  SchemaReplaceInput,
+  SchemaReplaceResult,
+  SchemaUploadInput,
+  SchemaUploadResult,
+  SchemaValidateInput,
+  SchemaValidateResult,
+  StatementDetail,
+  TraverseInput,
+  TraverseResult,
   UnlinkInput,
   UnlinkResult,
   Whoami,
@@ -70,7 +100,15 @@ export interface BrainHttpClientOptions {
   fetch?: typeof fetch;
 }
 
-type Method = "GET" | "POST" | "DELETE";
+type Method = "GET" | "POST" | "PUT" | "DELETE";
+
+/**
+ * A query object — one of the `*Query` interfaces in `types.ts`: camelCase
+ * keys, scalar values. Typed as `object` rather than `Record<string, …>`
+ * because an interface has no implicit index signature and so is not
+ * assignable to one; the values here are only ever stringified.
+ */
+type Query = object;
 
 /** A {@link BrainHttpError} that may carry a parsed `Retry-After` hint (ms). */
 type ErrorWithRetryAfter = BrainHttpError & { retryAfterMs?: number };
@@ -90,16 +128,22 @@ function parseRetryAfter(header: string | null): number | undefined {
  * snake_case is idiomatic there, so their HTTP types match the wire by
  * coincidence rather than by a different rule.
  *
- * Generic rather than 43 hand-written field mappings: every HTTP type here is a
- * fixed-shape struct with plain snake_case keys, so the transform is total and
- * mechanical. There are no free-form maps whose keys would be wrongly rewritten.
+ * Generic rather than a hand-written mapping per field of every DTO across the
+ * edge's 25 routes: every HTTP type here is a fixed-shape struct with plain
+ * snake_case keys, so the transform is total and mechanical. There are no
+ * free-form maps whose keys would be wrongly rewritten, and the tagged unions
+ * carry their tag in a value, which the transform does not touch.
  */
+function snakeCase(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
 function toSnakeKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(toSnakeKeys);
   if (value === null || typeof value !== "object") return value;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()] = toSnakeKeys(v);
+    out[snakeCase(k)] = toSnakeKeys(v);
   }
   return out;
 }
@@ -112,6 +156,33 @@ function toCamelKeys(value: unknown): unknown {
     out[k.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase())] = toCamelKeys(v);
   }
   return out;
+}
+
+/**
+ * Render a query object as a URL query string, snake_casing its names.
+ *
+ * The body seam above cannot do this: a query string is not JSON and never
+ * passes through `JSON.stringify`. The edge deserializes query parameters with
+ * serde under the same snake_case names as its bodies, so `includeTombstoned`
+ * sent verbatim would silently take the field's default instead — a filter that
+ * appears to be applied and is not.
+ *
+ * `undefined` is dropped rather than sent as the string `"undefined"`, so an
+ * omitted option means "let the edge default it".
+ */
+function encodeQuery(query: Query | undefined): string {
+  if (query === undefined) return "";
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(query as Record<string, unknown>)) {
+    if (v === undefined) continue;
+    parts.push(`${encodeURIComponent(snakeCase(k))}=${encodeURIComponent(String(v))}`);
+  }
+  return parts.length === 0 ? "" : `?${parts.join("&")}`;
+}
+
+/** Interpolate a path id, escaped — an id is caller data, not a path fragment. */
+function pathId(id: string): string {
+  return encodeURIComponent(id);
 }
 
 export class BrainHttpClient {
@@ -181,6 +252,104 @@ export class BrainHttpClient {
     return this.requestWithRetry("GET", "/v1/capabilities");
   }
 
+  /** A page of memories, newest first. Idempotent GET — retried. */
+  listMemories(query?: MemoryListQuery): Promise<MemoryListPage> {
+    return this.requestWithRetry("GET", "/v1/memories", undefined, query);
+  }
+
+  /** Everything the extraction pipeline produced for one memory. Retried. */
+  inspectMemory(memoryId: string): Promise<MemoryInspect> {
+    return this.requestWithRetry("GET", `/v1/memories/${pathId(memoryId)}/inspect`);
+  }
+
+  /** A page of entities matching the filters. Idempotent GET — retried. */
+  listEntities(query?: ListEntitiesQuery): Promise<ListEntitiesResult> {
+    return this.requestWithRetry("GET", "/v1/entities", undefined, query);
+  }
+
+  /** One entity by id. Idempotent GET — retried. */
+  getEntity(entityId: string): Promise<EntityDetail> {
+    return this.requestWithRetry("GET", `/v1/entities/${pathId(entityId)}`);
+  }
+
+  /** Mint an entity. Creates state — not retried. */
+  createEntity(input: CreateEntityInput): Promise<CreateEntityResult> {
+    return this.requestOnce("POST", "/v1/entities", input);
+  }
+
+  /**
+   * Resolve a name to an entity. Not retried: with `allowCreate` it mints one,
+   * and the outcome of a replay is not the outcome of the first attempt.
+   */
+  resolveEntity(input: ResolveEntityInput): Promise<ResolveEntityResult> {
+    return this.requestOnce("POST", "/v1/entities/resolve", input);
+  }
+
+  /** Walk the relation graph out from one entity. Not retried. */
+  traverse(entityId: string, input: TraverseInput = {}): Promise<TraverseResult> {
+    return this.requestOnce("POST", `/v1/entities/${pathId(entityId)}/traverse`, input);
+  }
+
+  /** Relations anchored on one entity. Idempotent GET — retried. */
+  listRelations(entityId: string, query?: ListRelationsQuery): Promise<ListRelationsResult> {
+    return this.requestWithRetry(
+      "GET",
+      `/v1/entities/${pathId(entityId)}/relations`,
+      undefined,
+      query,
+    );
+  }
+
+  /** One relation by id. Idempotent GET — retried. */
+  getRelation(relationId: string, query?: GetRelationQuery): Promise<RelationDetail> {
+    return this.requestWithRetry("GET", `/v1/relations/${pathId(relationId)}`, undefined, query);
+  }
+
+  /** A page of statements matching the filters. Idempotent GET — retried. */
+  listStatements(query?: ListStatementsQuery): Promise<ListStatementsResult> {
+    return this.requestWithRetry("GET", "/v1/statements", undefined, query);
+  }
+
+  /** One statement by id. Idempotent GET — retried. */
+  getStatement(statementId: string, query?: GetStatementQuery): Promise<StatementDetail> {
+    return this.requestWithRetry("GET", `/v1/statements/${pathId(statementId)}`, undefined, query);
+  }
+
+  /** A page of the typed graph (nodes + edges). Idempotent GET — retried. */
+  fetchGraph(query?: GraphFetchQuery): Promise<GraphPage> {
+    return this.requestWithRetry("GET", "/v1/graph", undefined, query);
+  }
+
+  /** The active schema document. Idempotent GET — retried. */
+  getSchema(query?: SchemaGetQuery): Promise<Schema> {
+    return this.requestWithRetry("GET", "/v1/schema", undefined, query);
+  }
+
+  /** Upload a schema version. Mints a new version — not retried. */
+  uploadSchema(input: SchemaUploadInput): Promise<SchemaUploadResult> {
+    return this.requestOnce("POST", "/v1/schema", input);
+  }
+
+  /**
+   * Validate a schema document without storing it. A dry run that writes
+   * nothing, so it is idempotent despite being a POST — retried.
+   */
+  validateSchema(input: SchemaValidateInput): Promise<SchemaValidateResult> {
+    return this.requestWithRetry("POST", "/v1/schema/validate", input);
+  }
+
+  /**
+   * Replace the schema wholesale.
+   *
+   * Destructive: with `forceDropExisting` it drops the types the new document
+   * omits, along with their data. Never retried — a retry after an ambiguous
+   * failure could drop against a schema that the first attempt already
+   * replaced.
+   */
+  replaceSchema(input: SchemaReplaceInput): Promise<SchemaReplaceResult> {
+    return this.requestOnce("PUT", "/v1/schema", input);
+  }
+
   /** Whether to retry after `attempt` (1-based) produced `err`. */
   private shouldRetry(attempt: number, err: BrainHttpError): boolean {
     return attempt < this.retry.maxAttempts && (err.status === 0 || err.status === 503);
@@ -196,11 +365,16 @@ export class BrainHttpClient {
   }
 
   /** Run an idempotent request, retrying `503`/transport per the policy. */
-  private async requestWithRetry<T>(method: Method, path: string, body?: unknown): Promise<T> {
+  private async requestWithRetry<T>(
+    method: Method,
+    path: string,
+    body?: unknown,
+    query?: Query,
+  ): Promise<T> {
     let attempt = 1;
     for (;;) {
       try {
-        return await this.requestOnce<T>(method, path, body);
+        return await this.requestOnce<T>(method, path, body, query);
       } catch (e) {
         const err = e as ErrorWithRetryAfter;
         if (err instanceof BrainHttpError && this.shouldRetry(attempt, err)) {
@@ -214,7 +388,13 @@ export class BrainHttpClient {
     }
   }
 
-  private async requestOnce<T>(method: Method, path: string, body?: unknown): Promise<T> {
+  private async requestOnce<T>(
+    method: Method,
+    path: string,
+    body?: unknown,
+    query?: Query,
+  ): Promise<T> {
+    const url = path + encodeQuery(query);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -229,12 +409,12 @@ export class BrainHttpClient {
 
     let res: Response;
     try {
-      res = await this.fetchImpl(this.base + path, init);
+      res = await this.fetchImpl(this.base + url, init);
     } catch (e) {
       throw new BrainHttpError(
         0,
         "transport",
-        `request to ${this.base}${path} failed: ${(e as Error).message}`,
+        `request to ${this.base}${url} failed: ${(e as Error).message}`,
       );
     } finally {
       clearTimeout(timer);

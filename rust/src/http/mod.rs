@@ -14,7 +14,16 @@ pub use client::{BrainHttpClient, DEFAULT_BASE_URL, DEFAULT_TIMEOUT};
 pub use error::BrainHttpError;
 pub use retry::HttpRetryPolicy;
 pub use types::{
-    Capabilities, EncodeInput, EncodeResult, Endpoint, ForgetInput, ForgetResult, InferenceStep,
-    LinkInput, LinkResult, MemoryHit, Permissions, PlanInput, PlanResult, PlanStep, ReasonInput,
-    ReasonResult, RecallInput, RecallResult, UnlinkInput, UnlinkResult, Whoami,
+    Capabilities, CreateEntityInput, CreateEntityResult, EncodeInput, EncodeResult, Endpoint,
+    EntityDetail, ForgetInput, ForgetResult, GetRelationQuery, GetStatementQuery, GraphEdge,
+    GraphFetchQuery, GraphNode, GraphPage, InferenceStep, LinkInput, LinkResult, ListEntitiesQuery,
+    ListEntitiesResult, ListRelationsQuery, ListRelationsResult, ListStatementsQuery,
+    ListStatementsResult, MemoryHit, MemoryInspect, MemoryListItem, MemoryListPage,
+    MemoryListQuery, Permissions, PlanInput, PlanResult, PlanStep, ReasonInput, ReasonResult,
+    RecallInput, RecallResult, RelationDetail, ResolveEntityInput, ResolveEntityResult, Schema,
+    SchemaError, SchemaGetQuery, SchemaReplaceInput, SchemaReplaceResult, SchemaUploadInput,
+    SchemaUploadResult, SchemaValidateInput, SchemaValidateResult, StageArtifact, StageGraph,
+    StageGraphEdge, StageGraphNode, StageKeywordField, StageRecord, StatementDetail,
+    StatementObject, StatementValue, TraversalPath, TraversalStep, TraverseInput, TraverseResult,
+    UnlinkInput, UnlinkResult, Whoami,
 };

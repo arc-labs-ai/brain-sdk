@@ -1,0 +1,2004 @@
+{
+ "dtos": {
+  "CapabilitiesDto": {
+   "fields": [
+    {
+     "name": "rerank",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "llm_extractor",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "classifier_extractor",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "pattern_extractor",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "schema_namespaces",
+     "serde": {},
+     "shape": "list(string)"
+    },
+    {
+     "name": "vector_dim",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "CreateEntityBody": {
+   "fields": [
+    {
+     "name": "entity_type_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "canonical_name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "aliases",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    }
+   ]
+  },
+  "CreateEntityResponseDto": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "EncodeBody": {
+   "fields": [
+    {
+     "name": "text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "session",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "occurred_at",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "EncodeResponseDto": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "was_deduplicated",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "auto_edges_added",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "EndpointSpec": {
+   "fields": [
+    {
+     "name": "text",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "memory_id",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "EntityDetailDto": {
+   "fields": [
+    {
+     "name": "entity_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "entity_type_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "canonical_name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "aliases",
+     "serde": {},
+     "shape": "list(string)"
+    },
+    {
+     "name": "mention_count",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "updated_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "merged_into",
+     "serde": {},
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "ForgetBody": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "hard",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    }
+   ]
+  },
+  "ForgetResponseDto": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "was_already_forgotten",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "edges_removed",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "GetRelationQuery": {
+   "fields": [
+    {
+     "name": "follow_supersession",
+     "serde": {
+      "default": "default_follow_supersession"
+     },
+     "shape": "bool"
+    }
+   ]
+  },
+  "GetStatementQuery": {
+   "fields": [
+    {
+     "name": "follow_supersession",
+     "serde": {
+      "default": "default_follow_supersession"
+     },
+     "shape": "bool"
+    }
+   ]
+  },
+  "GraphEdgeDto": {
+   "fields": [
+    {
+     "name": "from_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "to_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "label",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "GraphFetchQuery": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "cursor",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "include_statements",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
+    },
+    {
+     "name": "include_memories",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
+    },
+    {
+     "name": "include_memory_edges",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
+    }
+   ]
+  },
+  "GraphNodeDto": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "label",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "type_qname",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "GraphPageDto": {
+   "fields": [
+    {
+     "name": "nodes",
+     "serde": {},
+     "shape": "list(GraphNodeDto)"
+    },
+    {
+     "name": "edges",
+     "serde": {},
+     "shape": "list(GraphEdgeDto)"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "InferenceStepDto": {
+   "fields": [
+    {
+     "name": "step_index",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "claim",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "supporting_memories",
+     "serde": {},
+     "shape": "list(string)"
+    },
+    {
+     "name": "contradicting_memories",
+     "serde": {},
+     "shape": "list(string)"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "inference_kind",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "LinkBody": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "weight",
+     "serde": {
+      "default": "default_weight"
+     },
+     "shape": "float"
+    }
+   ]
+  },
+  "LinkResponseDto": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "already_existed",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "ListEntitiesQuery": {
+   "fields": [
+    {
+     "name": "type_id",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "prefix",
+     "serde": {
+      "default": true
+     },
+     "shape": "string"
+    },
+    {
+     "name": "mention_count_min",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "include_merged",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "ListEntitiesResponseDto": {
+   "fields": [
+    {
+     "name": "entities",
+     "serde": {},
+     "shape": "list(EntityDetailDto)"
+    },
+    {
+     "name": "count",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "ListRelationsQuery": {
+   "fields": [
+    {
+     "name": "direction",
+     "serde": {
+      "default": true
+     },
+     "shape": "string"
+    },
+    {
+     "name": "relation_type",
+     "serde": {
+      "default": true,
+      "rename": "type"
+     },
+     "shape": "string"
+    },
+    {
+     "name": "include_superseded",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "ListRelationsResponseDto": {
+   "fields": [
+    {
+     "name": "relations",
+     "serde": {},
+     "shape": "list(RelationDetailDto)"
+    },
+    {
+     "name": "count",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "ListStatementsQuery": {
+   "fields": [
+    {
+     "name": "subject",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "predicate",
+     "serde": {
+      "default": true
+     },
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "min_confidence",
+     "serde": {
+      "default": true
+     },
+     "shape": "float"
+    },
+    {
+     "name": "only_current",
+     "serde": {
+      "default": "default_follow_supersession"
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "ListStatementsResponseDto": {
+   "fields": [
+    {
+     "name": "statements",
+     "serde": {},
+     "shape": "list(StatementDetailDto)"
+    },
+    {
+     "name": "count",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "MemoryHit": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "similarity_score",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "MemoryInspectDto": {
+   "fields": [
+    {
+     "name": "found",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "artifact",
+     "serde": {},
+     "shape": "StageArtifactDto"
+    }
+   ]
+  },
+  "MemoryListItemDto": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "state",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "occurred_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "last_accessed_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "access_count",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "statement_count",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "entity_count",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "relation_count",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "MemoryListPageDto": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "shape": "list(MemoryListItemDto)"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "MemoryListQuery": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "cursor",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "dir",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
+    }
+   ]
+  },
+  "PermissionsDto": {
+   "fields": [
+    {
+     "name": "can_encode",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "can_recall",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "can_plan",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "can_reason",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "can_forget",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "can_admin",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "PlanBody": {
+   "fields": [
+    {
+     "name": "start",
+     "serde": {},
+     "shape": "EndpointSpec"
+    },
+    {
+     "name": "goal",
+     "serde": {},
+     "shape": "EndpointSpec"
+    },
+    {
+     "name": "max_steps",
+     "serde": {
+      "default": "default_max_steps"
+     },
+     "shape": "int"
+    },
+    {
+     "name": "max_wall_time_ms",
+     "serde": {
+      "default": "default_wall_ms"
+     },
+     "shape": "int"
+    },
+    {
+     "name": "max_branches",
+     "serde": {
+      "default": "default_branches"
+     },
+     "shape": "int"
+    },
+    {
+     "name": "strategy",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "PlanResponseDto": {
+   "fields": [
+    {
+     "name": "steps",
+     "serde": {},
+     "shape": "list(PlanStepDto)"
+    }
+   ]
+  },
+  "PlanStepDto": {
+   "fields": [
+    {
+     "name": "step_index",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "transition_kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "estimated_distance_to_goal",
+     "serde": {},
+     "shape": "float"
+    }
+   ]
+  },
+  "ReasonBody": {
+   "fields": [
+    {
+     "name": "observation",
+     "serde": {},
+     "shape": "EndpointSpec"
+    },
+    {
+     "name": "depth",
+     "serde": {
+      "default": "default_depth"
+     },
+     "shape": "int"
+    },
+    {
+     "name": "confidence_threshold",
+     "serde": {
+      "default": "default_threshold"
+     },
+     "shape": "float"
+    },
+    {
+     "name": "max_inferences",
+     "serde": {
+      "default": "default_max_inferences"
+     },
+     "shape": "int"
+    },
+    {
+     "name": "budget_wall_time_ms",
+     "serde": {
+      "default": "default_wall_ms"
+     },
+     "shape": "int"
+    }
+   ]
+  },
+  "ReasonResponseDto": {
+   "fields": [
+    {
+     "name": "inferences",
+     "serde": {},
+     "shape": "list(InferenceStepDto)"
+    }
+   ]
+  },
+  "RecallBody": {
+   "fields": [
+    {
+     "name": "query",
+     "serde": {
+      "alias": "cue"
+     },
+     "shape": "string"
+    },
+    {
+     "name": "max_results",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "subject",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "RecallResponseDto": {
+   "fields": [
+    {
+     "name": "answer_kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "memories",
+     "serde": {},
+     "shape": "list(MemoryHit)"
+    }
+   ]
+  },
+  "RelationDetailDto": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "relation_type",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "from_entity",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "to_entity",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "valid_from_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "valid_to_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "is_symmetric",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "tombstoned",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "ResolveEntityBody": {
+   "fields": [
+    {
+     "name": "candidate_name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "resolution_context",
+     "serde": {
+      "default": true
+     },
+     "shape": "string"
+    },
+    {
+     "name": "type_hint",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "allow_create",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    }
+   ]
+  },
+  "ResolveEntityResponseDto": {
+   "fields": [
+    {
+     "name": "outcome",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "tier",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "entity_id",
+     "serde": {},
+     "shape": "opt(string)"
+    },
+    {
+     "name": "candidate_ids",
+     "serde": {},
+     "shape": "list(string)"
+    }
+   ]
+  },
+  "SchemaDto": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "schema_document",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "uploaded_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "validator_version",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SchemaErrorDto": {
+   "fields": [
+    {
+     "name": "code",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "message",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "line",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "column",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "length",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "severity",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SchemaGetQuery": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {
+      "default": true
+     },
+     "shape": "string"
+    },
+    {
+     "name": "version",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    }
+   ]
+  },
+  "SchemaReplaceBody": {
+   "fields": [
+    {
+     "name": "schema_document",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "force_drop_existing",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "SchemaReplaceDto": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "dropped_count",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "validation_errors",
+     "serde": {},
+     "shape": "list(SchemaErrorDto)"
+    }
+   ]
+  },
+  "SchemaUploadBody": {
+   "fields": [
+    {
+     "name": "schema_document",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "dry_run",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "allow_breaking",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    }
+   ]
+  },
+  "SchemaUploadDto": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "backward_compatible",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "validation_errors",
+     "serde": {},
+     "shape": "list(SchemaErrorDto)"
+    }
+   ]
+  },
+  "SchemaValidateBody": {
+   "fields": [
+    {
+     "name": "schema_document",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "SchemaValidateDto": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "would_be_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "validation_errors",
+     "serde": {},
+     "shape": "list(SchemaErrorDto)"
+    }
+   ]
+  },
+  "StageArtifactDto": {
+   "fields": [
+    {
+     "name": "vector",
+     "serde": {},
+     "shape": "list(float)"
+    },
+    {
+     "name": "record",
+     "serde": {},
+     "shape": "opt(StageRecordDto)"
+    },
+    {
+     "name": "hype_questions",
+     "serde": {},
+     "shape": "list(string)"
+    },
+    {
+     "name": "keyword_fields",
+     "serde": {},
+     "shape": "list(StageKeywordFieldDto)"
+    },
+    {
+     "name": "graph",
+     "serde": {},
+     "shape": "opt(StageGraphDto)"
+    }
+   ]
+  },
+  "StageGraphDto": {
+   "fields": [
+    {
+     "name": "nodes",
+     "serde": {},
+     "shape": "list(StageGraphNodeDto)"
+    },
+    {
+     "name": "edges",
+     "serde": {},
+     "shape": "list(StageGraphEdgeDto)"
+    }
+   ]
+  },
+  "StageGraphEdgeDto": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "StageGraphNodeDto": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "type_qname",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "StageKeywordFieldDto": {
+   "fields": [
+    {
+     "name": "field",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "terms",
+     "serde": {},
+     "shape": "list(string)"
+    }
+   ]
+  },
+  "StageRecordDto": {
+   "fields": [
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "occurred_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "vector_dim",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "text_len",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "lsn",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "StatementDetailDto": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "subject",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "object",
+     "serde": {},
+     "shape": "StatementObjectDto"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "valid_from_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "valid_to_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "tombstoned",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "TraversalPathDto": {
+   "fields": [
+    {
+     "name": "steps",
+     "serde": {},
+     "shape": "list(TraversalStepDto)"
+    }
+   ]
+  },
+  "TraversalStepDto": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "from",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "to",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "relation_type",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "depth",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "TraverseBody": {
+   "fields": [
+    {
+     "name": "direction",
+     "serde": {
+      "default": true
+     },
+     "shape": "string"
+    },
+    {
+     "name": "relation_types",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    },
+    {
+     "name": "max_depth",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "max_nodes",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "include_superseded",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    }
+   ]
+  },
+  "TraverseResponseDto": {
+   "fields": [
+    {
+     "name": "paths",
+     "serde": {},
+     "shape": "list(TraversalPathDto)"
+    },
+    {
+     "name": "total_paths",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "truncated",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "UnlinkBody": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "UnlinkResponseDto": {
+   "fields": [
+    {
+     "name": "source",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "target",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "removed",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "WhoamiDto": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "space_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "permissions",
+     "serde": {},
+     "shape": "PermissionsDto"
+    }
+   ]
+  }
+ },
+ "enums": {
+  "RelationSide": {
+   "serde": {},
+   "variants": [
+    {
+     "name": "From"
+    },
+    {
+     "name": "To"
+    }
+   ]
+  },
+  "StatementObjectDto": {
+   "serde": {
+    "rename_all": "snake_case",
+    "tag": "kind"
+   },
+   "variants": [
+    {
+     "fields": [
+      {
+       "name": "id",
+       "shape": "string"
+      }
+     ],
+     "name": "Entity"
+    },
+    {
+     "fields": [
+      {
+       "name": "value",
+       "shape": "StatementValueDto"
+      }
+     ],
+     "name": "Value"
+    },
+    {
+     "fields": [
+      {
+       "name": "id",
+       "shape": "string"
+      }
+     ],
+     "name": "Memory"
+    },
+    {
+     "fields": [
+      {
+       "name": "id",
+       "shape": "string"
+      }
+     ],
+     "name": "Statement"
+    }
+   ]
+  },
+  "StatementValueDto": {
+   "serde": {
+    "rename_all": "snake_case",
+    "tag": "type"
+   },
+   "variants": [
+    {
+     "fields": [
+      {
+       "name": "value",
+       "shape": "string"
+      }
+     ],
+     "name": "Text"
+    },
+    {
+     "fields": [
+      {
+       "name": "value",
+       "shape": "int"
+      }
+     ],
+     "name": "Integer"
+    },
+    {
+     "fields": [
+      {
+       "name": "value",
+       "shape": "float"
+      }
+     ],
+     "name": "Float"
+    },
+    {
+     "fields": [
+      {
+       "name": "value",
+       "shape": "bool"
+      }
+     ],
+     "name": "Bool"
+    },
+    {
+     "fields": [
+      {
+       "name": "value",
+       "shape": "int"
+      }
+     ],
+     "name": "UnixNanos"
+    },
+    {
+     "fields": [
+      {
+       "name": "value",
+       "shape": "list(int)"
+      }
+     ],
+     "name": "Blob"
+    }
+   ]
+  }
+ },
+ "routes": [
+  {
+   "handler": "identity::capabilities",
+   "method": "GET",
+   "path": "/v1/capabilities",
+   "query": null,
+   "request_body": null,
+   "response": "CapabilitiesDto"
+  },
+  {
+   "handler": "entity::list",
+   "method": "GET",
+   "path": "/v1/entities",
+   "query": "ListEntitiesQuery",
+   "request_body": null,
+   "response": "ListEntitiesResponseDto"
+  },
+  {
+   "handler": "entity::create",
+   "method": "POST",
+   "path": "/v1/entities",
+   "query": null,
+   "request_body": "CreateEntityBody",
+   "response": "CreateEntityResponseDto"
+  },
+  {
+   "handler": "entity::resolve",
+   "method": "POST",
+   "path": "/v1/entities/resolve",
+   "query": null,
+   "request_body": "ResolveEntityBody",
+   "response": "ResolveEntityResponseDto"
+  },
+  {
+   "handler": "entity::get",
+   "method": "GET",
+   "path": "/v1/entities/{id}",
+   "query": null,
+   "request_body": null,
+   "response": "EntityDetailDto"
+  },
+  {
+   "handler": "relation::list",
+   "method": "GET",
+   "path": "/v1/entities/{id}/relations",
+   "query": "ListRelationsQuery",
+   "request_body": null,
+   "response": "ListRelationsResponseDto"
+  },
+  {
+   "handler": "entity::traverse",
+   "method": "POST",
+   "path": "/v1/entities/{id}/traverse",
+   "query": null,
+   "request_body": "TraverseBody",
+   "response": "TraverseResponseDto"
+  },
+  {
+   "handler": "graph::fetch",
+   "method": "GET",
+   "path": "/v1/graph",
+   "query": "GraphFetchQuery",
+   "request_body": null,
+   "response": "GraphPageDto"
+  },
+  {
+   "handler": "graph::unlink",
+   "method": "DELETE",
+   "path": "/v1/links",
+   "query": null,
+   "request_body": "UnlinkBody",
+   "response": "UnlinkResponseDto"
+  },
+  {
+   "handler": "graph::link",
+   "method": "POST",
+   "path": "/v1/links",
+   "query": null,
+   "request_body": "LinkBody",
+   "response": "LinkResponseDto"
+  },
+  {
+   "handler": "memory::forget",
+   "method": "DELETE",
+   "path": "/v1/memories",
+   "query": null,
+   "request_body": "ForgetBody",
+   "response": "ForgetResponseDto"
+  },
+  {
+   "handler": "memory::list",
+   "method": "GET",
+   "path": "/v1/memories",
+   "query": "MemoryListQuery",
+   "request_body": null,
+   "response": "MemoryListPageDto"
+  },
+  {
+   "handler": "memory::encode",
+   "method": "POST",
+   "path": "/v1/memories",
+   "query": null,
+   "request_body": "EncodeBody",
+   "response": "EncodeResponseDto"
+  },
+  {
+   "handler": "memory::inspect",
+   "method": "GET",
+   "path": "/v1/memories/{id}/inspect",
+   "query": null,
+   "request_body": null,
+   "response": "MemoryInspectDto"
+  },
+  {
+   "handler": "reasoning::plan",
+   "method": "POST",
+   "path": "/v1/plan",
+   "query": null,
+   "request_body": "PlanBody",
+   "response": "PlanResponseDto"
+  },
+  {
+   "handler": "reasoning::reason",
+   "method": "POST",
+   "path": "/v1/reason",
+   "query": null,
+   "request_body": "ReasonBody",
+   "response": "ReasonResponseDto"
+  },
+  {
+   "handler": "memory::recall",
+   "method": "POST",
+   "path": "/v1/recall",
+   "query": null,
+   "request_body": "RecallBody",
+   "response": "RecallResponseDto"
+  },
+  {
+   "handler": "relation::get",
+   "method": "GET",
+   "path": "/v1/relations/{id}",
+   "query": "GetRelationQuery",
+   "request_body": null,
+   "response": "RelationDetailDto"
+  },
+  {
+   "handler": "schema::get",
+   "method": "GET",
+   "path": "/v1/schema",
+   "query": "SchemaGetQuery",
+   "request_body": null,
+   "response": "SchemaDto"
+  },
+  {
+   "handler": "schema::upload",
+   "method": "POST",
+   "path": "/v1/schema",
+   "query": null,
+   "request_body": "SchemaUploadBody",
+   "response": "SchemaUploadDto"
+  },
+  {
+   "handler": "schema::replace",
+   "method": "PUT",
+   "path": "/v1/schema",
+   "query": null,
+   "request_body": "SchemaReplaceBody",
+   "response": "SchemaReplaceDto"
+  },
+  {
+   "handler": "schema::validate",
+   "method": "POST",
+   "path": "/v1/schema/validate",
+   "query": null,
+   "request_body": "SchemaValidateBody",
+   "response": "SchemaValidateDto"
+  },
+  {
+   "handler": "statement::list",
+   "method": "GET",
+   "path": "/v1/statements",
+   "query": "ListStatementsQuery",
+   "request_body": null,
+   "response": "ListStatementsResponseDto"
+  },
+  {
+   "handler": "statement::get",
+   "method": "GET",
+   "path": "/v1/statements/{id}",
+   "query": "GetStatementQuery",
+   "request_body": null,
+   "response": "StatementDetailDto"
+  },
+  {
+   "handler": "identity::whoami",
+   "method": "GET",
+   "path": "/v1/whoami",
+   "query": null,
+   "request_body": null,
+   "response": "WhoamiDto"
+  }
+ ],
+ "unparsed": []
+}

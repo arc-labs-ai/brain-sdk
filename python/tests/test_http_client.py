@@ -19,7 +19,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from brain_db_sdk.http import BrainHttpClient, BrainHttpError
+from brain_db_sdk.http import (
+    BrainHttpClient,
+    BrainHttpError,
+    StatementObject,
+    StatementValue,
+)
 from brain_db_sdk.http.retry import HttpRetryPolicy
 
 API_KEY = "brain_test-key"
@@ -66,7 +71,9 @@ def _serve(rec: _Recorder):
             self.end_headers()
             self.wfile.write(payload)
 
-        do_GET = do_POST = do_DELETE = _handle
+        # PUT is here for `replace_schema` — the one destructive route on the
+        # HTTP surface.
+        do_GET = do_POST = do_PUT = do_DELETE = _handle
 
     return Handler
 
@@ -150,6 +157,480 @@ def test_every_verb_hits_its_documented_route(edge, call, method, path) -> None:
         pass
     assert rec.requests, f"{method} {path}: no request reached the server"
     assert (rec.requests[0]["method"], rec.requests[0]["path"]) == (method, path)
+
+
+# The 16 routes the client did not reach before: entities, relations,
+# statements, graph, schema, and the paginated memory list. Each entry is the
+# call, the method and path it must produce, and the query string it must build
+# when every optional filter is supplied.
+#
+# The query strings are asserted literally rather than parsed back into a dict,
+# because the two things most likely to be wrong are invisible to a dict
+# comparison: a Python `True` reaching the wire as `True` (serde reads `true`),
+# and a field whose wire name differs from the keyword argument
+# (`relation_type` -> `type`).
+READ_SIDE_ROUTES = [
+    (
+        lambda c: c.list_memories(limit=2, cursor="c1", dir="desc", include_tombstoned=False),
+        "GET",
+        "/v1/memories",
+        "limit=2&cursor=c1&dir=desc&include_tombstoned=false",
+    ),
+    (
+        lambda c: c.inspect_memory("mem-1"),
+        "GET",
+        "/v1/memories/mem-1/inspect",
+        "",
+    ),
+    (
+        lambda c: c.list_entities(
+            type_id=3,
+            prefix="Ada",
+            mention_count_min=2,
+            include_tombstoned=False,
+            include_merged=True,
+            limit=10,
+        ),
+        "GET",
+        "/v1/entities",
+        "type_id=3&prefix=Ada&mention_count_min=2&include_tombstoned=false"
+        "&include_merged=true&limit=10",
+    ),
+    (
+        lambda c: c.get_entity("ent-1"),
+        "GET",
+        "/v1/entities/ent-1",
+        "",
+    ),
+    (
+        lambda c: c.create_entity(3, "Ada Lovelace", aliases=["Ada"]),
+        "POST",
+        "/v1/entities",
+        "",
+    ),
+    (
+        lambda c: c.resolve_entity("Ada", resolution_context="maths", allow_create=True),
+        "POST",
+        "/v1/entities/resolve",
+        "",
+    ),
+    (
+        lambda c: c.traverse("ent-1", direction="out", max_depth=2),
+        "POST",
+        "/v1/entities/ent-1/traverse",
+        "",
+    ),
+    (
+        lambda c: c.list_relations(
+            "ent-1",
+            direction="out",
+            relation_type="knows",
+            include_superseded=False,
+            include_tombstoned=False,
+            limit=5,
+        ),
+        "GET",
+        "/v1/entities/ent-1/relations",
+        "direction=out&type=knows&include_superseded=false"
+        "&include_tombstoned=false&limit=5",
+    ),
+    (
+        lambda c: c.get_relation("rel-1", follow_supersession=True),
+        "GET",
+        "/v1/relations/rel-1",
+        "follow_supersession=true",
+    ),
+    (
+        lambda c: c.list_statements(
+            subject="ent-1",
+            predicate="knows",
+            kind="fact",
+            min_confidence=0.5,
+            only_current=True,
+            include_tombstoned=False,
+            limit=7,
+        ),
+        "GET",
+        "/v1/statements",
+        "subject=ent-1&predicate=knows&kind=fact&min_confidence=0.5"
+        "&only_current=true&include_tombstoned=false&limit=7",
+    ),
+    (
+        lambda c: c.get_statement("stmt-1", follow_supersession=False),
+        "GET",
+        "/v1/statements/stmt-1",
+        "follow_supersession=false",
+    ),
+    (
+        lambda c: c.fetch_graph(
+            limit=50,
+            cursor="c1",
+            include_statements=True,
+            include_memories=False,
+            include_memory_edges=False,
+            include_tombstoned=False,
+        ),
+        "GET",
+        "/v1/graph",
+        "limit=50&cursor=c1&include_statements=true&include_memories=false"
+        "&include_memory_edges=false&include_tombstoned=false",
+    ),
+    (
+        lambda c: c.get_schema(namespace="app", version=2),
+        "GET",
+        "/v1/schema",
+        "namespace=app&version=2",
+    ),
+    (
+        lambda c: c.upload_schema("entity Person {}", dry_run=True),
+        "POST",
+        "/v1/schema",
+        "",
+    ),
+    (
+        lambda c: c.validate_schema("entity Person {}"),
+        "POST",
+        "/v1/schema/validate",
+        "",
+    ),
+    (
+        lambda c: c.replace_schema("entity Person {}", force_drop_existing=True),
+        "PUT",
+        "/v1/schema",
+        "",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("call", "method", "path", "query"),
+    READ_SIDE_ROUTES,
+    ids=[f"{m} {p}" for _c, m, p, _q in READ_SIDE_ROUTES],
+)
+def test_read_side_routes_match_the_edge_contract(edge, call, method, path, query) -> None:
+    """Every route in `contract/http-routes.json` that the client gained, driven
+    end to end. The client and the edge were independent hand transcriptions of
+    the same JSON, so the request line is what is asserted."""
+    client, rec = edge
+    rec.responses = [(200, {}, {})]
+    try:
+        call(client)
+    except (KeyError, TypeError):
+        # An empty body will not populate the result type; the assertion here is
+        # about the request, not the response shape.
+        pass
+
+    assert rec.requests, f"{method} {path}: no request reached the server"
+    sent = rec.requests[0]["path"]
+    sent_path, _, sent_query = sent.partition("?")
+    assert (rec.requests[0]["method"], sent_path) == (method, path)
+    assert sent_query == query, f"{method} {path}: wrong query string"
+
+
+def test_unset_query_filters_are_omitted_entirely(edge) -> None:
+    """Every optional field on the edge's query structs is `#[serde(default)]`.
+    Sending `limit=None` would be a parse failure, not a default — so an unset
+    filter must not appear at all."""
+    client, rec = edge
+    rec.responses = [(200, {"entities": [], "count": 0}, {})]
+    client.list_entities(prefix="Ada")
+    assert rec.requests[0]["path"] == "/v1/entities?prefix=Ada"
+
+
+def test_a_query_with_no_filters_at_all_sends_no_question_mark(edge) -> None:
+    client, rec = edge
+    rec.responses = [(200, {"nodes": [], "edges": []}, {})]
+    client.fetch_graph()
+    assert rec.requests[0]["path"] == "/v1/graph", "a bare `?` is not a valid default"
+
+
+def test_query_values_are_percent_encoded(edge) -> None:
+    client, rec = edge
+    rec.responses = [(200, {"entities": [], "count": 0}, {})]
+    client.list_entities(prefix="Ada L&C=1")
+    assert rec.requests[0]["path"] == "/v1/entities?prefix=Ada+L%26C%3D1", (
+        "an unescaped & would split one filter into two"
+    )
+
+
+def test_a_path_id_cannot_escape_its_segment(edge) -> None:
+    """A slash in an id must not re-route the request. `/v1/entities/a/b` is a
+    different route (`/v1/entities/{id}/relations` lives at that depth)."""
+    client, rec = edge
+    rec.responses = [(200, {}, {})]
+    try:
+        client.get_entity("a/b")
+    except (KeyError, TypeError):
+        pass
+    assert rec.requests[0]["path"] == "/v1/entities/a%2Fb"
+
+
+# --- request bodies --------------------------------------------------------
+
+
+def test_create_entity_sends_the_contract_body(edge) -> None:
+    client, rec = edge
+    rec.responses = [(200, {"entity_id": "ent-9"}, {})]
+    out = client.create_entity(3, "Ada Lovelace", aliases=["Ada"])
+    assert rec.requests[0]["body"] == {
+        "entity_type_id": 3,
+        "canonical_name": "Ada Lovelace",
+        "aliases": ["Ada"],
+    }
+    assert out.entity_id == "ent-9"
+
+
+def test_optional_body_fields_are_dropped_not_nulled(edge) -> None:
+    """`aliases` is `#[serde(default)]` on the edge. Omitting it takes the
+    default; sending `null` for a `Vec<String>` is a 422."""
+    client, rec = edge
+    rec.responses = [(200, {"entity_id": "ent-9"}, {})]
+    client.create_entity(3, "Ada Lovelace")
+    assert rec.requests[0]["body"] == {"entity_type_id": 3, "canonical_name": "Ada Lovelace"}
+
+
+def test_replace_schema_always_states_force_drop_existing(edge) -> None:
+    """`force_drop_existing` has no serde default on the edge — it is a required
+    bool, so it rides every request rather than being compacted away."""
+    client, rec = edge
+    rec.responses = [(200, {}, {})]
+    try:
+        client.replace_schema("entity Person {}")
+    except (KeyError, TypeError):
+        pass
+    assert rec.requests[0]["body"] == {
+        "schema_document": "entity Person {}",
+        "force_drop_existing": False,
+    }
+
+
+# --- idempotency of the new routes -----------------------------------------
+
+
+def test_schema_validate_is_retried_despite_being_a_post(edge) -> None:
+    """A dry run changes nothing on the edge, so a 503 mid-validate is safe to
+    replay. It is the only POST on the surface that is."""
+    client, rec = edge
+    rec.responses = [
+        (503, {"error": {"code": "unavailable", "message": "shard restarting"}}, {}),
+        (200, {"namespace": "app", "would_be_version": 4, "validation_errors": []}, {}),
+    ]
+    out = client.validate_schema("entity Person {}")
+    assert len(rec.requests) == 2
+    assert out.would_be_version == 4
+
+
+def test_replace_schema_is_never_retried(edge) -> None:
+    """The destructive route. A replace that looks like it failed may have
+    landed, and replaying it drops data a second time against a graph that has
+    already moved."""
+    client, rec = edge
+    rec.responses = [
+        (503, {"error": {"code": "unavailable", "message": "shard restarting"}}, {}),
+        (200, {}, {}),
+    ]
+    with pytest.raises(BrainHttpError):
+        client.replace_schema("entity Person {}", force_drop_existing=True)
+    assert len(rec.requests) == 1, "PUT /v1/schema must run exactly once"
+
+
+def test_schema_upload_is_never_retried(edge) -> None:
+    """A retried upload mints a second schema version."""
+    client, rec = edge
+    rec.responses = [
+        (503, {"error": {"code": "unavailable", "message": "shard restarting"}}, {}),
+        (200, {}, {}),
+    ]
+    with pytest.raises(BrainHttpError):
+        client.upload_schema("entity Person {}")
+    assert len(rec.requests) == 1
+
+
+def test_a_read_side_get_is_retried(edge) -> None:
+    client, rec = edge
+    rec.responses = [
+        (503, {"error": {"code": "unavailable", "message": "shard restarting"}}, {}),
+        (200, {"entities": [], "count": 0}, {}),
+    ]
+    client.list_entities()
+    assert len(rec.requests) == 2
+
+
+# --- response shapes -------------------------------------------------------
+
+
+def test_traversal_step_carries_the_reserved_from_key(edge) -> None:
+    """`from` is a Python keyword, so `TraversalStep.from_` is the one field on
+    the HTTP contract not spelled literally. The mapping has to be right or the
+    hop's origin is silently lost."""
+    client, rec = edge
+    rec.responses = [
+        (
+            200,
+            {
+                "paths": [
+                    {
+                        "steps": [
+                            {
+                                "relation_id": "rel-1",
+                                "from": "ent-1",
+                                "to": "ent-2",
+                                "relation_type": "knows",
+                                "depth": 1,
+                            }
+                        ]
+                    }
+                ],
+                "total_paths": 1,
+                "truncated": False,
+            },
+            {},
+        )
+    ]
+    out = client.traverse("ent-1")
+    step = out.paths[0].steps[0]
+    assert (step.from_, step.to) == ("ent-1", "ent-2")
+    assert out.total_paths == 1 and out.truncated is False
+
+
+def test_an_absent_next_cursor_is_none_not_a_key_error(edge) -> None:
+    """`next_cursor` is `skip_serializing_if = Option::is_none`, so the last page
+    omits the key rather than sending null."""
+    client, rec = edge
+    rec.responses = [(200, {"nodes": [], "edges": []}, {})]
+    assert client.fetch_graph().next_cursor is None
+
+
+def test_memory_inspect_tolerates_a_stage_artifact_with_no_record_or_graph(edge) -> None:
+    """`record` and `graph` are `Option` on the edge — an artifact captured
+    before those stages ran has neither."""
+    client, rec = edge
+    rec.responses = [
+        (
+            200,
+            {
+                "found": True,
+                "memory_id": "mem-1",
+                "text": "the sky is teal",
+                "artifact": {
+                    "vector": [0.5, 0.25],
+                    "record": None,
+                    "hype_questions": ["what colour?"],
+                    "keyword_fields": [{"field": "body", "terms": ["sky", "teal"]}],
+                    "graph": None,
+                },
+            },
+            {},
+        )
+    ]
+    out = client.inspect_memory("mem-1")
+    assert out.found is True
+    assert out.artifact.record is None and out.artifact.graph is None
+    assert out.artifact.keyword_fields[0].terms == ["sky", "teal"]
+
+
+def _statement_with(obj: dict) -> dict:
+    return {
+        "statement_id": "stmt-1",
+        "kind": "fact",
+        "subject": "ent-1",
+        "predicate": "born_in",
+        "object": obj,
+        "confidence": 0.9,
+        "event_at_unix_nanos": 1,
+        "valid_from_unix_nanos": 2,
+        "valid_to_unix_nanos": 3,
+        "tombstoned": False,
+    }
+
+
+def test_a_literal_statement_object_is_decoded_through_both_tags(edge) -> None:
+    """`StatementObjectDto` and `StatementValueDto` are internally tagged, and on
+    different keys — `kind` for the outer, `type` for the inner. Reading either
+    tag off the wrong key collapses every literal to the same value."""
+    client, rec = edge
+    rec.responses = [
+        (
+            200,
+            {
+                "statements": [
+                    _statement_with(
+                        {"kind": "value", "value": {"type": "integer", "value": 1815}}
+                    )
+                ],
+                "count": 1,
+            },
+            {},
+        )
+    ]
+    out = client.list_statements()
+    assert out.count == 1
+    obj = out.statements[0].object
+    assert obj.kind == "value"
+    assert obj.id is None, "the literal variant carries no id"
+    assert (obj.value.type, obj.value.value) == ("integer", 1815)
+
+
+@pytest.mark.parametrize("kind", ["entity", "memory", "statement"])
+def test_a_reference_statement_object_carries_an_id_and_no_value(edge, kind) -> None:
+    """The three reference variants are flat: the tag and the id sit in one
+    object, with no nested `value` key at all."""
+    client, rec = edge
+    rec.responses = [
+        (200, {"statements": [_statement_with({"kind": kind, "id": "ent-7"})], "count": 1}, {})
+    ]
+    obj = client.list_statements().statements[0].object
+    assert (obj.kind, obj.id) == (kind, "ent-7")
+    assert obj.value is None
+
+
+@pytest.mark.parametrize(
+    ("type_tag", "raw"),
+    [
+        ("text", "Ada"),
+        ("integer", 1815),
+        ("float", 0.5),
+        ("bool", True),
+        ("unix_nanos", 1_700_000_000_000_000_000),
+        ("blob", [1, 2, 3]),
+    ],
+)
+def test_every_statement_value_tag_round_trips(edge, type_tag, raw) -> None:
+    """All six literal types the edge can emit. `unix_nanos` is the one whose
+    snake_case spelling does not fall out of lowercasing the Rust variant
+    (`UnixNanos`), so it is the one most likely to be transcribed wrong."""
+    client, rec = edge
+    assert type_tag in StatementValue.TYPES, "tag must be one the contract declares"
+    rec.responses = [
+        (
+            200,
+            {
+                "statements": [
+                    _statement_with(
+                        {"kind": "value", "value": {"type": type_tag, "value": raw}}
+                    )
+                ],
+                "count": 1,
+            },
+            {},
+        )
+    ]
+    value = client.list_statements().statements[0].object.value
+    assert (value.type, value.value) == (type_tag, raw)
+
+
+def test_the_declared_tag_sets_match_the_contract() -> None:
+    """The closed sets are transcribed from the manifest's enum variants; if the
+    edge adds one, this is where the SDK notices."""
+    assert StatementObject.KINDS == ("entity", "value", "memory", "statement")
+    assert StatementValue.TYPES == (
+        "text",
+        "integer",
+        "float",
+        "bool",
+        "unix_nanos",
+        "blob",
+    )
 
 
 def _minimal_body_for(path: str) -> dict:

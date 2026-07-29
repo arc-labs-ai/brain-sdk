@@ -13,19 +13,36 @@ from __future__ import annotations
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 from .errors import BrainHttpError
 from .retry import HttpRetryPolicy
 from .types import (
     Capabilities,
+    CreateEntityResult,
     EncodeResult,
+    EntityDetail,
     ForgetResult,
+    GraphPage,
     LinkResult,
+    ListEntitiesResult,
+    ListRelationsResult,
+    ListStatementsResult,
+    MemoryInspect,
+    MemoryListPage,
     PlanResult,
     ReasonResult,
     RecallResult,
+    RelationDetail,
+    ResolveEntityResult,
+    Schema,
+    SchemaReplace,
+    SchemaUpload,
+    SchemaValidate,
+    StatementDetail,
+    TraverseResult,
     UnlinkResult,
     Whoami,
 )
@@ -154,6 +171,323 @@ class BrainHttpClient:
             self._request("GET", "/v1/capabilities", idempotent=True)
         )
 
+    # --- memories ---------------------------------------------------------
+
+    def list_memories(
+        self,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        dir: Optional[str] = None,
+        include_tombstoned: Optional[bool] = None,
+    ) -> MemoryListPage:
+        """A page of stored memories, newest first by default.
+
+        ``cursor`` is the previous page's ``next_cursor``; ``dir`` is the scan
+        direction the edge understands.
+        """
+        query = _compact(
+            {
+                "limit": limit,
+                "cursor": cursor,
+                "dir": dir,
+                "include_tombstoned": include_tombstoned,
+            }
+        )
+        return MemoryListPage.from_dict(
+            self._request("GET", "/v1/memories", query=query, idempotent=True)
+        )
+
+    def inspect_memory(self, memory_id: str) -> MemoryInspect:
+        """The full encode-pipeline artifact behind one memory."""
+        return MemoryInspect.from_dict(
+            self._request(
+                "GET", f"/v1/memories/{_seg(memory_id)}/inspect", idempotent=True
+            )
+        )
+
+    # --- entities ---------------------------------------------------------
+
+    def list_entities(
+        self,
+        type_id: Optional[int] = None,
+        prefix: Optional[str] = None,
+        mention_count_min: Optional[int] = None,
+        include_tombstoned: Optional[bool] = None,
+        include_merged: Optional[bool] = None,
+        limit: Optional[int] = None,
+    ) -> ListEntitiesResult:
+        """Entities in the space, optionally filtered."""
+        query = _compact(
+            {
+                "type_id": type_id,
+                "prefix": prefix,
+                "mention_count_min": mention_count_min,
+                "include_tombstoned": include_tombstoned,
+                "include_merged": include_merged,
+                "limit": limit,
+            }
+        )
+        return ListEntitiesResult.from_dict(
+            self._request("GET", "/v1/entities", query=query, idempotent=True)
+        )
+
+    def get_entity(self, entity_id: str) -> EntityDetail:
+        """One entity by id."""
+        return EntityDetail.from_dict(
+            self._request("GET", f"/v1/entities/{_seg(entity_id)}", idempotent=True)
+        )
+
+    def create_entity(
+        self,
+        entity_type_id: int,
+        canonical_name: str,
+        aliases: Optional[Sequence[str]] = None,
+    ) -> CreateEntityResult:
+        """Create an entity outright, without resolution."""
+        body = _compact(
+            {
+                "entity_type_id": entity_type_id,
+                "canonical_name": canonical_name,
+                "aliases": list(aliases) if aliases is not None else None,
+            }
+        )
+        return CreateEntityResult.from_dict(self._request("POST", "/v1/entities", body))
+
+    def resolve_entity(
+        self,
+        candidate_name: str,
+        resolution_context: Optional[str] = None,
+        type_hint: Optional[int] = None,
+        allow_create: Optional[bool] = None,
+    ) -> ResolveEntityResult:
+        """Resolve a surface name to an existing entity, or (with
+        ``allow_create``) mint one."""
+        body = _compact(
+            {
+                "candidate_name": candidate_name,
+                "resolution_context": resolution_context,
+                "type_hint": type_hint,
+                "allow_create": allow_create,
+            }
+        )
+        return ResolveEntityResult.from_dict(
+            self._request("POST", "/v1/entities/resolve", body)
+        )
+
+    def traverse(
+        self,
+        entity_id: str,
+        direction: Optional[str] = None,
+        relation_types: Optional[Sequence[str]] = None,
+        max_depth: Optional[int] = None,
+        max_nodes: Optional[int] = None,
+        include_superseded: Optional[bool] = None,
+    ) -> TraverseResult:
+        """Walk the relation graph outward from one entity."""
+        body = _compact(
+            {
+                "direction": direction,
+                "relation_types": (
+                    list(relation_types) if relation_types is not None else None
+                ),
+                "max_depth": max_depth,
+                "max_nodes": max_nodes,
+                "include_superseded": include_superseded,
+            }
+        )
+        return TraverseResult.from_dict(
+            self._request("POST", f"/v1/entities/{_seg(entity_id)}/traverse", body)
+        )
+
+    # --- relations --------------------------------------------------------
+
+    def list_relations(
+        self,
+        entity_id: str,
+        direction: Optional[str] = None,
+        relation_type: Optional[str] = None,
+        include_superseded: Optional[bool] = None,
+        include_tombstoned: Optional[bool] = None,
+        limit: Optional[int] = None,
+    ) -> ListRelationsResult:
+        """Relations touching one entity.
+
+        ``relation_type`` goes on the wire as ``type`` — the edge's query struct
+        renames it, because ``type`` is a Rust keyword there just as it is a
+        builtin here.
+        """
+        query = _compact(
+            {
+                "direction": direction,
+                "type": relation_type,
+                "include_superseded": include_superseded,
+                "include_tombstoned": include_tombstoned,
+                "limit": limit,
+            }
+        )
+        return ListRelationsResult.from_dict(
+            self._request(
+                "GET",
+                f"/v1/entities/{_seg(entity_id)}/relations",
+                query=query,
+                idempotent=True,
+            )
+        )
+
+    def get_relation(
+        self,
+        relation_id: str,
+        follow_supersession: Optional[bool] = None,
+    ) -> RelationDetail:
+        """One relation by id."""
+        query = _compact({"follow_supersession": follow_supersession})
+        return RelationDetail.from_dict(
+            self._request(
+                "GET", f"/v1/relations/{_seg(relation_id)}", query=query, idempotent=True
+            )
+        )
+
+    # --- statements -------------------------------------------------------
+
+    def list_statements(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        kind: Optional[str] = None,
+        min_confidence: Optional[float] = None,
+        only_current: Optional[bool] = None,
+        include_tombstoned: Optional[bool] = None,
+        limit: Optional[int] = None,
+    ) -> ListStatementsResult:
+        """Statements in the space, optionally filtered."""
+        query = _compact(
+            {
+                "subject": subject,
+                "predicate": predicate,
+                "kind": kind,
+                "min_confidence": min_confidence,
+                "only_current": only_current,
+                "include_tombstoned": include_tombstoned,
+                "limit": limit,
+            }
+        )
+        return ListStatementsResult.from_dict(
+            self._request("GET", "/v1/statements", query=query, idempotent=True)
+        )
+
+    def get_statement(
+        self,
+        statement_id: str,
+        follow_supersession: Optional[bool] = None,
+    ) -> StatementDetail:
+        """One statement by id."""
+        query = _compact({"follow_supersession": follow_supersession})
+        return StatementDetail.from_dict(
+            self._request(
+                "GET",
+                f"/v1/statements/{_seg(statement_id)}",
+                query=query,
+                idempotent=True,
+            )
+        )
+
+    # --- graph ------------------------------------------------------------
+
+    def fetch_graph(
+        self,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        include_statements: Optional[bool] = None,
+        include_memories: Optional[bool] = None,
+        include_memory_edges: Optional[bool] = None,
+        include_tombstoned: Optional[bool] = None,
+    ) -> GraphPage:
+        """A page of the typed graph: nodes, edges, and a cursor."""
+        query = _compact(
+            {
+                "limit": limit,
+                "cursor": cursor,
+                "include_statements": include_statements,
+                "include_memories": include_memories,
+                "include_memory_edges": include_memory_edges,
+                "include_tombstoned": include_tombstoned,
+            }
+        )
+        return GraphPage.from_dict(
+            self._request("GET", "/v1/graph", query=query, idempotent=True)
+        )
+
+    # --- schema -----------------------------------------------------------
+
+    def get_schema(
+        self,
+        namespace: Optional[str] = None,
+        version: Optional[int] = None,
+    ) -> Schema:
+        """The active schema document, or a specific ``version`` of it."""
+        query = _compact({"namespace": namespace, "version": version})
+        return Schema.from_dict(
+            self._request("GET", "/v1/schema", query=query, idempotent=True)
+        )
+
+    def upload_schema(
+        self,
+        schema_document: str,
+        dry_run: Optional[bool] = None,
+        allow_breaking: Optional[bool] = None,
+    ) -> SchemaUpload:
+        """Register a new schema version.
+
+        Not retried: an upload that times out may still have landed, and a
+        second attempt would mint a second version.
+        """
+        body = _compact(
+            {
+                "schema_document": schema_document,
+                "dry_run": dry_run,
+                "allow_breaking": allow_breaking,
+            }
+        )
+        return SchemaUpload.from_dict(self._request("POST", "/v1/schema", body))
+
+    def validate_schema(self, schema_document: str) -> SchemaValidate:
+        """Check a schema document without registering it.
+
+        A pure dry run — nothing on the edge changes — so this one POST is safe
+        to retry.
+        """
+        return SchemaValidate.from_dict(
+            self._request(
+                "POST",
+                "/v1/schema/validate",
+                {"schema_document": schema_document},
+                idempotent=True,
+            )
+        )
+
+    def replace_schema(
+        self,
+        schema_document: str,
+        force_drop_existing: bool = False,
+    ) -> SchemaReplace:
+        """Replace the schema wholesale.
+
+        Destructive: with ``force_drop_existing`` the edge drops data that no
+        longer validates. Never retried — a replace that appears to have failed
+        may have succeeded, and re-running it would drop a second time against
+        a graph that has already moved.
+        """
+        return SchemaReplace.from_dict(
+            self._request(
+                "PUT",
+                "/v1/schema",
+                {
+                    "schema_document": schema_document,
+                    "force_drop_existing": force_drop_existing,
+                },
+            )
+        )
+
     # --- transport --------------------------------------------------------
 
     def _request(
@@ -162,13 +496,14 @@ class BrainHttpClient:
         path: str,
         body: Optional[dict[str, Any]] = None,
         idempotent: bool = False,
+        query: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
         """Send the request, retrying idempotent verbs per the policy on ``503``
         and transport/timeout failures. Non-idempotent verbs run exactly once."""
         attempt = 1
         while True:
             try:
-                return self._request_once(method, path, body)
+                return self._request_once(method, path, body, query)
             except BrainHttpError as err:
                 if idempotent and self._retry.should_retry(attempt, err):
                     delay = self._retry.backoff(attempt, getattr(err, "retry_after", None))
@@ -182,8 +517,9 @@ class BrainHttpClient:
         method: str,
         path: str,
         body: Optional[dict[str, Any]],
+        query: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
-        url = self._base + path
+        url = self._base + path + _query_string(query)
         data = json.dumps(body).encode() if body is not None else None
         headers = {"authorization": f"Bearer {self._api_key}"}
         if data is not None:
@@ -225,6 +561,33 @@ class BrainHttpClient:
 def _compact(d: dict[str, Any]) -> dict[str, Any]:
     """Drop ``None`` values so optional fields are omitted from the body."""
     return {k: v for k, v in d.items() if v is not None}
+
+
+def _seg(value: str) -> str:
+    """One path segment, percent-encoded.
+
+    ``safe=""`` so that a ``/`` inside an id cannot open a second segment and
+    silently address a different route.
+    """
+    return urllib.parse.quote(str(value), safe="")
+
+
+def _query_string(query: Optional[Mapping[str, Any]]) -> str:
+    """``?a=1&b=true`` for a filled query, else the empty string.
+
+    ``None`` values are dropped rather than sent: every optional field on the
+    edge's query structs is ``#[serde(default)]``, so an omitted param takes the
+    edge's default while an explicit ``none`` would be a parse error. Booleans
+    are lowercased — Python's ``True`` is not what serde reads back as ``bool``.
+    """
+    if not query:
+        return ""
+    pairs = [
+        (k, "true" if v is True else "false" if v is False else str(v))
+        for k, v in query.items()
+        if v is not None
+    ]
+    return "?" + urllib.parse.urlencode(pairs) if pairs else ""
 
 
 def _parse_retry_after(e: "urllib.error.HTTPError") -> Optional[float]:
