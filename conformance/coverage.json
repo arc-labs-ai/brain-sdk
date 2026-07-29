@@ -57,8 +57,6 @@
     "RelationListFromReq",
     "RelationListToReq",
     "RelationTraverseReq",
-    "QueryExplainReq",
-    "QueryTraceReq",
     "SchemaGetResp",
     "SchemaListResp",
     "SchemaValidateResp",
@@ -76,9 +74,7 @@
     "RelationSupersedeResp",
     "RelationTombstoneResp",
     "RelationListToResp",
-    "RelationTraverseResp",
-    "QueryExplainResp",
-    "QueryTraceResp"
+    "RelationTraverseResp"
   ],
   "opcode_values": {
     "Ping": "0x0010",
@@ -121,8 +117,6 @@
     "RelationListFromReq": "0x0154",
     "RelationListToReq": "0x0155",
     "RelationTraverseReq": "0x0156",
-    "QueryExplainReq": "0x0161",
-    "QueryTraceReq": "0x0162",
     "SchemaGetResp": "0x01A1",
     "SchemaListResp": "0x01A2",
     "SchemaValidateResp": "0x01A3",
@@ -140,8 +134,6 @@
     "RelationSupersedeResp": "0x01D2",
     "RelationTombstoneResp": "0x01D3",
     "RelationListToResp": "0x01D5",
-    "RelationTraverseResp": "0x01D6",
-    "QueryExplainResp": "0x01E1",
-    "QueryTraceResp": "0x01E2"
+    "RelationTraverseResp": "0x01D6"
   }
 }

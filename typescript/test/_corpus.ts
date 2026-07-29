@@ -226,6 +226,14 @@ export const codecs: Record<string, Codec> = {
     t.encodeGetCapabilitiesResponse,
   ),
   req_extractor_list: payloadRoundTrip(t.decodeExtractorList, t.encodeExtractorList),
+
+  req_query_explain: payloadRoundTrip(t.decodeQueryExplain, t.encodeQueryExplain),
+  req_query_trace: payloadRoundTrip(t.decodeQueryTrace, t.encodeQueryTrace),
+  resp_query_explain: payloadRoundTrip(
+    t.decodeQueryExplainResponse,
+    t.encodeQueryExplainResponse,
+  ),
+  resp_query_trace: payloadRoundTrip(t.decodeQueryTraceResponse, t.encodeQueryTraceResponse),
   resp_extractor_list: payloadRoundTrip(
     t.decodeExtractorListResponse,
     t.encodeExtractorListResponse,

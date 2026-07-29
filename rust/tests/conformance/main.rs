@@ -269,6 +269,11 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("resp_pong", PongResponse);
     payload!("resp_server_ping", ServerPingResponse);
 
+    payload!("req_query_explain", QueryExplainRequest);
+    payload!("req_query_trace", QueryTraceRequest);
+    payload!("resp_query_explain", QueryExplainResponse);
+    payload!("resp_query_trace", QueryTraceResponse);
+
     // One ERROR body per category; all share `ErrorResponse`.
     payload!("resp_error_protocol", ErrorResponse);
     payload!("resp_error_authentication", ErrorResponse);
