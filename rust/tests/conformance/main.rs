@@ -16,6 +16,7 @@
 //! mirror into the struct) sidesteps `serde_bytes`' asymmetric handling
 //! of a JSON `null` for an `Option<[u8; N]>` field.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use brain_db_sdk::wire::cbor::{
@@ -123,131 +124,12 @@ fn check_frame(name: &str) {
     assert_eq!(reencoded, bin, "{name}: re-encoded frame != .bin");
 }
 
-// ---------------------------------------------------------------------------
-// Payload-only cases.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn payload_cases_round_trip() {
-    // Handshake.
-    check_payload::<HelloPayload>("req_hello");
-    check_payload::<AuthPayload>("req_auth");
-    check_payload::<WelcomePayload>("resp_welcome");
-    check_payload::<AuthOkPayload>("resp_auth_ok");
-
-    // v1 verbs.
-    check_payload::<EncodeRequest>("req_encode");
-    check_payload::<EncodeRequest>("req_encode_trace");
-    check_payload::<EncodeRequest>("req_encode_allow_duplicates");
-    check_payload::<RecallRequest>("req_recall");
-    check_payload::<ForgetRequest>("req_forget");
-
-    // Per-request `act_as` effective identity on the data-plane ops. The
-    // non-act_as goldens above prove the field is omitted from the wire when
-    // absent; these prove it round-trips byte-exact when present.
-    check_payload::<EncodeRequest>("req_encode_act_as");
-    check_payload::<RecallRequest>("req_recall_act_as");
-    check_payload::<ForgetRequest>("req_forget_act_as");
-    check_payload::<PlanRequest>("req_plan_act_as");
-    check_payload::<ReasonRequest>("req_reason_act_as");
-    check_payload::<EntityCreateRequest>("req_entity_create_act_as");
-    check_payload::<AuthOkPayload>("resp_auth_ok_act_as");
-    check_payload::<ErrorResponse>("resp_error_act_as_denied");
-    check_payload::<EncodeResponse>("resp_encode");
-    check_payload::<EncodeResponse>("resp_encode_trace");
-    check_payload::<RecallResponseFrame>("resp_recall");
-    check_payload::<RecallResponseFrame>("resp_recall_trace");
-    check_payload::<MemoryListRequest>("req_memory_list");
-    check_payload::<MemoryListResponseFrame>("resp_memory_list");
-    check_payload::<MemoryInspectRequest>("req_memory_inspect");
-    check_payload::<MemoryInspectResponse>("resp_memory_inspect");
-    check_payload::<GraphFetchRequest>("req_graph_fetch");
-    check_payload::<GraphFetchResponseFrame>("resp_graph_fetch");
-    check_payload::<ForgetResponse>("resp_forget");
-
-    // Typed-graph ops in the corpus.
-    check_payload::<EntityCreateRequest>("req_entity_create");
-    check_payload::<EntityCreateResponse>("resp_entity_create");
-    check_payload::<StatementCreateRequest>("req_statement_create");
-    check_payload::<StatementCreateResponse>("resp_statement_create");
-    check_payload::<RelationCreateRequest>("req_relation_create");
-    check_payload::<RelationCreateResponse>("resp_relation_create");
-    check_payload::<SchemaUploadRequest>("req_schema_upload");
-    check_payload::<SchemaUploadResponse>("resp_schema_upload");
-    check_payload::<MaterializeProceduralRequest>("req_materialize_procedural");
-    check_payload::<MaterializeProceduralResponse>("resp_materialize_procedural");
-
-    // Read-side typed-graph responses.
-    check_payload::<EntityGetResponse>("resp_entity_get");
-    check_payload::<EntityListResponseFrame>("resp_entity_list");
-    check_payload::<EntityResolveResponse>("resp_entity_resolve");
-    check_payload::<StatementGetResponse>("resp_statement_get");
-    check_payload::<StatementListResponseFrame>("resp_statement_list");
-    check_payload::<RelationListFromResponseFrame>("resp_relation_list");
-
-    // Cognitive read-side responses.
-    check_payload::<PlanResponseFrame>("resp_plan");
-    check_payload::<PlanResponseFrame>("resp_plan_trace");
-    check_payload::<ReasonResponseFrame>("resp_reason");
-    check_payload::<ReasonResponseFrame>("resp_reason_trace");
-    check_payload::<LinkResponse>("resp_link");
-
-    // Transaction responses.
-    check_payload::<TxnBeginResponse>("resp_txn_begin");
-    check_payload::<TxnCommitResponse>("resp_txn_commit");
-    check_payload::<TxnAbortResponse>("resp_txn_abort");
-
-    // Capabilities + subscription event.
-    check_payload::<GetCapabilitiesResponse>("resp_get_capabilities");
-    check_payload::<SubscriptionEvent>("resp_subscribe_event");
-
-    // Space + session registry ops (tenancy wire contract).
-    check_payload::<SpaceCreateRequest>("req_space_create");
-    check_payload::<SpaceListRequest>("req_space_list");
-    check_payload::<SpaceDeleteRequest>("req_space_delete");
-    check_payload::<SpaceCreateResponse>("resp_space_create");
-    check_payload::<SpaceListResponse>("resp_space_list");
-    check_payload::<SpaceDeleteResponse>("resp_space_delete");
-    check_payload::<SessionCreateRequest>("req_session_create");
-    check_payload::<SessionListRequest>("req_session_list");
-    check_payload::<SessionDeleteRequest>("req_session_delete");
-    check_payload::<SessionCreateResponse>("resp_session_create");
-    check_payload::<SessionListResponse>("resp_session_list");
-    check_payload::<SessionDeleteResponse>("resp_session_delete");
-
-    // Extractor introspection.
-    check_payload::<ExtractorListRequest>("req_extractor_list");
-    check_payload::<ExtractorListResponseFrame>("resp_extractor_list");
-
-    // Keepalive responses.
-    check_payload::<PongResponse>("resp_pong");
-    check_payload::<ServerPingResponse>("resp_server_ping");
-
-    // ERROR frame body, one per category.
-    for name in [
-        "resp_error_protocol",
-        "resp_error_authentication",
-        "resp_error_authorization",
-        "resp_error_validation",
-        "resp_error_not_found",
-        "resp_error_conflict",
-        "resp_error_resource_exhausted",
-        "resp_error_internal",
-        "resp_error_unavailable",
-    ] {
-        check_payload::<ErrorResponse>(name);
-    }
-}
-
-/// The payload-only `req_encode_vector_direct.bin` is `CBOR map ++ raw
-/// LE f32`, so it needs the prefix codec plus the trailing-vector seam
-/// rather than the whole-buffer decode `check_payload` uses. Decode the
-/// CBOR prefix, attach the trailer to `vector`, check the JSON projection
-/// (the `.json` mirror omits `vector`, which is `serde(skip)`), then
-/// re-encode prefix + trailer byte-exact.
-#[test]
-fn encode_vector_direct_payload_round_trips() {
-    let name = "req_encode_vector_direct";
+/// `req_encode_vector_direct.bin` is `CBOR map ++ raw LE f32`, so it needs the
+/// prefix codec plus the trailing-vector seam rather than the whole-buffer
+/// decode `check_payload` uses. Decode the CBOR prefix, attach the trailer to
+/// `vector`, check the JSON projection (the `.json` mirror omits `vector`,
+/// which is `serde(skip)`), then re-encode prefix + trailer byte-exact.
+fn check_vector_payload(name: &str) {
     let bin = read_bin(name);
 
     let (mut req, consumed): (EncodeVectorDirectRequest, usize) =
@@ -268,27 +150,10 @@ fn encode_vector_direct_payload_round_trips() {
     assert_eq!(reencoded, bin, "{name}: re-encoded bytes != .bin");
 }
 
-// ---------------------------------------------------------------------------
-// Full-frame cases.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn frame_cases_round_trip() {
-    check_frame("frame_hello");
-    check_frame("frame_welcome");
-    check_frame("frame_encode");
-    check_frame("frame_error");
-    check_frame("frame_recall_eos");
-    check_frame("frame_encode_vector_direct");
-}
-
-/// The ENCODE_VECTOR_DIRECT frame payload is `CBOR map ++ raw LE f32`.
+/// The ENCODE_VECTOR_DIRECT *frame* payload is `CBOR map ++ raw LE f32`.
 /// Decode the prefix to the struct, read the trailer into `vector`, then
-/// re-encode (CBOR prefix + trailer) and assert the whole frame is
-/// byte-exact.
-#[test]
-fn encode_vector_direct_frame_carries_trailing_vector() {
-    let name = "frame_encode_vector_direct";
+/// re-encode (CBOR prefix + trailer) and assert the whole frame is byte-exact.
+fn check_vector_frame(name: &str) {
     let bin = read_bin(name);
     let (frame, rest) = Frame::decode(&bin).expect("decode frame");
     assert!(rest.is_empty());
@@ -306,4 +171,186 @@ fn encode_vector_direct_frame_carries_trailing_vector() {
 
     let rebuilt = Frame::new(frame.opcode, frame.flags, frame.stream_id, payload).encode();
     assert_eq!(rebuilt, bin, "re-encoded frame != .bin");
+}
+
+// ---------------------------------------------------------------------------
+// Case registry, driven by `index.json`.
+//
+// The case list used to be a hand-written sequence of `check_payload::<T>(name)`
+// calls. It covered every case, but nothing said so: add a vector to the corpus
+// and Rust would silently not test it, while Python and TypeScript — both
+// index-driven — would fail loudly. Registering the handlers by name and
+// iterating the index closes that asymmetry.
+//
+// A `Box<dyn Fn(&str)>` is what lets heterogeneous `check_payload::<T>` share
+// one map: each monomorphised instance already has the shape `fn(&str)`.
+// ---------------------------------------------------------------------------
+
+type Checker = Box<dyn Fn(&str)>;
+
+fn registry() -> BTreeMap<&'static str, Checker> {
+    let mut m: BTreeMap<&'static str, Checker> = BTreeMap::new();
+
+    /// `payload!("case_name", TypeName)` — whole-buffer CBOR round-trip.
+    macro_rules! payload {
+        ($name:literal, $t:ty) => {
+            m.insert($name, Box::new(check_payload::<$t>) as Checker);
+        };
+    }
+
+    payload!("req_hello", HelloPayload);
+    payload!("req_auth", AuthPayload);
+    payload!("resp_welcome", WelcomePayload);
+    payload!("resp_auth_ok", AuthOkPayload);
+    payload!("req_encode", EncodeRequest);
+    payload!("req_encode_trace", EncodeRequest);
+    payload!("req_encode_allow_duplicates", EncodeRequest);
+    payload!("req_recall", RecallRequest);
+    payload!("req_forget", ForgetRequest);
+    payload!("req_encode_act_as", EncodeRequest);
+    payload!("req_recall_act_as", RecallRequest);
+    payload!("req_forget_act_as", ForgetRequest);
+    payload!("req_plan_act_as", PlanRequest);
+    payload!("req_reason_act_as", ReasonRequest);
+    payload!("req_entity_create_act_as", EntityCreateRequest);
+    payload!("resp_auth_ok_act_as", AuthOkPayload);
+    payload!("resp_error_act_as_denied", ErrorResponse);
+    payload!("resp_encode", EncodeResponse);
+    payload!("resp_encode_trace", EncodeResponse);
+    payload!("resp_recall", RecallResponseFrame);
+    payload!("resp_recall_trace", RecallResponseFrame);
+    payload!("req_memory_list", MemoryListRequest);
+    payload!("resp_memory_list", MemoryListResponseFrame);
+    payload!("req_memory_inspect", MemoryInspectRequest);
+    payload!("resp_memory_inspect", MemoryInspectResponse);
+    payload!("req_graph_fetch", GraphFetchRequest);
+    payload!("resp_graph_fetch", GraphFetchResponseFrame);
+    payload!("resp_forget", ForgetResponse);
+    payload!("req_entity_create", EntityCreateRequest);
+    payload!("resp_entity_create", EntityCreateResponse);
+    payload!("req_statement_create", StatementCreateRequest);
+    payload!("resp_statement_create", StatementCreateResponse);
+    payload!("req_relation_create", RelationCreateRequest);
+    payload!("resp_relation_create", RelationCreateResponse);
+    payload!("req_schema_upload", SchemaUploadRequest);
+    payload!("resp_schema_upload", SchemaUploadResponse);
+    payload!("req_materialize_procedural", MaterializeProceduralRequest);
+    payload!("resp_materialize_procedural", MaterializeProceduralResponse);
+    payload!("resp_entity_get", EntityGetResponse);
+    payload!("resp_entity_list", EntityListResponseFrame);
+    payload!("resp_entity_resolve", EntityResolveResponse);
+    payload!("resp_statement_get", StatementGetResponse);
+    payload!("resp_statement_list", StatementListResponseFrame);
+    payload!("resp_relation_list", RelationListFromResponseFrame);
+    payload!("resp_plan", PlanResponseFrame);
+    payload!("resp_plan_trace", PlanResponseFrame);
+    payload!("resp_reason", ReasonResponseFrame);
+    payload!("resp_reason_trace", ReasonResponseFrame);
+    payload!("resp_link", LinkResponse);
+    payload!("resp_txn_begin", TxnBeginResponse);
+    payload!("resp_txn_commit", TxnCommitResponse);
+    payload!("resp_txn_abort", TxnAbortResponse);
+    payload!("resp_get_capabilities", GetCapabilitiesResponse);
+    payload!("resp_subscribe_event", SubscriptionEvent);
+    payload!("req_space_create", SpaceCreateRequest);
+    payload!("req_space_list", SpaceListRequest);
+    payload!("req_space_delete", SpaceDeleteRequest);
+    payload!("resp_space_create", SpaceCreateResponse);
+    payload!("resp_space_list", SpaceListResponse);
+    payload!("resp_space_delete", SpaceDeleteResponse);
+    payload!("req_session_create", SessionCreateRequest);
+    payload!("req_session_list", SessionListRequest);
+    payload!("req_session_delete", SessionDeleteRequest);
+    payload!("resp_session_create", SessionCreateResponse);
+    payload!("resp_session_list", SessionListResponse);
+    payload!("resp_session_delete", SessionDeleteResponse);
+    payload!("req_extractor_list", ExtractorListRequest);
+    payload!("resp_extractor_list", ExtractorListResponseFrame);
+    payload!("resp_pong", PongResponse);
+    payload!("resp_server_ping", ServerPingResponse);
+
+    // One ERROR body per category; all share `ErrorResponse`.
+    payload!("resp_error_protocol", ErrorResponse);
+    payload!("resp_error_authentication", ErrorResponse);
+    payload!("resp_error_authorization", ErrorResponse);
+    payload!("resp_error_validation", ErrorResponse);
+    payload!("resp_error_not_found", ErrorResponse);
+    payload!("resp_error_conflict", ErrorResponse);
+    payload!("resp_error_resource_exhausted", ErrorResponse);
+    payload!("resp_error_internal", ErrorResponse);
+    payload!("resp_error_unavailable", ErrorResponse);
+
+    // Full-frame cases: 32-byte header + payload.
+    m.insert("frame_hello", Box::new(check_frame) as Checker);
+    m.insert("frame_welcome", Box::new(check_frame) as Checker);
+    m.insert("frame_encode", Box::new(check_frame) as Checker);
+    m.insert("frame_error", Box::new(check_frame) as Checker);
+    m.insert("frame_recall_eos", Box::new(check_frame) as Checker);
+    m.insert(
+        "frame_encode_vector_direct",
+        Box::new(check_frame) as Checker,
+    );
+
+    // The two ENCODE_VECTOR_DIRECT cases carry `CBOR map ++ raw LE f32`, so
+    // they need the prefix codec plus the trailing-vector seam rather than the
+    // whole-buffer decode the others use.
+    m.insert(
+        "req_encode_vector_direct",
+        Box::new(check_vector_payload) as Checker,
+    );
+    m.insert(
+        "frame_encode_vector_direct",
+        Box::new(check_vector_frame) as Checker,
+    );
+
+    m
+}
+
+/// Every case the vendored `index.json` declares.
+fn index_cases() -> Vec<String> {
+    let text = std::fs::read_to_string(corpus_dir().join("index.json")).expect("read index.json");
+    let index: serde_json::Value = serde_json::from_str(&text).expect("parse index.json");
+    index
+        .as_array()
+        .expect("index.json is an array")
+        .iter()
+        .map(|c| c["name"].as_str().expect("case name").to_string())
+        .collect()
+}
+
+#[test]
+fn every_corpus_case_has_a_handler() {
+    let reg = registry();
+    let cases = index_cases();
+    assert!(!cases.is_empty(), "index.json produced no cases");
+
+    let missing: Vec<&String> = cases
+        .iter()
+        .filter(|n| !reg.contains_key(n.as_str()))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "corpus cases with no Rust handler — add them to registry(), or they go untested \
+         here while Python and TypeScript check them: {missing:#?}"
+    );
+
+    // The other direction: a handler for a case the corpus no longer carries is
+    // dead weight that reads like coverage.
+    let names: std::collections::BTreeSet<&str> = cases.iter().map(String::as_str).collect();
+    let stale: Vec<&&str> = reg.keys().filter(|k| !names.contains(*k)).collect();
+    assert!(
+        stale.is_empty(),
+        "handlers for cases not in index.json — delete them: {stale:#?}"
+    );
+}
+
+#[test]
+fn all_corpus_cases_round_trip() {
+    let reg = registry();
+    for name in index_cases() {
+        let check = reg.get(name.as_str()).unwrap_or_else(|| {
+            panic!("no handler for {name}; every_corpus_case_has_a_handler should have caught this")
+        });
+        check(&name);
+    }
 }
