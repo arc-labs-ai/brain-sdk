@@ -39,7 +39,20 @@ Homepage = "https://github.com/arc-labs-ai/brain-sdk"
 Repository = "https://github.com/arc-labs-ai/brain-sdk"
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.16"]
+
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+# Deliberately narrow: rules that catch bugs, not rules that reformat.
+#   F   pyflakes      -- undefined names, unused imports, bad f-strings
+#   E9  syntax errors
+#   B   bugbear       -- likely-wrong constructs (blind excepts, lost chaining)
+# The full default set flags 476 style issues here; gating on those would bury
+# a real finding in import ordering. This selection found four, including two
+# public re-exports missing from __all__.
+select = ["F", "E9", "B"]
 
 [tool.pytest.ini_options]
 # importlib import mode lets the feature folders (tests/encode/, tests/recall/,

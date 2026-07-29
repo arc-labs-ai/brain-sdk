@@ -13,7 +13,6 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
-import cbor2
 import pytest
 
 from brain_db_sdk.wire.cbor import (

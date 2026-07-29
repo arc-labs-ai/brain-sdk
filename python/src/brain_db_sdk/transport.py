@@ -43,7 +43,10 @@ def read_frame(sock: socket.socket, buf: bytearray) -> Frame:
         except TruncatedFrame:
             chunk = sock.recv(READ_CHUNK)
             if not chunk:
-                raise ConnectionClosed("connection closed by peer")
+                # `from None`: a short frame followed by EOF means the peer
+                # hung up mid-frame. The TruncatedFrame was the prompt to read
+                # more, not the failure.
+                raise ConnectionClosed("connection closed by peer") from None
             buf.extend(chunk)
             continue
         # Drop exactly the frame's bytes, keeping the tail for next time.

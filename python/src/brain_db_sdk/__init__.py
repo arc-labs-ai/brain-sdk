@@ -45,11 +45,17 @@ from .errors import (
 )
 
 # HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).
-from . import http  # noqa: F401
+from . import http
 from .http import BrainHttpClient, BrainHttpError
 
 __all__ = [
     "wire",
+    # The HTTP tier was imported here for re-export but never listed, so
+    # `from brain_db_sdk import *` did not carry it and strict type checkers
+    # treated it as a private re-export for downstream users.
+    "http",
+    "BrainHttpClient",
+    "BrainHttpError",
     "BrainClient",
     "ClientConfig",
     "ConnectionInfo",

@@ -129,9 +129,23 @@ def _poll_recall(
 
 @pytest.fixture
 def it() -> It:
-    """The integration target, or ``pytest.skip`` when it is not configured."""
+    """The integration target, or ``pytest.skip`` when it is not configured.
+
+    ``BRAIN_SDK_IT_REQUIRED=1`` turns the skip into a failure. A skipped
+    integration suite and a passing one look nearly identical in CI output, so
+    a misconfigured server would otherwise read as green; CI sets the flag
+    wherever a server is supposed to be reachable, while the default keeps
+    ``pytest`` working offline.
+    """
     target = It.from_env()
     if target is None:
+        if os.environ.get("BRAIN_SDK_IT_REQUIRED") == "1":
+            pytest.fail(
+                "BRAIN_SDK_IT_REQUIRED=1 but BRAIN_SDK_IT_DATA is unset — the "
+                "integration server was expected to be reachable. Unset the flag to "
+                "allow skipping, or boot one with scripts/it-server.sh.",
+                pytrace=False,
+            )
         pytest.skip("integration server not configured (set BRAIN_SDK_IT_DATA; see scripts/it-server.sh)")
     return target
 

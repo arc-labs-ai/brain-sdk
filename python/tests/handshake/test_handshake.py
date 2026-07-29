@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from brain_db_sdk.errors import ServerError
 from brain_db_sdk import Auth, BrainClient, new_id
 
 
@@ -38,6 +39,12 @@ def test_two_agents_get_distinct_sessions(it):
 
 
 def test_bad_token_is_refused(it):
-    # A token the server never minted must not resolve to a session.
-    with pytest.raises(Exception):
+    # A token the server never minted must not resolve to a session. Asserting
+    # the specific error, not a blind `Exception`: a bare `raises(Exception)`
+    # would also pass on a connection refusal or a codec bug, which is the
+    # opposite of what this is checking.
+    with pytest.raises(ServerError) as excinfo:
         BrainClient.connect(it.data_host, it.data_port, Auth.token(b"brain_not-a-real-key"))
+    assert "unknown API key" in str(excinfo.value), (
+        f"expected an authentication rejection, got: {excinfo.value}"
+    )

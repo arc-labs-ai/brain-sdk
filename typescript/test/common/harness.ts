@@ -35,7 +35,20 @@ export interface ItTarget {
  * configured (so the suite skips cleanly offline). */
 export function itTarget(): ItTarget | null {
   const data = process.env.BRAIN_SDK_IT_DATA;
-  if (!data) return null;
+  if (!data) {
+    // A skipped integration suite and a passing one look nearly identical in
+    // CI output, so a misconfigured server would read as green. CI sets
+    // BRAIN_SDK_IT_REQUIRED=1 wherever a server is supposed to be reachable;
+    // the default keeps `vitest` working offline.
+    if (process.env.BRAIN_SDK_IT_REQUIRED === "1") {
+      throw new Error(
+        "BRAIN_SDK_IT_REQUIRED=1 but BRAIN_SDK_IT_DATA is unset — the integration " +
+          "server was expected to be reachable. Unset the flag to allow skipping, " +
+          "or boot one with scripts/it-server.sh.",
+      );
+    }
+    return null;
+  }
   const [dataHost, dataPort] = splitHostPort(data);
   const [adminHost, adminPort] = splitHostPort(process.env.BRAIN_SDK_IT_ADMIN ?? "127.0.0.1:19092");
   return {

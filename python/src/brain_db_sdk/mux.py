@@ -233,7 +233,9 @@ class MuxConnection:
         try:
             item = q.get(timeout=self._request_timeout)
         except queue.Empty:
-            raise BrainTimeout(self._request_timeout)
+            # `from None`: the empty queue is how a timeout is detected, not a
+            # cause worth showing a caller.
+            raise BrainTimeout(self._request_timeout) from None
         if isinstance(item, _Closed):
             raise item.error
         return item

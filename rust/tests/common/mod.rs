@@ -167,6 +167,18 @@ pub fn hex16(id: &[u8; 16]) -> String {
 /// let Some(it) = common::It::from_env() else { return common::skip("name"); };
 /// ```
 pub fn skip(what: &str) {
+    // A skipped test still reports `ok`, because libtest has no skip state — so
+    // a CI run against a misconfigured server looks identical to one that
+    // passed. `BRAIN_SDK_IT_REQUIRED=1` turns that silence into a failure, and
+    // CI sets it wherever a server is supposed to be reachable. Locally the
+    // default stays a skip, so `cargo test` works offline.
+    if std::env::var("BRAIN_SDK_IT_REQUIRED").as_deref() == Ok("1") {
+        panic!(
+            "{what}: BRAIN_SDK_IT_REQUIRED=1 but BRAIN_SDK_IT_DATA is unset — the \
+             integration server was expected to be reachable. Unset the flag to \
+             allow skipping, or boot one with scripts/it-server.sh."
+        );
+    }
     eprintln!(
         "SKIP {what}: integration server not configured \
          (set BRAIN_SDK_IT_DATA; see scripts/it-server.sh)"
