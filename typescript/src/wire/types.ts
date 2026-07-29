@@ -2979,6 +2979,176 @@ export function decodeSchemaUpload(bytes: Uint8Array): SchemaUploadRequest {
   };
 }
 
+/**
+ * SCHEMA_REPLACE (`0x0127`) — destructive namespace swap.
+ *
+ * Unlike {@link SchemaUploadRequest}, which merges, this DROPS every declared
+ * row in the namespace before the new document lands. Entities whose type
+ * disappears survive as orphans: still readable as plain memories, no longer
+ * enriched from the typed-graph tables.
+ *
+ * `forceDropExisting` MUST be `true` — the server rejects `false` with
+ * `InvalidRequest`. It is deliberately not optional, so the irreversible
+ * intent is written at the call site.
+ */
+export interface SchemaReplaceRequest {
+  schemaDocument: string;
+  forceDropExisting: boolean;
+  requestId: Uint8Array;
+}
+
+/** Encode a SCHEMA_REPLACE (`0x0127`) request payload. */
+export function encodeSchemaReplace(p: SchemaReplaceRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["schema_document", p.schemaDocument],
+      ["force_drop_existing", p.forceDropExisting],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** Decode a SCHEMA_REPLACE (`0x0127`) request payload. */
+export function decodeSchemaReplace(bytes: Uint8Array): SchemaReplaceRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    schemaDocument: asStr(field(m, "schema_document")),
+    forceDropExisting: asBool(field(m, "force_drop_existing")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
+/**
+ * SCHEMA_REPLACE_RESP (`0x01A7`).
+ *
+ * `droppedCount` is how many declared rows were removed before the new schema
+ * took effect — the number a caller needs to understand what the swap
+ * destroyed. `schemaVersion` is always greater than the pre-replace version.
+ */
+export interface SchemaReplaceResponse {
+  namespace: string;
+  schemaVersion: number;
+  droppedCount: number;
+  validationErrors: SchemaValidationErrorWire[];
+}
+
+/** Encode a SCHEMA_REPLACE_RESP (`0x01A7`) payload. */
+export function encodeSchemaReplaceResponse(p: SchemaReplaceResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["schema_version", p.schemaVersion],
+      ["dropped_count", p.droppedCount],
+      [
+        "validation_errors",
+        p.validationErrors.map(
+          (e) =>
+            new Map<string, unknown>([
+              ["code", e.code],
+              ["message", e.message],
+              ["line", e.line],
+              ["column", e.column],
+              ["length", e.length],
+              ["severity", e.severity],
+            ]),
+        ),
+      ],
+    ]),
+  );
+}
+
+/** Decode a SCHEMA_REPLACE_RESP (`0x01A7`) payload. */
+export function decodeSchemaReplaceResponse(bytes: Uint8Array): SchemaReplaceResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    schemaVersion: asNum(field(m, "schema_version")),
+    droppedCount: asNum(field(m, "dropped_count")),
+    validationErrors: asArray(field(m, "validation_errors")).map((v) => {
+      const e = asMap(v);
+      return {
+        code: asStr(field(e, "code")),
+        message: asStr(field(e, "message")),
+        line: asNum(field(e, "line")),
+        column: asNum(field(e, "column")),
+        length: asNum(field(e, "length")),
+        severity: asNum(field(e, "severity")),
+      };
+    }),
+  };
+}
+
+/**
+ * Why a stream was cancelled.
+ *
+ * This is the CBOR shape of Brain's `CancellationReason` Rust enum: serde
+ * encodes unit variants as bare strings and the payload variant as a
+ * single-key map, so the union mirrors the bytes rather than wrapping them.
+ */
+export type CancellationReason = "ClientUnneeded" | "Timeout" | { Other: string };
+
+/**
+ * CANCEL_STREAM (`0x0050`) — stop an in-flight stream.
+ *
+ * `targetStreamId` names the stream to stop; the request itself travels on a
+ * DIFFERENT stream id so it does not queue behind the frames it is cancelling.
+ */
+export interface CancelStreamRequest {
+  targetStreamId: number;
+  reason: CancellationReason;
+}
+
+/** Encode a CANCEL_STREAM (`0x0050`) request payload. */
+export function encodeCancelStream(p: CancelStreamRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["target_stream_id", p.targetStreamId],
+      [
+        "reason",
+        typeof p.reason === "string"
+          ? p.reason
+          : new Map<string, unknown>([["Other", p.reason.Other]]),
+      ],
+    ]),
+  );
+}
+
+/** Decode a CANCEL_STREAM (`0x0050`) request payload. */
+export function decodeCancelStream(bytes: Uint8Array): CancelStreamRequest {
+  const m = asMap(fromCbor(bytes));
+  const raw = field(m, "reason");
+  const reason: CancellationReason =
+    typeof raw === "string"
+      ? (raw as CancellationReason)
+      : { Other: asStr(field(asMap(raw), "Other")) };
+  return { targetStreamId: asNum(field(m, "target_stream_id")), reason };
+}
+
+/** CANCEL_STREAM_ACK (`0x00D0`). */
+export interface CancelStreamAck {
+  targetStreamId: number;
+  cancelledAtUnixNanos: bigint;
+}
+
+/** Encode a CANCEL_STREAM_ACK (`0x00D0`) payload. */
+export function encodeCancelStreamAck(p: CancelStreamAck): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["target_stream_id", p.targetStreamId],
+      ["cancelled_at_unix_nanos", p.cancelledAtUnixNanos],
+    ]),
+  );
+}
+
+/** Decode a CANCEL_STREAM_ACK (`0x00D0`) payload. */
+export function decodeCancelStreamAck(bytes: Uint8Array): CancelStreamAck {
+  const m = asMap(fromCbor(bytes));
+  return {
+    targetStreamId: asNum(field(m, "target_stream_id")),
+    cancelledAtUnixNanos: asBig(field(m, "cancelled_at_unix_nanos")),
+  };
+}
+
 /** One schema validation diagnostic (location + message) returned by an upload or validate call. */
 export interface SchemaValidationErrorWire {
   code: string;

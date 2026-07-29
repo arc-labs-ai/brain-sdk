@@ -99,6 +99,10 @@ import {
   type SchemaListItemWire,
   type SchemaListRequest,
   type SchemaListResponseFrame,
+  type CancelStreamAck,
+  type CancellationReason,
+  type SchemaReplaceRequest,
+  type SchemaReplaceResponse,
   type SchemaUploadRequest,
   type SchemaUploadResponse,
   type SchemaValidateRequest,
@@ -141,6 +145,8 @@ import {
   decodeRelationListToResponse,
   decodeSchemaGetResponse,
   decodeSchemaListResponse,
+  decodeCancelStreamAck,
+  decodeSchemaReplaceResponse,
   decodeSchemaUploadResponse,
   decodeSchemaValidateResponse,
   decodeStatementCreateResponse,
@@ -228,6 +234,8 @@ import {
   encodeRelationListTo,
   encodeSchemaGet,
   encodeSchemaList,
+  encodeCancelStream,
+  encodeSchemaReplace,
   encodeSchemaUpload,
   encodeSchemaValidate,
   encodeStatementCreate,
@@ -260,8 +268,13 @@ function uuidV5(namespace: Uint8Array, name: Uint8Array): Uint8Array {
   h.update(name);
   const d = new Uint8Array(h.digest()).subarray(0, 16);
   const out = new Uint8Array(d);
-  out[6] = (out[6] & 0x0f) | 0x50; // version 5
-  out[8] = (out[8] & 0x3f) | 0x80; // RFC-4122 variant
+  // `noUncheckedIndexedAccess` types every index read as `T | undefined`, so
+  // `out[6] & 0x0f` does not compile even though SHA-1 always yields 20 bytes
+  // and this slice is always 16. Read through a non-null assertion rather than
+  // widening the tsconfig — the length is a property of the digest, not
+  // something the type system can see.
+  out[6] = (out[6]! & 0x0f) | 0x50; // version 5
+  out[8] = (out[8]! & 0x3f) | 0x80; // RFC-4122 variant
   return out;
 }
 
@@ -964,6 +977,51 @@ export class BrainClient {
     );
     this.expect(frame.opcode, Opcode.SchemaValidateResp, "SCHEMA_VALIDATE_RESP");
     return decodeSchemaValidateResponse(frame.payload);
+  }
+
+  /**
+   * Replace a namespace's schema wholesale (SCHEMA_REPLACE).
+   *
+   * DESTRUCTIVE. Every declared row in the namespace is dropped before the new
+   * document lands; entities whose type disappears survive as orphans,
+   * readable as plain memories but no longer enriched from the typed-graph
+   * tables. Use {@link uploadSchema} for the additive, versioned path — this is
+   * for when the shape itself is wrong.
+   *
+   * `forceDropExisting` must be `true`; the server rejects `false` with
+   * `InvalidRequest`.
+   */
+  async replaceSchema(request: SchemaReplaceRequest): Promise<SchemaReplaceResponse> {
+    const frame = await this.conn.requestOne(Opcode.SchemaReplaceReq, encodeSchemaReplace(request));
+    this.expect(frame.opcode, Opcode.SchemaReplaceResp, "SCHEMA_REPLACE_RESP");
+    return decodeSchemaReplaceResponse(frame.payload);
+  }
+
+  /**
+   * Cancel an in-flight stream (CANCEL_STREAM).
+   *
+   * `targetStreamId` is the id of the stream to stop — the `*Frames` methods
+   * expose it. The request travels on its OWN stream id, so it does not queue
+   * behind the frames it is cancelling; the server replies CANCEL_STREAM_ACK
+   * and stops emitting for the target.
+   *
+   * Without this, a consumer that abandons a streamed `recall` leaves the
+   * server producing frames nobody reads.
+   *
+   * Cancelling a stream that already finished is not an error — the server
+   * acknowledges regardless, so a racing consumer needn't coordinate with the
+   * reader loop.
+   */
+  async cancelStream(
+    targetStreamId: number,
+    reason: CancellationReason = "ClientUnneeded",
+  ): Promise<CancelStreamAck> {
+    const frame = await this.conn.requestOne(
+      Opcode.CancelStream,
+      encodeCancelStream({ targetStreamId, reason }),
+    );
+    this.expect(frame.opcode, Opcode.CancelStreamAck, "CANCEL_STREAM_ACK");
+    return decodeCancelStreamAck(frame.payload);
   }
 
   /** Begin a transaction (TXN_BEGIN). The client mints `txnId`. */

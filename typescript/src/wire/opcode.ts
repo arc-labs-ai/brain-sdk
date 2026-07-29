@@ -26,6 +26,10 @@ export const Opcode = {
   Pong: 0x0090,
   ClientPong: 0x0011,
   ServerPing: 0x0091,
+  // Stream control. CancelStream names an in-flight stream in its body and
+  // travels on its own stream id; the server answers CancelStreamAck.
+  CancelStream: 0x0050,
+  CancelStreamAck: 0x00d0,
 
   // v1 cognitive verbs.
   EncodeReq: 0x0020,
@@ -93,6 +97,10 @@ export const Opcode = {
   SchemaListResp: 0x01a2,
   SchemaValidateReq: 0x0123,
   SchemaValidateResp: 0x01a3,
+  // Destructive namespace swap — drops every declared row before the new
+  // document lands. Distinct from SchemaUpload, which merges. Brain §03.05.
+  SchemaReplaceReq: 0x0127,
+  SchemaReplaceResp: 0x01a7,
 
   // Extractor introspection (read-only; extraction is always-on).
   ExtractorListReq: 0x0124,
