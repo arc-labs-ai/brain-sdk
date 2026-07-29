@@ -14,7 +14,7 @@ import { SERVER_AGENT_ID, TEST_AUTH } from "./_auth.js";
 import { ProtocolError } from "../src/errors.js";
 import { Pool } from "../src/pool.js";
 import { FrameChannel } from "../src/transport.js";
-import { FLAG_EOS } from "../src/wire/frame.js";
+import { FLAG_EOS, type Frame } from "../src/wire/frame.js";
 import { Opcode } from "../src/wire/opcode.js";
 import {
   type AuthOkPayload,
@@ -49,7 +49,12 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
       authMethods: [],
     },
   };
-  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome(welcome),
+  });
 
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
@@ -68,10 +73,15 @@ async function serveMember(sock: net.Socket, tag: bigint): Promise<void> {
     namespace: "",
     serverTimeUnixNanos: 1n,
   };
-  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk(authOk),
+  });
 
   for (;;) {
-    let frame;
+    let frame: Frame;
     try {
       frame = await chan.read();
     } catch {

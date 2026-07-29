@@ -99,7 +99,12 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
       authMethods: [],
     },
   };
-  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome(welcome),
+  });
 
   const authFrame = await chan.read();
   // Client sends a credential but no agent id; the server assigns one.
@@ -119,7 +124,12 @@ async function serveTwoConcurrent(sock: net.Socket): Promise<void> {
     namespace: "",
     serverTimeUnixNanos: 1n,
   };
-  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk(authOk),
+  });
 
   // Read both requests before answering either, then answer in reverse order.
   const f1 = await chan.read();
@@ -203,10 +213,7 @@ describe("mux connection", () => {
 // auto-reply must come purely from the pump.
 // ===========================================================================
 
-async function serveKeepalive(
-  sock: net.Socket,
-  resolvePong: (f: Frame) => void,
-): Promise<void> {
+async function serveKeepalive(sock: net.Socket, resolvePong: (f: Frame) => void): Promise<void> {
   const chan = new FrameChannel(sock);
 
   const helloFrame = await chan.read();
@@ -223,7 +230,12 @@ async function serveKeepalive(
       authMethods: [],
     },
   };
-  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome(welcome),
+  });
 
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
@@ -242,7 +254,12 @@ async function serveKeepalive(
     namespace: "",
     serverTimeUnixNanos: 1n,
   };
-  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk(authOk),
+  });
 
   // Idle-timer heartbeat.
   await chan.write({

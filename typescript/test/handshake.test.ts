@@ -223,5 +223,4 @@ describe("connection / handshake", () => {
       server.close();
     }
   });
-
 });

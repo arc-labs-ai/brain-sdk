@@ -27,12 +27,18 @@ describe.skipIf(T === null)("forget (integration)", () => {
       const req = new RecallBuilder("When is the meeting?").text(true).build();
       // Wait until it is actually recallable, so the post-forget assertion is
       // meaningful (not vacuously true because the index lagged).
-      const before = await recallUntil(client, req, (a) => a.memories.some((m) => m.memoryId === id));
+      const before = await recallUntil(client, req, (a) =>
+        a.memories.some((m) => m.memoryId === id),
+      );
       expect(before.memories.some((m) => m.memoryId === id)).toBe(true);
 
       await client.forget(new ForgetBuilder(id).withMode(ForgetMode.Soft).build());
 
-      const after = await recallUntil(client, req, (a) => !a.memories.some((m) => m.memoryId === id));
+      const after = await recallUntil(
+        client,
+        req,
+        (a) => !a.memories.some((m) => m.memoryId === id),
+      );
       expect(after.memories.some((m) => m.memoryId === id)).toBe(false);
     } finally {
       await client.close();

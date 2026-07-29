@@ -1,0 +1,101 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+
+  // Biome covers both halves of what the other two SDKs already had: Rust runs
+  // `rustfmt` + `clippy -D warnings`, Python runs `ruff format` + `ruff check`.
+  // TypeScript had a linter only, and no formatter at all.
+  //
+  // `vcs.useIgnoreFile` is off deliberately: `.gitignore` lives at the repo
+  // root, not in this package, and Biome errors out when it cannot find one
+  // beside the config. The excludes below are explicit instead.
+  "vcs": { "enabled": false },
+  "files": {
+    "includes": ["**", "!dist", "!node_modules", "!coverage"]
+  },
+
+  // Matched to the hand-formatting already in the tree so adopting the
+  // formatter is not also a restyling: 2-space indent, 100 columns, double
+  // quotes, semicolons, trailing commas.
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+
+  "linter": {
+    "enabled": true,
+    // Biome's type-aware rules live behind this domain rather than reading
+    // tsconfig, so they must be asked for explicitly.
+    "domains": { "types": "all" },
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error"
+      },
+      "style": {
+        // `tsconfig.json` sets `noUncheckedIndexedAccess`, so every index read
+        // is `T | undefined` and the `!` that follows is how you discharge it.
+        // Enabling this rule would push the codebase toward dropping the
+        // stricter compiler setting, which is the wrong trade.
+        "noNonNullAssertion": "off"
+      },
+      // Type-aware rules that are still in nursery, so the `types` domain does
+      // not raise them to error on its own. These are asked for by name because
+      // each has already paid for itself here:
+      //   noBaseToString      — found `String(v)` rendering a query parameter as
+      //                         the literal `[object Object]`, and the same in
+      //                         the CBOR encoder's error message.
+      //   noFloatingPromises  — a dropped promise in the mux is a lost frame.
+      //   noMisusedPromises   — an async callback passed where sync is expected.
+      //   useAwaitThenable    — awaiting a non-promise silently yields the value.
+      //
+      // `noUselessTypeConversion` is deliberately NOT among them: it reads
+      // `Number((arg >> 8n) & 0xffn)` in `wire/cbor.ts` as "calling Number() on
+      // a number" when both operands are bigint literals. Taking its advice
+      // would hand a bigint to `pushByte`, whose `b & 0xff` throws "Cannot mix
+      // BigInt and other types" — in the byte-exact encoder every conformance
+      // vector depends on.
+      "nursery": {
+        "noBaseToString": "error",
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error",
+        "useAwaitThenable": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        // Biome 2.5 narrows a class field to its initializer's literal type and
+        // ignores later assignments. It reported `if (this.ended)` in `mux.ts`
+        // as always-falsy while four separate branches set it true; acting on
+        // that would delete the guard that terminates a subscription. Off until
+        // the inference handles mutation.
+        "noUnnecessaryConditions": "off"
+      }
+    }
+  },
+
+  // Import order is meaningful here only to humans, and reordering would churn
+  // every file for no correctness gain.
+  "assist": {
+    "actions": { "source": { "organizeImports": "off" } }
+  },
+
+  "overrides": [
+    {
+      // The test suites drive deliberately malformed input through the codecs
+      // and assert on the failure, so they hold values the types say cannot
+      // exist.
+      "includes": ["test/**"],
+      "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+    }
+  ]
+}

@@ -106,7 +106,12 @@ async function handshake(chan: FrameChannel): Promise<void> {
       authMethods: [],
     },
   };
-  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome(welcome),
+  });
 
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
@@ -125,7 +130,12 @@ async function handshake(chan: FrameChannel): Promise<void> {
     namespace: "",
     serverTimeUnixNanos: 1n,
   };
-  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk(authOk),
+  });
 }
 
 async function serve(sock: net.Socket): Promise<void> {
@@ -153,28 +163,48 @@ async function serve(sock: net.Socket): Promise<void> {
     pendingStages: [],
     hasActiveSchema: true,
   };
-  await chan.write({ opcode: Opcode.EncodeVectorDirectResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeEncodeResponse(encResp) });
+  await chan.write({
+    opcode: Opcode.EncodeVectorDirectResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeEncodeResponse(encResp),
+  });
 
   // RELATION_GET.
   f = await chan.read();
   expect(f.opcode).toBe(Opcode.RelationGetReq);
   expect(decodeRelationGet(f.payload).followSupersession).toBe(true);
   const getResp: RelationGetResponse = { relation: RELATION_VIEW, returnedViaSupersession: true };
-  await chan.write({ opcode: Opcode.RelationGetResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeRelationGetResponse(getResp) });
+  await chan.write({
+    opcode: Opcode.RelationGetResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeRelationGetResponse(getResp),
+  });
 
   // RELATION_SUPERSEDE.
   f = await chan.read();
   expect(f.opcode).toBe(Opcode.RelationSupersedeReq);
   expect(decodeRelationSupersede(f.payload).newRelation.relationType).toBe("mentored");
   const supResp: RelationSupersedeResponse = { newRelationId: NEW_RELATION_ID, version: 3 };
-  await chan.write({ opcode: Opcode.RelationSupersedeResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeRelationSupersedeResponse(supResp) });
+  await chan.write({
+    opcode: Opcode.RelationSupersedeResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeRelationSupersedeResponse(supResp),
+  });
 
   // RELATION_TOMBSTONE.
   f = await chan.read();
   expect(f.opcode).toBe(Opcode.RelationTombstoneReq);
   expect(decodeRelationTombstone(f.payload).reason).toBe("merged away");
   const tombResp: RelationTombstoneResponse = { tombstonedAtUnixNanos: 123n };
-  await chan.write({ opcode: Opcode.RelationTombstoneResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeRelationTombstoneResponse(tombResp) });
+  await chan.write({
+    opcode: Opcode.RelationTombstoneResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeRelationTombstoneResponse(tombResp),
+  });
 
   // RELATION_TRAVERSE (streamed; single EOS frame).
   f = await chan.read();
@@ -198,7 +228,12 @@ async function serve(sock: net.Socket): Promise<void> {
     truncated: false,
     isFinal: true,
   };
-  await chan.write({ opcode: Opcode.RelationTraverseResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeRelationTraverseResponse(travResp) });
+  await chan.write({
+    opcode: Opcode.RelationTraverseResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeRelationTraverseResponse(travResp),
+  });
 
   // QUERY_EXPLAIN.
   f = await chan.read();
@@ -229,14 +264,24 @@ async function serve(sock: net.Socket): Promise<void> {
     "RetrieverWire encodes as the variant-name string; #[repr(u8)] is a memory-layout hint, not a wire encoding",
   ).toEqual({ Explicit: ["Semantic", "Graph"] });
   const explainResp: QueryExplainResponse = { planText: "semantic ∪ graph", estimatedCostMs: 1.25 };
-  await chan.write({ opcode: Opcode.QueryExplainResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeQueryExplainResponse(explainResp) });
+  await chan.write({
+    opcode: Opcode.QueryExplainResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeQueryExplainResponse(explainResp),
+  });
 
   // QUERY_TRACE.
   f = await chan.read();
   expect(f.opcode).toBe(Opcode.QueryTraceReq);
   expect(decodeQueryTrace(f.payload).query.text).toBe("trace me");
   const traceResp: QueryTraceResponse = { traceText: "stage: semantic 0.4ms", totalLatencyMs: 2.5 };
-  await chan.write({ opcode: Opcode.QueryTraceResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeQueryTraceResponse(traceResp) });
+  await chan.write({
+    opcode: Opcode.QueryTraceResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeQueryTraceResponse(traceResp),
+  });
 
   const bye = await chan.read();
   expect(bye.opcode).toBe(Opcode.Bye);

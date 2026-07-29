@@ -30,10 +30,9 @@ describe.skipIf(T === null)("idempotency (integration)", () => {
       const first = await client.encode(req);
       const second = await client.encode(req);
 
-      expect(
-        second.memoryId,
-        "same requestId must return the same memory, not a second row",
-      ).toBe(first.memoryId);
+      expect(second.memoryId, "same requestId must return the same memory, not a second row").toBe(
+        first.memoryId,
+      );
       expect(second.lsn, "the retry replays the cached response").toBe(first.lsn);
     } finally {
       await client.close();

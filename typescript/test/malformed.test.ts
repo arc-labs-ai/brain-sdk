@@ -50,9 +50,7 @@ interface CborCase {
   expect: string;
 }
 
-const V = JSON.parse(
-  readFileSync(join(corpusDir, "..", "malformed.json"), "utf8"),
-) as {
+const V = JSON.parse(readFileSync(join(corpusDir, "..", "malformed.json"), "utf8")) as {
   base: { opcode: number; flags: number; stream_id: number; payload_hex: string };
   cases: FrameCase[];
   cbor_cases: CborCase[];
@@ -65,12 +63,7 @@ function hexDecode(s: string): Uint8Array {
 }
 
 function validFrame(): Uint8Array {
-  return encodeFrame(
-    V.base.opcode,
-    V.base.stream_id,
-    V.base.flags,
-    hexDecode(V.base.payload_hex),
-  );
+  return encodeFrame(V.base.opcode, V.base.stream_id, V.base.flags, hexDecode(V.base.payload_hex));
 }
 
 /**
@@ -159,10 +152,9 @@ describe("malformed CBOR errors rather than crashing", () => {
         expect(thrown, `${c.name}: decoded without error — ${c.why}`).toBeDefined();
       }
       if (thrown !== undefined) {
-        expect(
-          thrown,
-          `${c.name}: escaped the SDK's error taxonomy — ${c.why}`,
-        ).toBeInstanceOf(CborError);
+        expect(thrown, `${c.name}: escaped the SDK's error taxonomy — ${c.why}`).toBeInstanceOf(
+          CborError,
+        );
       }
     });
   }

@@ -348,8 +348,11 @@ function withDefaults(config: ClientConfig): ResolvedConfig {
   return {
     clientId: config.clientId ?? DEFAULT_CLIENT_ID,
     supportedVersions: config.supportedVersions ?? [1],
-    capabilities:
-      config.capabilities ?? { streaming: true, compressionZstd: false, serverPush: false },
+    capabilities: config.capabilities ?? {
+      streaming: true,
+      compressionZstd: false,
+      serverPush: false,
+    },
     auth: config.auth,
     connectTimeoutMs: config.connectTimeoutMs ?? 10_000,
     requestTimeoutMs: config.requestTimeoutMs ?? 30_000,
@@ -389,11 +392,7 @@ export class BrainClient {
    * The `auth` credential in `config` is mandatory — the server resolves the
    * connection's identity (agent, namespace, permissions) from it.
    */
-  static async connect(
-    host: string,
-    port: number,
-    config: ClientConfig,
-  ): Promise<BrainClient> {
+  static async connect(host: string, port: number, config: ClientConfig): Promise<BrainClient> {
     const cfg = withDefaults(config);
     const hello: HelloPayload = {
       clientId: cfg.clientId,
@@ -534,10 +533,7 @@ export class BrainClient {
    * memory / no bundle exists for the id.
    */
   async memoryInspect(request: MemoryInspectRequest): Promise<MemoryInspectResponse> {
-    const frame = await this.conn.requestOne(
-      Opcode.MemoryInspectReq,
-      encodeMemoryInspect(request),
-    );
+    const frame = await this.conn.requestOne(Opcode.MemoryInspectReq, encodeMemoryInspect(request));
     this.expect(frame.opcode, Opcode.MemoryInspectResp, "MEMORY_INSPECT_RESP");
     return decodeMemoryInspectResponse(frame.payload);
   }
@@ -580,10 +576,7 @@ export class BrainClient {
    * `created = false`.
    */
   async createSession(request: SessionCreateRequest): Promise<SessionCreateResponse> {
-    const frame = await this.conn.requestOne(
-      Opcode.SessionCreateReq,
-      encodeSessionCreate(request),
-    );
+    const frame = await this.conn.requestOne(Opcode.SessionCreateReq, encodeSessionCreate(request));
     this.expect(frame.opcode, Opcode.SessionCreateResp, "SESSION_CREATE_RESP");
     return decodeSessionCreateResponse(frame.payload);
   }
@@ -604,10 +597,7 @@ export class BrainClient {
    * (`sessionId = 0`) is non-deletable.
    */
   async deleteSession(request: SessionDeleteRequest): Promise<SessionDeleteResponse> {
-    const frame = await this.conn.requestOne(
-      Opcode.SessionDeleteReq,
-      encodeSessionDelete(request),
-    );
+    const frame = await this.conn.requestOne(Opcode.SessionDeleteReq, encodeSessionDelete(request));
     this.expect(frame.opcode, Opcode.SessionDeleteResp, "SESSION_DELETE_RESP");
     return decodeSessionDeleteResponse(frame.payload);
   }
@@ -618,7 +608,9 @@ export class BrainClient {
    * pages (completeness, not disjointness) — dedup by id if needed. For the raw
    * streamed frames (cursors, `isFinal`), use {@link graphFetchFrames}.
    */
-  async graphFetch(request: GraphFetchRequest): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
+  async graphFetch(
+    request: GraphFetchRequest,
+  ): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
     const frames = await this.graphFetchFrames(request);
     return {
       nodes: frames.flatMap((f) => f.nodes),
@@ -732,9 +724,7 @@ export class BrainClient {
   }
 
   /** Retire a statement with a coded reason (STATEMENT_TOMBSTONE). Recoverable. */
-  async tombstoneStatement(
-    request: StatementReasonRequest,
-  ): Promise<StatementTombstoneResponse> {
+  async tombstoneStatement(request: StatementReasonRequest): Promise<StatementTombstoneResponse> {
     const frame = await this.conn.requestOne(
       Opcode.StatementTombstoneReq,
       encodeStatementReason(request),
@@ -802,9 +792,7 @@ export class BrainClient {
    * Revise a relation with a new one (RELATION_SUPERSEDE), keeping both on the
    * same chain so history is preserved.
    */
-  async supersedeRelation(
-    request: RelationSupersedeRequest,
-  ): Promise<RelationSupersedeResponse> {
+  async supersedeRelation(request: RelationSupersedeRequest): Promise<RelationSupersedeResponse> {
     const frame = await this.conn.requestOne(
       Opcode.RelationSupersedeReq,
       encodeRelationSupersede(request),
@@ -817,9 +805,7 @@ export class BrainClient {
    * Soft-retire a relation with an audit reason (RELATION_TOMBSTONE). The row
    * survives but drops out of traversal.
    */
-  async tombstoneRelation(
-    request: RelationTombstoneRequest,
-  ): Promise<RelationTombstoneResponse> {
+  async tombstoneRelation(request: RelationTombstoneRequest): Promise<RelationTombstoneResponse> {
     const frame = await this.conn.requestOne(
       Opcode.RelationTombstoneReq,
       encodeRelationTombstone(request),
@@ -908,10 +894,7 @@ export class BrainClient {
    * active user schema namespaces, and the embedding dimensionality.
    */
   async capabilities(): Promise<GetCapabilitiesResponse> {
-    const frame = await this.conn.requestOne(
-      Opcode.GetCapabilitiesReq,
-      encodeGetCapabilities({}),
-    );
+    const frame = await this.conn.requestOne(Opcode.GetCapabilitiesReq, encodeGetCapabilities({}));
     this.expect(frame.opcode, Opcode.GetCapabilitiesResp, "GET_CAPABILITIES_RESP");
     return decodeGetCapabilitiesResponse(frame.payload);
   }
@@ -923,13 +906,8 @@ export class BrainClient {
    * carries the extractor's id, namespace, name, tier kind, schema version, and
    * creation timestamp.
    */
-  async extractorList(
-    request: ExtractorListRequest = {},
-  ): Promise<ExtractorListResponseFrame> {
-    const frame = await this.conn.requestOne(
-      Opcode.ExtractorListReq,
-      encodeExtractorList(request),
-    );
+  async extractorList(request: ExtractorListRequest = {}): Promise<ExtractorListResponseFrame> {
+    const frame = await this.conn.requestOne(Opcode.ExtractorListReq, encodeExtractorList(request));
     this.expect(frame.opcode, Opcode.ExtractorListResp, "EXTRACTOR_LIST_RESP");
     return decodeExtractorListResponse(frame.payload);
   }
@@ -1113,9 +1091,7 @@ export class BrainClient {
   }
 
   /** List statements, returning each decoded STATEMENT_LIST_RESP frame. */
-  async listStatementsFrames(
-    request: StatementListRequest,
-  ): Promise<StatementListResponseFrame[]> {
+  async listStatementsFrames(request: StatementListRequest): Promise<StatementListResponseFrame[]> {
     return this.streamed(
       Opcode.StatementListReq,
       Opcode.StatementListResp,

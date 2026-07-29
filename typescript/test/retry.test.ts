@@ -14,7 +14,7 @@ import { ServerError } from "../src/errors.js";
 import { ForgetBuilder } from "../src/verbs.js";
 import { backoffMs, NO_RETRY, withRetry, type RetryPolicy } from "../src/retry.js";
 import { FrameChannel } from "../src/transport.js";
-import { FLAG_EOS } from "../src/wire/frame.js";
+import { FLAG_EOS, type Frame } from "../src/wire/frame.js";
 import { Opcode } from "../src/wire/opcode.js";
 import {
   type AuthOkPayload,
@@ -46,7 +46,12 @@ async function handshake(chan: FrameChannel): Promise<void> {
       authMethods: [],
     },
   };
-  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome(welcome),
+  });
 
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
@@ -65,7 +70,12 @@ async function handshake(chan: FrameChannel): Promise<void> {
     namespace: "",
     serverTimeUnixNanos: 1n,
   };
-  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk(authOk),
+  });
 }
 
 function startServer(
@@ -119,7 +129,12 @@ describe("withRetry integration", () => {
         details: null,
         retryAfterMs: 5,
       };
-      await chan.write({ opcode: Opcode.Error, flags: FLAG_EOS, streamId: first.streamId, payload: encodeError(err) });
+      await chan.write({
+        opcode: Opcode.Error,
+        flags: FLAG_EOS,
+        streamId: first.streamId,
+        payload: encodeError(err),
+      });
 
       const second = await chan.read();
       expect(second.opcode).toBe(Opcode.ForgetReq);
@@ -161,7 +176,7 @@ describe("withRetry integration", () => {
       const chan = new FrameChannel(sock);
       await handshake(chan);
       for (;;) {
-        let frame;
+        let frame: Frame;
         try {
           frame = await chan.read();
         } catch {
@@ -175,7 +190,12 @@ describe("withRetry integration", () => {
           details: null,
           retryAfterMs: null,
         };
-        await chan.write({ opcode: Opcode.Error, flags: FLAG_EOS, streamId: frame.streamId, payload: encodeError(err) });
+        await chan.write({
+          opcode: Opcode.Error,
+          flags: FLAG_EOS,
+          streamId: frame.streamId,
+          payload: encodeError(err),
+        });
       }
     });
 

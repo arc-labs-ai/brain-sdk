@@ -103,10 +103,7 @@ export const codecs: Record<string, Codec> = {
   resp_recall_trace: payloadRoundTrip(t.decodeRecallResponse, t.encodeRecallResponse),
 
   req_memory_list: payloadRoundTrip(t.decodeMemoryList, t.encodeMemoryList),
-  resp_memory_list: payloadRoundTrip(
-    t.decodeMemoryListResponse,
-    t.encodeMemoryListResponse,
-  ),
+  resp_memory_list: payloadRoundTrip(t.decodeMemoryListResponse, t.encodeMemoryListResponse),
 
   req_memory_inspect: payloadRoundTrip(t.decodeMemoryInspect, t.encodeMemoryInspect),
   resp_memory_inspect: payloadRoundTrip(
@@ -115,10 +112,7 @@ export const codecs: Record<string, Codec> = {
   ),
 
   req_graph_fetch: payloadRoundTrip(t.decodeGraphFetch, t.encodeGraphFetch),
-  resp_graph_fetch: payloadRoundTrip(
-    t.decodeGraphFetchResponse,
-    t.encodeGraphFetchResponse,
-  ),
+  resp_graph_fetch: payloadRoundTrip(t.decodeGraphFetchResponse, t.encodeGraphFetchResponse),
 
   req_forget: payloadRoundTrip(t.decodeForget, t.encodeForget),
   req_forget_act_as: payloadRoundTrip(t.decodeForget, t.encodeForget),
@@ -126,10 +120,7 @@ export const codecs: Record<string, Codec> = {
 
   req_entity_create: payloadRoundTrip(t.decodeEntityCreate, t.encodeEntityCreate),
   req_entity_create_act_as: payloadRoundTrip(t.decodeEntityCreate, t.encodeEntityCreate),
-  resp_entity_create: payloadRoundTrip(
-    t.decodeEntityCreateResponse,
-    t.encodeEntityCreateResponse,
-  ),
+  resp_entity_create: payloadRoundTrip(t.decodeEntityCreateResponse, t.encodeEntityCreateResponse),
 
   req_statement_create: payloadRoundTrip(t.decodeStatementCreate, t.encodeStatementCreate),
   resp_statement_create: payloadRoundTrip(
@@ -144,10 +135,7 @@ export const codecs: Record<string, Codec> = {
   ),
 
   req_schema_upload: payloadRoundTrip(t.decodeSchemaUpload, t.encodeSchemaUpload),
-  resp_schema_upload: payloadRoundTrip(
-    t.decodeSchemaUploadResponse,
-    t.encodeSchemaUploadResponse,
-  ),
+  resp_schema_upload: payloadRoundTrip(t.decodeSchemaUploadResponse, t.encodeSchemaUploadResponse),
 
   req_materialize_procedural: payloadRoundTrip(
     t.decodeMaterializeProcedural,
@@ -155,17 +143,11 @@ export const codecs: Record<string, Codec> = {
   ),
 
   req_space_create: payloadRoundTrip(t.decodeSpaceCreate, t.encodeSpaceCreate),
-  resp_space_create: payloadRoundTrip(
-    t.decodeSpaceCreateResponse,
-    t.encodeSpaceCreateResponse,
-  ),
+  resp_space_create: payloadRoundTrip(t.decodeSpaceCreateResponse, t.encodeSpaceCreateResponse),
   req_space_list: payloadRoundTrip(t.decodeSpaceList, t.encodeSpaceList),
   resp_space_list: payloadRoundTrip(t.decodeSpaceListResponse, t.encodeSpaceListResponse),
   req_space_delete: payloadRoundTrip(t.decodeSpaceDelete, t.encodeSpaceDelete),
-  resp_space_delete: payloadRoundTrip(
-    t.decodeSpaceDeleteResponse,
-    t.encodeSpaceDeleteResponse,
-  ),
+  resp_space_delete: payloadRoundTrip(t.decodeSpaceDeleteResponse, t.encodeSpaceDeleteResponse),
 
   req_session_create: payloadRoundTrip(t.decodeSessionCreate, t.encodeSessionCreate),
   resp_session_create: payloadRoundTrip(
@@ -173,10 +155,7 @@ export const codecs: Record<string, Codec> = {
     t.encodeSessionCreateResponse,
   ),
   req_session_list: payloadRoundTrip(t.decodeSessionList, t.encodeSessionList),
-  resp_session_list: payloadRoundTrip(
-    t.decodeSessionListResponse,
-    t.encodeSessionListResponse,
-  ),
+  resp_session_list: payloadRoundTrip(t.decodeSessionListResponse, t.encodeSessionListResponse),
   req_session_delete: payloadRoundTrip(t.decodeSessionDelete, t.encodeSessionDelete),
   resp_session_delete: payloadRoundTrip(
     t.decodeSessionDeleteResponse,
@@ -188,18 +167,12 @@ export const codecs: Record<string, Codec> = {
   ),
 
   resp_entity_get: payloadRoundTrip(t.decodeEntityGetResponse, t.encodeEntityGetResponse),
-  resp_entity_list: payloadRoundTrip(
-    t.decodeEntityListResponse,
-    t.encodeEntityListResponse,
-  ),
+  resp_entity_list: payloadRoundTrip(t.decodeEntityListResponse, t.encodeEntityListResponse),
   resp_entity_resolve: payloadRoundTrip(
     t.decodeEntityResolveResponse,
     t.encodeEntityResolveResponse,
   ),
-  resp_statement_get: payloadRoundTrip(
-    t.decodeStatementGetResponse,
-    t.encodeStatementGetResponse,
-  ),
+  resp_statement_get: payloadRoundTrip(t.decodeStatementGetResponse, t.encodeStatementGetResponse),
   resp_statement_list: payloadRoundTrip(
     t.decodeStatementListResponse,
     t.encodeStatementListResponse,
@@ -238,8 +211,14 @@ export const codecs: Record<string, Codec> = {
   resp_entity_update: payloadRoundTrip(t.decodeEntityUpdateResponse, t.encodeEntityUpdateResponse),
   resp_entity_rename: payloadRoundTrip(t.decodeEntityRenameResponse, t.encodeEntityRenameResponse),
   resp_entity_merge: payloadRoundTrip(t.decodeEntityMergeResponse, t.encodeEntityMergeResponse),
-  resp_entity_unmerge: payloadRoundTrip(t.decodeEntityUnmergeResponse, t.encodeEntityUnmergeResponse),
-  resp_entity_tombstone: payloadRoundTrip(t.decodeEntityTombstoneResponse, t.encodeEntityTombstoneResponse),
+  resp_entity_unmerge: payloadRoundTrip(
+    t.decodeEntityUnmergeResponse,
+    t.encodeEntityUnmergeResponse,
+  ),
+  resp_entity_tombstone: payloadRoundTrip(
+    t.decodeEntityTombstoneResponse,
+    t.encodeEntityTombstoneResponse,
+  ),
   resp_entity_get_merged: payloadRoundTrip(t.decodeEntityGetResponse, t.encodeEntityGetResponse),
   req_relation_get: payloadRoundTrip(t.decodeRelationGet, t.encodeRelationGet),
   req_relation_supersede: payloadRoundTrip(t.decodeRelationSupersede, t.encodeRelationSupersede),
@@ -248,28 +227,58 @@ export const codecs: Record<string, Codec> = {
   req_relation_list_to: payloadRoundTrip(t.decodeRelationListTo, t.encodeRelationListTo),
   req_relation_traverse: payloadRoundTrip(t.decodeRelationTraverse, t.encodeRelationTraverse),
   resp_relation_get: payloadRoundTrip(t.decodeRelationGetResponse, t.encodeRelationGetResponse),
-  resp_relation_supersede: payloadRoundTrip(t.decodeRelationSupersedeResponse, t.encodeRelationSupersedeResponse),
-  resp_relation_tombstone: payloadRoundTrip(t.decodeRelationTombstoneResponse, t.encodeRelationTombstoneResponse),
-  resp_relation_list_to: payloadRoundTrip(t.decodeRelationListToResponse, t.encodeRelationListToResponse),
-  resp_relation_traverse: payloadRoundTrip(t.decodeRelationTraverseResponse, t.encodeRelationTraverseResponse),
+  resp_relation_supersede: payloadRoundTrip(
+    t.decodeRelationSupersedeResponse,
+    t.encodeRelationSupersedeResponse,
+  ),
+  resp_relation_tombstone: payloadRoundTrip(
+    t.decodeRelationTombstoneResponse,
+    t.encodeRelationTombstoneResponse,
+  ),
+  resp_relation_list_to: payloadRoundTrip(
+    t.decodeRelationListToResponse,
+    t.encodeRelationListToResponse,
+  ),
+  resp_relation_traverse: payloadRoundTrip(
+    t.decodeRelationTraverseResponse,
+    t.encodeRelationTraverseResponse,
+  ),
   req_statement_get: payloadRoundTrip(t.decodeStatementGet, t.encodeStatementGet),
   req_statement_supersede: payloadRoundTrip(t.decodeStatementSupersede, t.encodeStatementSupersede),
   req_statement_tombstone: payloadRoundTrip(t.decodeStatementTombstone, t.encodeStatementTombstone),
   req_statement_retract: payloadRoundTrip(t.decodeStatementRetract, t.encodeStatementRetract),
   req_statement_history: payloadRoundTrip(t.decodeStatementHistory, t.encodeStatementHistory),
   req_statement_list: payloadRoundTrip(t.decodeStatementList, t.encodeStatementList),
-  resp_statement_supersede: payloadRoundTrip(t.decodeStatementSupersedeResponse, t.encodeStatementSupersedeResponse),
-  resp_statement_tombstone: payloadRoundTrip(t.decodeStatementTombstoneResponse, t.encodeStatementTombstoneResponse),
-  resp_statement_retract: payloadRoundTrip(t.decodeStatementRetractResponse, t.encodeStatementRetractResponse),
-  resp_statement_history: payloadRoundTrip(t.decodeStatementHistoryResponse, t.encodeStatementHistoryResponse),
+  resp_statement_supersede: payloadRoundTrip(
+    t.decodeStatementSupersedeResponse,
+    t.encodeStatementSupersedeResponse,
+  ),
+  resp_statement_tombstone: payloadRoundTrip(
+    t.decodeStatementTombstoneResponse,
+    t.encodeStatementTombstoneResponse,
+  ),
+  resp_statement_retract: payloadRoundTrip(
+    t.decodeStatementRetractResponse,
+    t.encodeStatementRetractResponse,
+  ),
+  resp_statement_history: payloadRoundTrip(
+    t.decodeStatementHistoryResponse,
+    t.encodeStatementHistoryResponse,
+  ),
   req_schema_get: payloadRoundTrip(t.decodeSchemaGet, t.encodeSchemaGet),
   req_schema_list: payloadRoundTrip(t.decodeSchemaList, t.encodeSchemaList),
   req_schema_validate: payloadRoundTrip(t.decodeSchemaValidate, t.encodeSchemaValidate),
   req_schema_replace: payloadRoundTrip(t.decodeSchemaReplace, t.encodeSchemaReplace),
   resp_schema_get: payloadRoundTrip(t.decodeSchemaGetResponse, t.encodeSchemaGetResponse),
   resp_schema_list: payloadRoundTrip(t.decodeSchemaListResponse, t.encodeSchemaListResponse),
-  resp_schema_validate: payloadRoundTrip(t.decodeSchemaValidateResponse, t.encodeSchemaValidateResponse),
-  resp_schema_replace: payloadRoundTrip(t.decodeSchemaReplaceResponse, t.encodeSchemaReplaceResponse),
+  resp_schema_validate: payloadRoundTrip(
+    t.decodeSchemaValidateResponse,
+    t.encodeSchemaValidateResponse,
+  ),
+  resp_schema_replace: payloadRoundTrip(
+    t.decodeSchemaReplaceResponse,
+    t.encodeSchemaReplaceResponse,
+  ),
   req_txn_begin: payloadRoundTrip(t.decodeTxnBegin, t.encodeTxnBegin),
   req_txn_commit: payloadRoundTrip(t.decodeTxnCommit, t.encodeTxnCommit),
   req_txn_abort: payloadRoundTrip(t.decodeTxnAbort, t.encodeTxnAbort),
@@ -288,19 +297,13 @@ export const codecs: Record<string, Codec> = {
   resp_cancel_stream_ack: payloadRoundTrip(t.decodeCancelStreamAck, t.encodeCancelStreamAck),
   req_query_explain: payloadRoundTrip(t.decodeQueryExplain, t.encodeQueryExplain),
   req_query_trace: payloadRoundTrip(t.decodeQueryTrace, t.encodeQueryTrace),
-  resp_query_explain: payloadRoundTrip(
-    t.decodeQueryExplainResponse,
-    t.encodeQueryExplainResponse,
-  ),
+  resp_query_explain: payloadRoundTrip(t.decodeQueryExplainResponse, t.encodeQueryExplainResponse),
   resp_query_trace: payloadRoundTrip(t.decodeQueryTraceResponse, t.encodeQueryTraceResponse),
   resp_extractor_list: payloadRoundTrip(
     t.decodeExtractorListResponse,
     t.encodeExtractorListResponse,
   ),
-  resp_subscribe_event: payloadRoundTrip(
-    t.decodeSubscriptionEvent,
-    t.encodeSubscriptionEvent,
-  ),
+  resp_subscribe_event: payloadRoundTrip(t.decodeSubscriptionEvent, t.encodeSubscriptionEvent),
 
   resp_pong: payloadRoundTrip(t.decodePong, t.encodePong),
   resp_server_ping: payloadRoundTrip(t.decodeServerPing, t.encodeServerPing),

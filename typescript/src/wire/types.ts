@@ -716,9 +716,7 @@ export function encodeSpaceCreate(p: SpaceCreateRequest): Uint8Array {
 export function decodeSpaceCreate(bytes: Uint8Array): SpaceCreateRequest {
   const m = asMap(fromCbor(bytes));
   return {
-    metadata: m.has("metadata")
-      ? Uint8Array.from(asArray(field(m, "metadata")).map(asNum))
-      : null,
+    metadata: m.has("metadata") ? Uint8Array.from(asArray(field(m, "metadata")).map(asNum)) : null,
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
   };
@@ -1193,7 +1191,7 @@ export function decodeEncode(bytes: Uint8Array): EncodeRequest {
     txnId: asOptBytes(field(m, "txn_id")),
     occurredAtUnixNanos: asOpt(field(m, "occurred_at_unix_nanos"), asBig),
     actAs: decodeOptActAs(m),
-    wait: m.has("wait") ? (asNum(field(m, "wait"))) : WaitMode.Ack,
+    wait: m.has("wait") ? asNum(field(m, "wait")) : WaitMode.Ack,
     allowDuplicates: m.has("allow_duplicates") ? asBool(field(m, "allow_duplicates")) : false,
   };
 }
@@ -1442,8 +1440,7 @@ function encodeEncodeTraceArtifacts(a: EncodeTraceArtifacts): Map<string, unknow
           ["object_name", s.objectName],
           ["confidence", f32(s.confidence)],
         ]);
-        if (s.eventAtUnixNanos != null)
-          sm.set("event_at_unix_nanos", s.eventAtUnixNanos);
+        if (s.eventAtUnixNanos != null) sm.set("event_at_unix_nanos", s.eventAtUnixNanos);
         return sm;
       }),
     ],
@@ -1680,8 +1677,7 @@ function encodeStageGraphEdge(e: EncodeGraphEdge): Map<string, unknown> {
     ["kind", e.kind],
     ["confidence", f32(e.confidence)],
   ]);
-  if (e.eventAtUnixNanos != null)
-    m.set("event_at_unix_nanos", e.eventAtUnixNanos);
+  if (e.eventAtUnixNanos != null) m.set("event_at_unix_nanos", e.eventAtUnixNanos);
   return m;
 }
 
@@ -1693,9 +1689,7 @@ function decodeStageGraphEdge(value: unknown): EncodeGraphEdge {
     predicate: asStr(field(m, "predicate")),
     kind: asStr(field(m, "kind")),
     confidence: asNum(field(m, "confidence")),
-    eventAtUnixNanos: m.has("event_at_unix_nanos")
-      ? asBig(field(m, "event_at_unix_nanos"))
-      : null,
+    eventAtUnixNanos: m.has("event_at_unix_nanos") ? asBig(field(m, "event_at_unix_nanos")) : null,
   };
 }
 
@@ -1760,9 +1754,7 @@ function decodeStageArtifact(value: unknown): EncodeStageArtifact {
   return {
     vector: m.has("vector") ? asArray(field(m, "vector")).map(asNum) : [],
     record: m.has("record") ? decodeStageRecord(field(m, "record")) : null,
-    hypeQuestions: m.has("hype_questions")
-      ? asArray(field(m, "hype_questions")).map(asStr)
-      : [],
+    hypeQuestions: m.has("hype_questions") ? asArray(field(m, "hype_questions")).map(asStr) : [],
     keywordFields: m.has("keyword_fields")
       ? asArray(field(m, "keyword_fields")).map(decodeStageKeywordField)
       : [],
@@ -1905,9 +1897,7 @@ export function decodeRecall(bytes: Uint8Array): RecallRequest {
     sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
     ageBoundUnixNanos: asOpt(field(m, "age_bound_unix_nanos"), asBig),
     asOfRecordTimeUnixNanos: asOpt(field(m, "as_of_record_time_unix_nanos"), asBig),
-    kindFilter: asOpt(field(m, "kind_filter"), (v) =>
-      asArray(v).map((k) => asNum(k)),
-    ),
+    kindFilter: asOpt(field(m, "kind_filter"), (v) => asArray(v).map((k) => asNum(k))),
     salienceFloor: asNum(field(m, "salience_floor")),
     includeEdges: asBool(field(m, "include_edges")),
     includeGraph: asBool(field(m, "include_graph")),
@@ -1991,8 +1981,7 @@ function encodeGraph(g: GraphEnrichment): Map<string, unknown> {
           ["object_label", s.objectLabel],
           ["confidence", f32(s.confidence)],
         ]);
-        if (s.eventAtUnixNanos != null)
-          sm.set("event_at_unix_nanos", s.eventAtUnixNanos);
+        if (s.eventAtUnixNanos != null) sm.set("event_at_unix_nanos", s.eventAtUnixNanos);
         return sm;
       }),
     ],
@@ -2124,9 +2113,7 @@ function decodeMemoryResult(value: unknown): MemoryResult {
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
     lastAccessedAtUnixNanos: asBig(field(m, "last_accessed_at_unix_nanos")),
     edges: asOpt(field(m, "edges"), (v) => asArray(v).map(decodeEdgeView)),
-    contributingRetrievers: asArray(field(m, "contributing_retrievers")).map(
-      (x) => asNum(x),
-    ),
+    contributingRetrievers: asArray(field(m, "contributing_retrievers")).map((x) => asNum(x)),
     fusedScore: asNum(field(m, "fused_score")),
     rerankScore: asOpt(field(m, "rerank_score"), asNum),
     salienceInitial: asNum(field(m, "salience_initial")),
@@ -2385,7 +2372,10 @@ function encodeRecallTrace(t: RecallTrace): Map<string, unknown> {
         ["dropped_by_temporal", t.filterChain.droppedByTemporal],
         ["dropped_by_confidence", t.filterChain.droppedByConfidence],
         ["dropped_by_tombstone", t.filterChain.droppedByTombstone],
-        ["dropped_by_supersession", t.filterChain.droppedBySupersession.map(encodeRecallTraceDroppedId)],
+        [
+          "dropped_by_supersession",
+          t.filterChain.droppedBySupersession.map(encodeRecallTraceDroppedId),
+        ],
         ["dropped_by_as_of", t.filterChain.droppedByAsOf.map(encodeRecallTraceDroppedId)],
         ["dropped_by_limit", t.filterChain.droppedByLimit.map(encodeRecallTraceDroppedId)],
       ]),
@@ -2452,7 +2442,9 @@ function decodeRecallTrace(value: unknown): RecallTrace {
       droppedByTemporal: asArray(field(fc, "dropped_by_temporal")).map(asBig),
       droppedByConfidence: asArray(field(fc, "dropped_by_confidence")).map(asBig),
       droppedByTombstone: asArray(field(fc, "dropped_by_tombstone")).map(asBig),
-      droppedBySupersession: asArray(field(fc, "dropped_by_supersession")).map(decodeRecallTraceDroppedId),
+      droppedBySupersession: asArray(field(fc, "dropped_by_supersession")).map(
+        decodeRecallTraceDroppedId,
+      ),
       droppedByAsOf: asArray(field(fc, "dropped_by_as_of")).map(decodeRecallTraceDroppedId),
       droppedByLimit: asArray(field(fc, "dropped_by_limit")).map(decodeRecallTraceDroppedId),
     },
@@ -2477,10 +2469,7 @@ function decodeRecallTrace(value: unknown): RecallTrace {
             rrfScore: asNum(field(i, "rrf_score")),
             laneScores: asArray(field(i, "lane_scores")).map((lsv) => {
               const ls = asArray(lsv);
-              return [asNum(ls[0]), asNum(ls[1])] as [
-                RetrieverNameWire,
-                number,
-              ];
+              return [asNum(ls[0]), asNum(ls[1])] as [RetrieverNameWire, number];
             }),
           };
         }),
@@ -3333,39 +3322,39 @@ export interface QueryRequest {
  * nest a whole query without a lossy re-encode round-trip. */
 function queryMap(p: QueryRequest): Map<string, unknown> {
   return new Map<string, unknown>([
-      ["text", p.text],
-      ["entity_anchor", p.entityAnchor],
-      ["kind_filter", p.kindFilter],
-      ["predicate_filter", p.predicateFilter],
-      ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
-      [
-        "time_filter",
-        p.timeFilter === null
-          ? null
-          : new Map<string, unknown>([
-              ["from_unix_ms", p.timeFilter.fromUnixMs],
-              ["to_unix_ms", p.timeFilter.toUnixMs],
-            ]),
-      ],
-      ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
-      ["confidence_min", p.confidenceMin === null ? null : f32(p.confidenceMin)],
-      ["include_tombstoned", p.includeTombstoned],
-      ["include_superseded", p.includeSuperseded],
-      ["limit", p.limit],
-      ["retrievers", encodeRetrieverSelection(p.retrievers)],
-      [
-        "fusion_config",
-        p.fusionConfig === null
-          ? null
-          : new Map<string, unknown>([
-              ["k", p.fusionConfig.k],
-              ["semantic_weight", f32(p.fusionConfig.semanticWeight)],
-              ["lexical_weight", f32(p.fusionConfig.lexicalWeight)],
-              ["graph_weight", f32(p.fusionConfig.graphWeight)],
-            ]),
-      ],
-      ["request_id", p.requestId],
-    ]);
+    ["text", p.text],
+    ["entity_anchor", p.entityAnchor],
+    ["kind_filter", p.kindFilter],
+    ["predicate_filter", p.predicateFilter],
+    ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
+    [
+      "time_filter",
+      p.timeFilter === null
+        ? null
+        : new Map<string, unknown>([
+            ["from_unix_ms", p.timeFilter.fromUnixMs],
+            ["to_unix_ms", p.timeFilter.toUnixMs],
+          ]),
+    ],
+    ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
+    ["confidence_min", p.confidenceMin === null ? null : f32(p.confidenceMin)],
+    ["include_tombstoned", p.includeTombstoned],
+    ["include_superseded", p.includeSuperseded],
+    ["limit", p.limit],
+    ["retrievers", encodeRetrieverSelection(p.retrievers)],
+    [
+      "fusion_config",
+      p.fusionConfig === null
+        ? null
+        : new Map<string, unknown>([
+            ["k", p.fusionConfig.k],
+            ["semantic_weight", f32(p.fusionConfig.semanticWeight)],
+            ["lexical_weight", f32(p.fusionConfig.lexicalWeight)],
+            ["graph_weight", f32(p.fusionConfig.graphWeight)],
+          ]),
+    ],
+    ["request_id", p.requestId],
+  ]);
 }
 
 /** Read a QUERY map back into the typed request — shared by the QUERY_EXPLAIN /
@@ -3450,9 +3439,7 @@ export interface MaterializeProceduralResponse {
 }
 
 /** Encode a MATERIALIZE_PROCEDURAL_RESP (`0x01E4`) payload. */
-export function encodeMaterializeProceduralResponse(
-  p: MaterializeProceduralResponse,
-): Uint8Array {
+export function encodeMaterializeProceduralResponse(p: MaterializeProceduralResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
       ["system_block", p.systemBlock],
@@ -4104,7 +4091,7 @@ export function encodePlan(p: PlanRequest): Uint8Array {
         ["start", encodePlanState(p.start)],
         ["goal", encodePlanState(p.goal)],
         ["budget", encodePlanBudget(p.budget)],
-        ["strategy_hint", p.strategyHint === null ? null : (p.strategyHint)],
+        ["strategy_hint", p.strategyHint === null ? null : p.strategyHint],
         ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
@@ -4211,7 +4198,7 @@ export function encodePlanResponse(p: PlanResponseFrame): Uint8Array {
   const map = new Map<string, unknown>([
     ["steps", p.steps.map(encodePlanStep)],
     ["is_final", p.isFinal],
-    ["plan_status", p.planStatus === null ? null : (p.planStatus)],
+    ["plan_status", p.planStatus === null ? null : p.planStatus],
   ]);
   if (p.trace != null) map.set("trace", encodePlanTrace(p.trace));
   return toCbor(map);
@@ -4490,7 +4477,7 @@ export function encodeReasonResponse(p: ReasonResponseFrame): Uint8Array {
   const map = new Map<string, unknown>([
     ["inferences", p.inferences.map(encodeInferenceStep)],
     ["is_final", p.isFinal],
-    ["reason_status", p.reasonStatus === null ? null : (p.reasonStatus)],
+    ["reason_status", p.reasonStatus === null ? null : p.reasonStatus],
   ]);
   if (p.trace != null) map.set("trace", encodeReasonTrace(p.trace));
   return toCbor(map);
@@ -4710,7 +4697,10 @@ function decodeReasonTraceScoreBreakdown(value: unknown): ReasonTraceScoreBreakd
 
 function encodeReasonTrace(t: ReasonTrace): Map<string, unknown> {
   return new Map<string, unknown>([
-    ["base", new Map<string, unknown>([["candidates", t.base.candidates.map(encodeReasonTraceCandidate)]])],
+    [
+      "base",
+      new Map<string, unknown>([["candidates", t.base.candidates.map(encodeReasonTraceCandidate)]]),
+    ],
     [
       "walk",
       new Map<string, unknown>([
@@ -4757,9 +4747,7 @@ function decodeReasonTrace(value: unknown): ReasonTrace {
       droppedByTombstone: asArray(field(walk, "dropped_by_tombstone")).map(
         decodeReasonTraceIdWithText,
       ),
-      droppedByVisited: asArray(field(walk, "dropped_by_visited")).map(
-        decodeReasonTraceIdWithText,
-      ),
+      droppedByVisited: asArray(field(walk, "dropped_by_visited")).map(decodeReasonTraceIdWithText),
       droppedByConfidence: asArray(field(walk, "dropped_by_confidence")).map(
         decodeReasonTraceScoredId,
       ),
@@ -5977,9 +5965,7 @@ export interface RelationTombstoneResponse {
 
 /** Encode a RELATION_TOMBSTONE_RESP (`0x01D3`) payload. */
 export function encodeRelationTombstoneResponse(p: RelationTombstoneResponse): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]),
-  );
+  return toCbor(new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]));
 }
 
 /** Decode a RELATION_TOMBSTONE_RESP (`0x01D3`) payload. */
@@ -7123,8 +7109,8 @@ export function encodeSubscriptionEvent(p: SubscriptionEvent): Uint8Array {
       ["lsn", p.lsn],
       ["graph_payload", p.graphPayload === null ? null : encodeGraphEventPayload(p.graphPayload)],
       ["edge_payload", p.edgePayload === null ? null : encodeEdgeEventPayload(p.edgePayload)],
-      ["stage_kind", p.stageKind === null ? null : (p.stageKind)],
-      ["stage_outcome", p.stageOutcome === null ? null : (p.stageOutcome)],
+      ["stage_kind", p.stageKind === null ? null : p.stageKind],
+      ["stage_outcome", p.stageOutcome === null ? null : p.stageOutcome],
       ["stage_payload", p.stagePayload === null ? null : encodeStagePayload(p.stagePayload)],
     ]),
   );
@@ -7425,9 +7411,7 @@ export interface EntityTombstoneResponse {
 
 /** Encode an ENTITY_TOMBSTONE_RESP (`0x01B8`) payload. */
 export function encodeEntityTombstoneResponse(p: EntityTombstoneResponse): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]),
-  );
+  return toCbor(new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]));
 }
 
 /** Decode an ENTITY_TOMBSTONE_RESP (`0x01B8`) payload. */
@@ -7548,9 +7532,7 @@ export interface StatementTombstoneResponse {
 
 /** Encode a STATEMENT_TOMBSTONE_RESP (`0x01C3`) payload. */
 export function encodeStatementTombstoneResponse(p: StatementTombstoneResponse): Uint8Array {
-  return toCbor(
-    new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]),
-  );
+  return toCbor(new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]));
 }
 
 /** Decode a STATEMENT_TOMBSTONE_RESP (`0x01C3`) payload. */
@@ -7630,7 +7612,9 @@ export function encodeStatementHistoryResponseFrame(p: StatementHistoryResponseF
 }
 
 /** Decode one STATEMENT_HISTORY_RESP (`0x01C5`) streamed frame. */
-export function decodeStatementHistoryResponseFrame(bytes: Uint8Array): StatementHistoryResponseFrame {
+export function decodeStatementHistoryResponseFrame(
+  bytes: Uint8Array,
+): StatementHistoryResponseFrame {
   const m = asMap(fromCbor(bytes));
   return {
     items: asArray(field(m, "items")).map(decodeStatementView),

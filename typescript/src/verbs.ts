@@ -15,7 +15,7 @@ import {
   type EncodeRequest,
   ForgetMode,
   type ForgetRequest,
-  MemoryKindWire,
+  type MemoryKindWire,
   type RecallRequest,
   WaitMode,
 } from "./wire/types.js";

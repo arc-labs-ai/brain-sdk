@@ -80,7 +80,12 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
       authMethods: [],
     },
   };
-  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome(welcome),
+  });
 
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
@@ -99,7 +104,12 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
     namespace: "",
     serverTimeUnixNanos: 1n,
   };
-  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk(authOk),
+  });
 
   // RECALL: two streamed frames, EOS only on the second.
   const recallFrame = await chan.read();
@@ -115,7 +125,12 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
     cumulativeCount: 1,
     estimatedRemaining: 1,
   };
-  await chan.write({ opcode: Opcode.RecallResp, flags: 0, streamId: sid, payload: encodeRecallResponse(first) });
+  await chan.write({
+    opcode: Opcode.RecallResp,
+    flags: 0,
+    streamId: sid,
+    payload: encodeRecallResponse(first),
+  });
 
   const second: RecallResponseFrame = {
     answerKind: "Many",
@@ -124,7 +139,12 @@ async function serveRecallForget(sock: net.Socket): Promise<void> {
     cumulativeCount: 2,
     estimatedRemaining: 0,
   };
-  await chan.write({ opcode: Opcode.RecallResp, flags: FLAG_EOS, streamId: sid, payload: encodeRecallResponse(second) });
+  await chan.write({
+    opcode: Opcode.RecallResp,
+    flags: FLAG_EOS,
+    streamId: sid,
+    payload: encodeRecallResponse(second),
+  });
 
   // FORGET: single frame.
   const forgetFrame = await chan.read();

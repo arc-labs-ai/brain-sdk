@@ -206,7 +206,9 @@ function compare(got: unknown, exp: unknown, path: string, errors: string[]): vo
       errors.push(`${path}: length ${got.length} != ${exp.length}`);
       return;
     }
-    got.forEach((v, i) => compare(v, exp[i], `${path}[${i}]`, errors));
+    got.forEach((v, i) => {
+      compare(v, exp[i], `${path}[${i}]`, errors);
+    });
     return;
   }
 

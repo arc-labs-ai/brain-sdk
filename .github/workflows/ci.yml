@@ -97,7 +97,7 @@ jobs:
         run: npm run build
       - name: Typecheck
         run: npm run typecheck
-      - name: Lint
+      - name: Lint + format check
         run: npm run lint
       - name: Test (incl. conformance corpus)
         run: npm test

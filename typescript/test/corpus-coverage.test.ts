@@ -27,9 +27,7 @@ interface Coverage {
   opcode_values: Record<string, string>;
 }
 
-const coverage: Coverage = JSON.parse(
-  readFileSync(join(corpusDir, "..", "coverage.json"), "utf8"),
-);
+const coverage: Coverage = JSON.parse(readFileSync(join(corpusDir, "..", "coverage.json"), "utf8"));
 
 it("every opcode is corpus-pinned or on the tracked gap list", () => {
   const covered = new Set(corpusIndex.map((c) => parseInt(c.opcode, 16)));
@@ -49,7 +47,7 @@ it("every opcode is corpus-pinned or on the tracked gap list", () => {
   const unaccounted = declared
     .filter(([, value]) => !covered.has(value) && !gap.has(value))
     .map(([name, value]) => `${name} (${hex(value)})`)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
   expect(
     unaccounted,
     "these opcodes have no corpus vector and are not on the tracked gap list, so nothing " +
@@ -62,7 +60,7 @@ it("every opcode is corpus-pinned or on the tracked gap list", () => {
   const stale = declared
     .filter(([, value]) => covered.has(value) && gap.has(value))
     .map(([name, value]) => `${name} (${hex(value)})`)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
   expect(
     stale,
     "these opcodes now HAVE a corpus vector but are still listed as uncovered in " +

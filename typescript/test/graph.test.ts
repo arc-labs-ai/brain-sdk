@@ -71,7 +71,12 @@ async function serveGraph(sock: net.Socket): Promise<void> {
       authMethods: [],
     },
   };
-  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome(welcome),
+  });
 
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
@@ -90,14 +95,24 @@ async function serveGraph(sock: net.Socket): Promise<void> {
     namespace: "",
     serverTimeUnixNanos: 1n,
   };
-  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk(authOk),
+  });
 
   // ENTITY_CREATE.
   let f = await chan.read();
   expect(f.opcode).toBe(Opcode.EntityCreateReq);
   expect(decodeEntityCreate(f.payload).canonicalName).toBe("Ada Lovelace");
   const entityResp: EntityCreateResponse = { entityId: ENTITY_ID };
-  await chan.write({ opcode: Opcode.EntityCreateResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeEntityCreateResponse(entityResp) });
+  await chan.write({
+    opcode: Opcode.EntityCreateResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeEntityCreateResponse(entityResp),
+  });
 
   // STATEMENT_CREATE.
   f = await chan.read();
@@ -108,14 +123,24 @@ async function serveGraph(sock: net.Socket): Promise<void> {
     autoSuperseded: new Uint8Array(16),
     chainRoot: STATEMENT_ID,
   };
-  await chan.write({ opcode: Opcode.StatementCreateResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeStatementCreateResponse(stmtResp) });
+  await chan.write({
+    opcode: Opcode.StatementCreateResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeStatementCreateResponse(stmtResp),
+  });
 
   // RELATION_CREATE.
   f = await chan.read();
   expect(f.opcode).toBe(Opcode.RelationCreateReq);
   expect(decodeRelationCreate(f.payload).relationType).toBe("collaborated_with");
   const relResp: RelationCreateResponse = { relationId: RELATION_ID };
-  await chan.write({ opcode: Opcode.RelationCreateResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeRelationCreateResponse(relResp) });
+  await chan.write({
+    opcode: Opcode.RelationCreateResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeRelationCreateResponse(relResp),
+  });
 
   // SCHEMA_UPLOAD.
   f = await chan.read();
@@ -128,7 +153,12 @@ async function serveGraph(sock: net.Socket): Promise<void> {
     backwardCompatible: true,
     migrationSummaryBlob: new Uint8Array(0),
   };
-  await chan.write({ opcode: Opcode.SchemaUploadResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeSchemaUploadResponse(schemaResp) });
+  await chan.write({
+    opcode: Opcode.SchemaUploadResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeSchemaUploadResponse(schemaResp),
+  });
 
   // MATERIALIZE_PROCEDURAL.
   f = await chan.read();
@@ -140,7 +170,12 @@ async function serveGraph(sock: net.Socket): Promise<void> {
     totalCandidates: 1,
     trimmedByBudget: false,
   };
-  await chan.write({ opcode: Opcode.MaterializeProceduralResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeMaterializeProceduralResponse(procResp) });
+  await chan.write({
+    opcode: Opcode.MaterializeProceduralResp,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodeMaterializeProceduralResponse(procResp),
+  });
 
   const bye = await chan.read();
   expect(bye.opcode).toBe(Opcode.Bye);

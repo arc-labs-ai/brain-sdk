@@ -70,7 +70,12 @@ async function handshake(chan: FrameChannel): Promise<Uint8Array> {
       authMethods: [],
     },
   };
-  await chan.write({ opcode: Opcode.Welcome, flags: FLAG_EOS, streamId: 0, payload: encodeWelcome(welcome) });
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome(welcome),
+  });
 
   const authFrame = await chan.read();
   decodeAuth(authFrame.payload);
@@ -89,7 +94,12 @@ async function handshake(chan: FrameChannel): Promise<Uint8Array> {
     namespace: "",
     serverTimeUnixNanos: 1n,
   };
-  await chan.write({ opcode: Opcode.AuthOk, flags: FLAG_EOS, streamId: 0, payload: encodeAuthOk(authOk) });
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk(authOk),
+  });
   return SERVER_AGENT_ID;
 }
 
@@ -199,7 +209,11 @@ async function serveUnaryAndStreamed(sock: net.Socket): Promise<void> {
     opcode: Opcode.TxnCommitResp,
     flags: FLAG_EOS,
     streamId: f.streamId,
-    payload: encodeTxnCommitResponse({ txnId: TXN_ID, committedAtUnixNanos: 6n, operationsApplied: 1 }),
+    payload: encodeTxnCommitResponse({
+      txnId: TXN_ID,
+      committedAtUnixNanos: 6n,
+      operationsApplied: 1,
+    }),
   });
 
   // ENTITY_LIST — two streamed frames, EOS on the last.
@@ -308,8 +322,18 @@ async function serveSubscription(sock: net.Socket): Promise<void> {
       stageOutcome: null,
       stagePayload: null,
     });
-  await chan.write({ opcode: Opcode.SubscribeEvent, flags: 0, streamId: evStream, payload: mkEvent(1n) });
-  await chan.write({ opcode: Opcode.SubscribeEvent, flags: 0, streamId: evStream, payload: mkEvent(2n) });
+  await chan.write({
+    opcode: Opcode.SubscribeEvent,
+    flags: 0,
+    streamId: evStream,
+    payload: mkEvent(1n),
+  });
+  await chan.write({
+    opcode: Opcode.SubscribeEvent,
+    flags: 0,
+    streamId: evStream,
+    payload: mkEvent(2n),
+  });
 
   // UNSUBSCRIBE arrives on a fresh stream; reply on it, then EOS-close the
   // event stream so the client's iterator terminates.
@@ -322,7 +346,12 @@ async function serveSubscription(sock: net.Socket): Promise<void> {
     streamId: unsub.streamId,
     payload: encodeUnsubscribeResponse({ targetStreamId: evStream, finalLsn: 2n }),
   });
-  await chan.write({ opcode: Opcode.SubscribeEvent, flags: FLAG_EOS, streamId: evStream, payload: new Uint8Array(0) });
+  await chan.write({
+    opcode: Opcode.SubscribeEvent,
+    flags: FLAG_EOS,
+    streamId: evStream,
+    payload: new Uint8Array(0),
+  });
 
   const bye = await chan.read();
   expect(bye.opcode).toBe(Opcode.Bye);
@@ -416,7 +445,13 @@ describe("parity verbs over a mock server", () => {
       const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
 
       const sub = await client.subscribe({
-        filter: { sessionFilter: null, kinds: null, similarTo: null, spaces: null, memoryIds: null },
+        filter: {
+          sessionFilter: null,
+          kinds: null,
+          similarTo: null,
+          spaces: null,
+          memoryIds: null,
+        },
         includeHistory: false,
         fromLsn: null,
         maxInflight: 8,
@@ -448,7 +483,13 @@ describe("parity verbs over a mock server", () => {
     try {
       const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
       const sub = await client.subscribe({
-        filter: { sessionFilter: null, kinds: null, similarTo: null, spaces: null, memoryIds: null },
+        filter: {
+          sessionFilter: null,
+          kinds: null,
+          similarTo: null,
+          spaces: null,
+          memoryIds: null,
+        },
         includeHistory: false,
         fromLsn: null,
         maxInflight: 8,

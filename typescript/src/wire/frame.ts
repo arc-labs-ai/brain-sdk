@@ -223,10 +223,7 @@ export function decodeFrame(buf: Uint8Array): { frame: Frame; rest: Uint8Array }
 
   const need = HEADER_LEN + payloadLen;
   if (buf.length < need) {
-    throw new FrameError(
-      "Truncated",
-      `truncated frame: have ${buf.length} bytes, need ${need}`,
-    );
+    throw new FrameError("Truncated", `truncated frame: have ${buf.length} bytes, need ${need}`);
   }
 
   const payload = buf.slice(HEADER_LEN, need);

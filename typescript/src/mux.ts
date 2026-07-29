@@ -24,6 +24,7 @@ import {
   VersionMismatch,
 } from "./errors.js";
 import { decodeFrame, encodeFrame, FLAG_EOS, type Frame, FrameError } from "./wire/frame.js";
+import { describeThrown } from "./transport.js";
 import { Opcode } from "./wire/opcode.js";
 import {
   type AuthPayload,
@@ -307,7 +308,7 @@ export class MuxConnection {
       } catch (err) {
         if (err instanceof FrameError && err.kind === "Truncated") break;
         // Any other codec error desynchronizes the stream — fatal.
-        this.failAll(err instanceof Error ? err : new Error(String(err)));
+        this.failAll(err instanceof Error ? err : new Error(describeThrown(err)));
         return;
       }
       // `rest` is a view onto the same tail; the consumed length is the shrink
@@ -477,11 +478,7 @@ function nowUnixNanos(): bigint {
   return BigInt(Date.now()) * 1_000_000n;
 }
 
-function connectTcp(
-  host: string,
-  port: number,
-  timeoutMs: number | undefined,
-): Promise<Socket> {
+function connectTcp(host: string, port: number, timeoutMs: number | undefined): Promise<Socket> {
   return new Promise<Socket>((resolve, reject) => {
     const socket = createConnection({ host, port });
     let settled = false;

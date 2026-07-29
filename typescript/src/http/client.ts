@@ -120,7 +120,6 @@ function parseRetryAfter(header: string | null): number | undefined {
   return Number.isFinite(secs) && String(secs) === header.trim() ? secs * 1000 : undefined;
 }
 
-
 /**
  * The edge speaks snake_case JSON; this SDK speaks camelCase, as its wire types
  * already do. Converting at the transport seam keeps one convention in the
@@ -206,7 +205,10 @@ export class BrainHttpClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(opts: BrainHttpClientOptions) {
-    if (!opts || !opts.apiKey) {
+    // `opts` is non-optional in the type, but this package ships to JavaScript
+    // callers too, so the guard covers a missing argument as well as a missing
+    // key. `?.` keeps both cases in one expression.
+    if (!opts?.apiKey) {
       throw new BrainHttpError(0, "config", "apiKey is required");
     }
     this.base = (opts.baseUrl ?? "http://127.0.0.1:8080").replace(/\/+$/, "");
@@ -438,7 +440,7 @@ export class BrainHttpClient {
       let code = "http_error";
       let message = `HTTP ${res.status}`;
       try {
-        const parsed = JSON.parse(text) as { error?: { code?: string; message?: string } };
+        const parsed = JSON.parse(text) as { error?: { code?: string; message?: string } } | null;
         if (parsed?.error) {
           code = parsed.error.code ?? code;
           message = parsed.error.message ?? message;

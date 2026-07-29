@@ -114,10 +114,9 @@ describe.skipIf(T === null)("plan and reason (integration)", () => {
         actAs: null,
       });
 
-      expect(
-        inferences.length,
-        "server must honor the maxInferences cap",
-      ).toBeLessThanOrEqual(MAX_INFERENCES);
+      expect(inferences.length, "server must honor the maxInferences cap").toBeLessThanOrEqual(
+        MAX_INFERENCES,
+      );
     } finally {
       await client.close();
     }

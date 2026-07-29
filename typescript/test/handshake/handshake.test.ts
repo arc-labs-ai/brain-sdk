@@ -47,9 +47,12 @@ describe.skipIf(T === null)("handshake (integration)", () => {
     // the specific rejection, not a bare `toThrow()`: that would also pass on
     // a connection refusal or a codec bug, which is the opposite of what this
     // is checking.
-    const bogus = { kind: "token" as const, token: new TextEncoder().encode("brain_not-a-real-key") };
-    await expect(
-      BrainClient.connect(t.dataHost, t.dataPort, { auth: bogus }),
-    ).rejects.toThrow(/unknown API key/);
+    const bogus = {
+      kind: "token" as const,
+      token: new TextEncoder().encode("brain_not-a-real-key"),
+    };
+    await expect(BrainClient.connect(t.dataHost, t.dataPort, { auth: bogus })).rejects.toThrow(
+      /unknown API key/,
+    );
   });
 });

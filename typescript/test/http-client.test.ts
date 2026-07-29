@@ -144,10 +144,41 @@ describe("routing and auth", () => {
   // A wrong path is a 404 against a real edge and silence against a mock, so
   // the route each verb uses is asserted directly.
   const routes: Array<[string, () => Promise<unknown>, string, string, unknown]> = [
-    ["recall", () => client.recall({ query: "q" }), "POST", "/v1/recall", { answer_kind: "none", memories: [] }],
-    ["forget", () => client.forget({ memoryId: "42" }), "DELETE", "/v1/memories", { memory_id: "1", was_already_forgotten: false, edges_removed: 0 }],
-    ["link", () => client.link({ source: "1", target: "2", kind: "caused" }), "POST", "/v1/links", { source: "1", target: "2", kind: "caused", weight: 1, created_at_unix_nanos: 0, already_existed: false }],
-    ["unlink", () => client.unlink({ source: "1", target: "2", kind: "caused" }), "DELETE", "/v1/links", { source: "1", target: "2", kind: "caused", removed: true }],
+    [
+      "recall",
+      () => client.recall({ query: "q" }),
+      "POST",
+      "/v1/recall",
+      { answer_kind: "none", memories: [] },
+    ],
+    [
+      "forget",
+      () => client.forget({ memoryId: "42" }),
+      "DELETE",
+      "/v1/memories",
+      { memory_id: "1", was_already_forgotten: false, edges_removed: 0 },
+    ],
+    [
+      "link",
+      () => client.link({ source: "1", target: "2", kind: "caused" }),
+      "POST",
+      "/v1/links",
+      {
+        source: "1",
+        target: "2",
+        kind: "caused",
+        weight: 1,
+        created_at_unix_nanos: 0,
+        already_existed: false,
+      },
+    ],
+    [
+      "unlink",
+      () => client.unlink({ source: "1", target: "2", kind: "caused" }),
+      "DELETE",
+      "/v1/links",
+      { source: "1", target: "2", kind: "caused", removed: true },
+    ],
     ["whoami", () => client.whoami(), "GET", "/v1/whoami", WHOAMI],
     ["capabilities", () => client.capabilities(), "GET", "/v1/capabilities", {}],
   ];
@@ -177,8 +208,18 @@ describe("read-side, entity, graph and schema routes", () => {
     ["inspectMemory", () => client.inspectMemory("m1"), "GET", "/v1/memories/m1/inspect"],
     ["listEntities", () => client.listEntities(), "GET", "/v1/entities"],
     ["getEntity", () => client.getEntity("e1"), "GET", "/v1/entities/e1"],
-    ["createEntity", () => client.createEntity({ entityTypeId: 1, canonicalName: "Ada" }), "POST", "/v1/entities"],
-    ["resolveEntity", () => client.resolveEntity({ candidateName: "Ada" }), "POST", "/v1/entities/resolve"],
+    [
+      "createEntity",
+      () => client.createEntity({ entityTypeId: 1, canonicalName: "Ada" }),
+      "POST",
+      "/v1/entities",
+    ],
+    [
+      "resolveEntity",
+      () => client.resolveEntity({ candidateName: "Ada" }),
+      "POST",
+      "/v1/entities/resolve",
+    ],
     ["traverse", () => client.traverse("e1"), "POST", "/v1/entities/e1/traverse"],
     ["listRelations", () => client.listRelations("e1"), "GET", "/v1/entities/e1/relations"],
     ["getRelation", () => client.getRelation("r1"), "GET", "/v1/relations/r1"],
@@ -187,8 +228,18 @@ describe("read-side, entity, graph and schema routes", () => {
     ["fetchGraph", () => client.fetchGraph(), "GET", "/v1/graph"],
     ["getSchema", () => client.getSchema(), "GET", "/v1/schema"],
     ["uploadSchema", () => client.uploadSchema({ schemaDocument: "x" }), "POST", "/v1/schema"],
-    ["validateSchema", () => client.validateSchema({ schemaDocument: "x" }), "POST", "/v1/schema/validate"],
-    ["replaceSchema", () => client.replaceSchema({ schemaDocument: "x", forceDropExisting: false }), "PUT", "/v1/schema"],
+    [
+      "validateSchema",
+      () => client.validateSchema({ schemaDocument: "x" }),
+      "POST",
+      "/v1/schema/validate",
+    ],
+    [
+      "replaceSchema",
+      () => client.replaceSchema({ schemaDocument: "x", forceDropExisting: false }),
+      "PUT",
+      "/v1/schema",
+    ],
   ];
 
   for (const [name, call, method, path] of routes) {
@@ -243,13 +294,34 @@ describe("query parameters", () => {
 
   it("snake_cases query names on every query-bearing route", async () => {
     const cases: Array<[() => Promise<unknown>, string]> = [
-      [() => client.listMemories({ dir: "asc", includeTombstoned: true }), "/v1/memories?dir=asc&include_tombstoned=true"],
-      [() => client.getRelation("r1", { followSupersession: false }), "/v1/relations/r1?follow_supersession=false"],
-      [() => client.getStatement("s1", { followSupersession: true }), "/v1/statements/s1?follow_supersession=true"],
-      [() => client.listStatements({ minConfidence: 0.5, onlyCurrent: false }), "/v1/statements?min_confidence=0.5&only_current=false"],
-      [() => client.fetchGraph({ includeMemories: true, includeMemoryEdges: true }), "/v1/graph?include_memories=true&include_memory_edges=true"],
-      [() => client.getSchema({ namespace: "ns", version: 2 }), "/v1/schema?namespace=ns&version=2"],
-      [() => client.listRelations("e1", { includeSuperseded: true }), "/v1/entities/e1/relations?include_superseded=true"],
+      [
+        () => client.listMemories({ dir: "asc", includeTombstoned: true }),
+        "/v1/memories?dir=asc&include_tombstoned=true",
+      ],
+      [
+        () => client.getRelation("r1", { followSupersession: false }),
+        "/v1/relations/r1?follow_supersession=false",
+      ],
+      [
+        () => client.getStatement("s1", { followSupersession: true }),
+        "/v1/statements/s1?follow_supersession=true",
+      ],
+      [
+        () => client.listStatements({ minConfidence: 0.5, onlyCurrent: false }),
+        "/v1/statements?min_confidence=0.5&only_current=false",
+      ],
+      [
+        () => client.fetchGraph({ includeMemories: true, includeMemoryEdges: true }),
+        "/v1/graph?include_memories=true&include_memory_edges=true",
+      ],
+      [
+        () => client.getSchema({ namespace: "ns", version: 2 }),
+        "/v1/schema?namespace=ns&version=2",
+      ],
+      [
+        () => client.listRelations("e1", { includeSuperseded: true }),
+        "/v1/entities/e1/relations?include_superseded=true",
+      ],
     ];
     for (const [call, expected] of cases) {
       seen = [];
@@ -377,7 +449,10 @@ describe("idempotency of the new routes", () => {
 
   for (const [name, call] of retried) {
     it(`${name} retries a 503`, async () => {
-      replies = [[503, { error: { code: "unavailable", message: "shard restarting" } }], [200, {}]];
+      replies = [
+        [503, { error: { code: "unavailable", message: "shard restarting" } }],
+        [200, {}],
+      ];
       await call().catch(() => {});
       expect(seen, `${name} is idempotent and must be retried`).toHaveLength(2);
     });
@@ -395,7 +470,10 @@ describe("idempotency of the new routes", () => {
 
   for (const [name, call] of notRetried) {
     it(`${name} never retries a 503`, async () => {
-      replies = [[503, { error: { code: "unavailable", message: "shard restarting" } }], [200, {}]];
+      replies = [
+        [503, { error: { code: "unavailable", message: "shard restarting" } }],
+        [200, {}],
+      ];
       await expect(call()).rejects.toBeInstanceOf(BrainHttpError);
       expect(seen, `${name} is not idempotent and must run exactly once`).toHaveLength(1);
     });
