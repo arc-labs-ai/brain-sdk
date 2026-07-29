@@ -2619,6 +2619,109 @@ class SchemaValidationError:
 
 
 @dataclass
+class SchemaReplaceRequest:
+    """SCHEMA_REPLACE (``0x0127``). Destructive namespace swap.
+
+    Unlike :class:`SchemaUploadRequest`, which merges, this DROPS every declared
+    row in the namespace before the new document lands. Entities whose type
+    disappears survive as orphans — readable as plain memories, no longer
+    enriched from the typed-graph tables.
+
+    ``force_drop_existing`` MUST be ``True``; the server rejects ``False`` with
+    ``InvalidRequest``. It is deliberately not defaulted, so the irreversible
+    intent is written at the call site.
+    """
+
+    schema_document: str
+    force_drop_existing: bool
+    request_id: bytes
+
+    def to_map(self) -> dict:
+        return {
+            "schema_document": self.schema_document,
+            "force_drop_existing": self.force_drop_existing,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SchemaReplaceRequest":
+        return cls(m["schema_document"], m["force_drop_existing"], m["request_id"])
+
+
+@dataclass
+class SchemaReplaceResponse:
+    """SCHEMA_REPLACE_RESP (``0x01A7``).
+
+    ``dropped_count`` is how many declared rows were removed before the new
+    schema took effect — the number a caller needs to understand what the swap
+    destroyed. ``schema_version`` is always greater than the pre-replace one.
+    """
+
+    namespace: str
+    schema_version: int
+    dropped_count: int
+    validation_errors: list
+
+    def to_map(self) -> dict:
+        return {
+            "namespace": self.namespace,
+            "schema_version": self.schema_version,
+            "dropped_count": self.dropped_count,
+            "validation_errors": [e.to_map() for e in self.validation_errors],
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "SchemaReplaceResponse":
+        return cls(
+            m["namespace"],
+            m["schema_version"],
+            m["dropped_count"],
+            [SchemaValidationError.from_map(e) for e in m.get("validation_errors", [])],
+        )
+
+
+@dataclass
+class CancelStreamRequest:
+    """CANCEL_STREAM (``0x0050``). Stop an in-flight stream.
+
+    ``target_stream_id`` names the stream to stop; the request itself travels on
+    a DIFFERENT stream id so it does not queue behind the frames it is
+    cancelling. ``reason`` is ``"ClientUnneeded"``, ``"Timeout"``, or
+    ``{"Other": "<text>"}`` — the CBOR shape of Brain's ``CancellationReason``
+    enum, where unit variants are bare strings and the payload variant is a
+    single-key map.
+    """
+
+    target_stream_id: int
+    reason: object = "ClientUnneeded"
+
+    def to_map(self) -> dict:
+        return {"target_stream_id": self.target_stream_id, "reason": self.reason}
+
+    @classmethod
+    def from_map(cls, m: dict) -> "CancelStreamRequest":
+        return cls(m["target_stream_id"], m.get("reason", "ClientUnneeded"))
+
+
+@dataclass
+class CancelStreamAck:
+    """CANCEL_STREAM_ACK (``0x00D0``)."""
+
+    target_stream_id: int
+    cancelled_at_unix_nanos: int
+
+    def to_map(self) -> dict:
+        return {
+            "target_stream_id": self.target_stream_id,
+            "cancelled_at_unix_nanos": self.cancelled_at_unix_nanos,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict) -> "CancelStreamAck":
+        return cls(m["target_stream_id"], m["cancelled_at_unix_nanos"])
+
+
+@dataclass
 class SchemaUploadResponse:
     """SCHEMA_UPLOAD_RESP (``0x01A0``). The resolved namespace and new version, any validation errors, whether the change is backward-compatible, and a migration summary."""
 

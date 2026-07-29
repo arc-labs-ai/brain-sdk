@@ -102,6 +102,10 @@ from .wire.types import (
     SchemaListItem,
     SchemaListRequest,
     SchemaListResponseFrame,
+    CancelStreamAck,
+    CancelStreamRequest,
+    SchemaReplaceRequest,
+    SchemaReplaceResponse,
     SchemaUploadRequest,
     SchemaUploadResponse,
     SchemaValidateRequest,
@@ -784,6 +788,49 @@ class BrainClient:
             Opcode.SCHEMA_VALIDATE_RESP,
             SchemaValidateResponse,
             request,
+        )
+
+    def replace_schema(self, request: SchemaReplaceRequest) -> SchemaReplaceResponse:
+        """Replace a namespace's schema wholesale (SCHEMA_REPLACE).
+
+        DESTRUCTIVE. Every declared row in the namespace is dropped before the
+        new document lands; entities whose type disappears survive as orphans,
+        readable as plain memories but no longer enriched from the typed-graph
+        tables. Use :meth:`upload_schema` for the additive, versioned path —
+        this is for when the shape itself is wrong.
+
+        ``request.force_drop_existing`` must be ``True``; the server rejects
+        ``False`` with ``InvalidRequest``.
+        """
+        return self._unary(
+            Opcode.SCHEMA_REPLACE_REQ,
+            Opcode.SCHEMA_REPLACE_RESP,
+            SchemaReplaceResponse,
+            request,
+        )
+
+    def cancel_stream(
+        self, target_stream_id: int, reason: object = "ClientUnneeded"
+    ) -> CancelStreamAck:
+        """Cancel an in-flight stream (CANCEL_STREAM).
+
+        ``target_stream_id`` is the id of the stream to stop — the ``*_frames``
+        methods expose it. The request travels on its OWN stream id, so it does
+        not queue behind the frames it is cancelling; the server replies
+        CANCEL_STREAM_ACK and stops emitting for the target.
+
+        Without this, a consumer that abandons a streamed ``recall`` leaves the
+        server producing frames nobody reads.
+
+        Cancelling a stream that already finished is not an error — the server
+        acknowledges regardless, so a racing consumer needn't coordinate with
+        the reader loop.
+        """
+        return self._unary(
+            Opcode.CANCEL_STREAM,
+            Opcode.CANCEL_STREAM_ACK,
+            CancelStreamAck,
+            CancelStreamRequest(target_stream_id, reason),
         )
 
     def txn_begin(self, request: TxnBeginRequest) -> TxnBeginResponse:

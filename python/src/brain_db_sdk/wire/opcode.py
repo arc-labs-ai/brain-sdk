@@ -28,6 +28,11 @@ class Opcode(IntEnum):
     CLIENT_PONG = 0x0011
     SERVER_PING = 0x0091
 
+    # Stream control. CANCEL_STREAM names an in-flight stream in its body and
+    # travels on its own stream id; the server answers CANCEL_STREAM_ACK.
+    CANCEL_STREAM = 0x0050
+    CANCEL_STREAM_ACK = 0x00D0
+
     # v1 cognitive verbs.
     ENCODE_REQ = 0x0020
     ENCODE_RESP = 0x00A0
@@ -96,6 +101,10 @@ class Opcode(IntEnum):
     SCHEMA_LIST_RESP = 0x01A2
     SCHEMA_VALIDATE_REQ = 0x0123
     SCHEMA_VALIDATE_RESP = 0x01A3
+    # Destructive namespace swap — drops every declared row before the new
+    # document lands. Distinct from SCHEMA_UPLOAD, which merges. Brain §03.05.
+    SCHEMA_REPLACE_REQ = 0x0127
+    SCHEMA_REPLACE_RESP = 0x01A7
     # Extractor introspection. Read-only: extraction is always-on, so the
     # only extractor wire op lists the registered (always-on) extractors.
     EXTRACTOR_LIST_REQ = 0x0124
