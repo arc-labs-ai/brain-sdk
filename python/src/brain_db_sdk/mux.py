@@ -27,6 +27,7 @@ from .transport import read_frame, write_frame
 from .wire.frame import FLAG_EOS, Frame
 from .wire.opcode import Opcode
 from .wire.types import (
+    ByeRequest,
     AuthOkPayload,
     AuthPayload,
     ClientPongRequest,
@@ -161,7 +162,9 @@ class MuxConnection:
 
     def send_bye(self) -> None:
         """Send BYE to end the session cleanly."""
-        self._write(Opcode.BYE, HANDSHAKE_STREAM_ID, b"")
+        # 0xA0 (empty CBOR map), not an empty payload: the server decodes this
+        # as a ByeRequest, and zero bytes is not valid CBOR.
+        self._write(Opcode.BYE, HANDSHAKE_STREAM_ID, encode_payload(ByeRequest()))
 
     def close(self) -> None:
         """Close the socket; the reader thread exits and fails any waiters."""

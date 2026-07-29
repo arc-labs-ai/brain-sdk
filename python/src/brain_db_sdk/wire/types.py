@@ -441,6 +441,30 @@ class AuthOkPayload:
 
 
 @dataclass
+class ByeRequest:
+    """BYE (``0x001F``) — end the session cleanly.
+
+    ``reason`` is omitted from the map when None, so a plain goodbye is the
+    single byte ``0xA0`` (an empty CBOR map) — **not** an empty payload. All
+    three SDKs used to send zero bytes here, which the server cannot decode as
+    a ByeRequest; it tolerates it today rather than rejecting, but the corpus
+    ``req_bye`` vector pins the correct form.
+    """
+
+    reason: Optional[str] = None
+
+    def to_map(self) -> dict:
+        m: dict = {}
+        if self.reason is not None:
+            m["reason"] = self.reason
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict) -> "ByeRequest":
+        return cls(m.get("reason"))
+
+
+@dataclass
 class PingRequest:
     """PING (0x0010, client->server) — RTT probe."""
 

@@ -41,8 +41,9 @@ use crate::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use crate::wire::frame::{Frame, FLAG_EOS};
 use crate::wire::opcode::Opcode;
 use crate::wire::types::{
-    AuthOkPayload, AuthPayload, ClientPongRequest, ErrorResponse, HelloPayload, ServerPingResponse,
-    SubscribeRequest, SubscriptionEvent, UnsubscribeRequest, UnsubscribeResponse, WelcomePayload,
+    AuthOkPayload, AuthPayload, ByeRequest, ClientPongRequest, ErrorResponse, HelloPayload,
+    ServerPingResponse, SubscribeRequest, SubscriptionEvent, UnsubscribeRequest,
+    UnsubscribeResponse, WelcomePayload,
 };
 
 const HANDSHAKE_STREAM_ID: u32 = 0;
@@ -305,11 +306,13 @@ where
 
     /// Send BYE to end the session cleanly.
     pub async fn send_bye(&self) -> Result<()> {
+        // `0xA0` (empty CBOR map), not an empty payload: the server decodes
+        // this as a `ByeRequest`, and zero bytes is not valid CBOR.
         let frame = Frame::new(
             Opcode::Bye.as_u16(),
             FLAG_EOS,
             HANDSHAKE_STREAM_ID,
-            Vec::new(),
+            to_cbor_bytes(&ByeRequest::default()),
         );
         self.shared.write(&frame).await
     }

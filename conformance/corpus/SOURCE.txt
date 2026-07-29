@@ -1,3 +1,3 @@
 Corpus vendored from arc-labs-ai/brain
-commit: a3c7570124fc578ab5046edca8d0cd1f6a4963ae
+commit: c1269a4d29ee48d775ef7af986329ca7aa517812
 date: 2026-07-30

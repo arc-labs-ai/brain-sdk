@@ -3271,6 +3271,19 @@ pub struct SchemaValidateResponse {
 // server's `brain-protocol` definitions byte-for-byte.
 // ---------------------------------------------------------------------------
 
+/// BYE (`0x001F`) — end the session cleanly.
+///
+/// `reason` is optional and omitted from the map when absent, so a plain
+/// goodbye is the single byte `0xA0` (an empty CBOR map) — **not** an empty
+/// payload. All three SDKs used to send zero bytes here, which the server
+/// cannot decode as a `ByeRequest`; it tolerates it today rather than
+/// rejecting, but the corpus `req_bye` vector pins the correct form.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ByeRequest {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reason: Option<String>,
+}
+
 /// PING (`0x0010`, client→server) — RTT probe.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PingRequest {
