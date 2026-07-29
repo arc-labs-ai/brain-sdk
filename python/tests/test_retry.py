@@ -16,7 +16,6 @@ from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     ErrorCategory,
@@ -25,6 +24,7 @@ from brain_db_sdk.wire.types import (
     ForgetResponse,
     HelloPayload,
     ServerFeatures,
+    SpacePermissions,
     WelcomePayload,
     decode_payload,
     encode_payload,
@@ -32,7 +32,9 @@ from brain_db_sdk.wire.types import (
 
 
 def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) -> None:
-    write_frame(sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload))
+    write_frame(
+        sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload)
+    )
 
 
 # The server assigns the agent id from the credential; the client never sends one.
@@ -45,7 +47,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xEE" * 16,
+        connection_id=b"\xee" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -98,7 +100,9 @@ def _serve_forget_then_recover(sock: socket.socket) -> None:
     second_req = decode_payload(ForgetRequest, second.payload)
     assert first_req.request_id == second_req.request_id
 
-    resp = ForgetResponse(memory_id=second_req.memory_id, was_already_forgotten=False, edges_removed=1)
+    resp = ForgetResponse(
+        memory_id=second_req.memory_id, was_already_forgotten=False, edges_removed=1
+    )
     _write(sock, Opcode.FORGET_RESP, second.stream_id, encode_payload(resp))
 
     bye = read_frame(sock, buf)

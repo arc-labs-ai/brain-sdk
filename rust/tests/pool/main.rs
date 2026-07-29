@@ -69,9 +69,8 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
 
     // Answer ENCODEs (tagged with this socket's id) until the peer goes away.
     loop {
-        let frame = match read_frame(&mut sock, &mut buf).await {
-            Ok(f) => f,
-            Err(_) => return,
+        let Ok(frame) = read_frame(&mut sock, &mut buf).await else {
+            return;
         };
         if frame.opcode == Opcode::Bye as u16 {
             return;

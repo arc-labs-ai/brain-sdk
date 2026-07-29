@@ -45,10 +45,16 @@ pub enum BrainError {
     /// request. The full payload is preserved for code/category branching.
     #[error("server error [{code:?} / {category:?}]: {message}")]
     Server {
+        /// Specific error code; branch on this for programmatic handling.
         code: ErrorCodeWire,
+        /// Coarse class of the failure, for deciding whether to retry at all.
         category: ErrorCategoryWire,
+        /// Human-readable detail from the server.
         message: String,
+        /// Server-supplied backoff hint, when it sent one.
         retry_after_ms: Option<u32>,
+        /// The full decoded ERROR payload, kept so no field is lost to this
+        /// projection.
         response: Box<ErrorResponse>,
     },
 
@@ -56,7 +62,12 @@ pub enum BrainError {
     /// are `u8` on the wire (HELLO `supported_versions` / WELCOME
     /// `chosen_version`).
     #[error("version mismatch: server chose {chosen}, client supports {supported:?}")]
-    VersionMismatch { chosen: u8, supported: Vec<u8> },
+    VersionMismatch {
+        /// The version the server picked in WELCOME.
+        chosen: u8,
+        /// The versions this client offered in HELLO.
+        supported: Vec<u8>,
+    },
 
     /// The peer closed the connection (read returned zero bytes).
     #[error("connection closed by peer")]

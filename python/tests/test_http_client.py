@@ -13,6 +13,7 @@ happy path against a real edge.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -149,12 +150,10 @@ def test_every_verb_hits_its_documented_route(edge, call, method, path) -> None:
     the route each verb uses is asserted directly."""
     client, rec = edge
     rec.responses = [(200, _minimal_body_for(path), {})]
-    try:
+    # A minimal body may not populate every field of the result type; the
+    # assertion here is about the request, not the response shape.
+    with contextlib.suppress(KeyError, TypeError):
         call(client)
-    except (KeyError, TypeError):
-        # A minimal body may not populate every field of the result type; the
-        # assertion here is about the request, not the response shape.
-        pass
     assert rec.requests, f"{method} {path}: no request reached the server"
     assert (rec.requests[0]["method"], rec.requests[0]["path"]) == (method, path)
 
@@ -194,7 +193,7 @@ READ_SIDE_ROUTES = [
         "GET",
         "/v1/entities",
         "type_id=3&prefix=Ada&mention_count_min=2&include_tombstoned=false"
-        "&include_merged=true&limit=10",
+        + "&include_merged=true&limit=10",
     ),
     (
         lambda c: c.get_entity("ent-1"),
@@ -231,8 +230,7 @@ READ_SIDE_ROUTES = [
         ),
         "GET",
         "/v1/entities/ent-1/relations",
-        "direction=out&type=knows&include_superseded=false"
-        "&include_tombstoned=false&limit=5",
+        "direction=out&type=knows&include_superseded=false" + "&include_tombstoned=false&limit=5",
     ),
     (
         lambda c: c.get_relation("rel-1", follow_supersession=True),
@@ -253,7 +251,7 @@ READ_SIDE_ROUTES = [
         "GET",
         "/v1/statements",
         "subject=ent-1&predicate=knows&kind=fact&min_confidence=0.5"
-        "&only_current=true&include_tombstoned=false&limit=7",
+        + "&only_current=true&include_tombstoned=false&limit=7",
     ),
     (
         lambda c: c.get_statement("stmt-1", follow_supersession=False),
@@ -273,7 +271,7 @@ READ_SIDE_ROUTES = [
         "GET",
         "/v1/graph",
         "limit=50&cursor=c1&include_statements=true&include_memories=false"
-        "&include_memory_edges=false&include_tombstoned=false",
+        + "&include_memory_edges=false&include_tombstoned=false",
     ),
     (
         lambda c: c.get_schema(namespace="app", version=2),
@@ -313,12 +311,10 @@ def test_read_side_routes_match_the_edge_contract(edge, call, method, path, quer
     the same JSON, so the request line is what is asserted."""
     client, rec = edge
     rec.responses = [(200, {}, {})]
-    try:
+    # An empty body will not populate the result type; the assertion here is
+    # about the request, not the response shape.
+    with contextlib.suppress(KeyError, TypeError):
         call(client)
-    except (KeyError, TypeError):
-        # An empty body will not populate the result type; the assertion here is
-        # about the request, not the response shape.
-        pass
 
     assert rec.requests, f"{method} {path}: no request reached the server"
     sent = rec.requests[0]["path"]
@@ -358,10 +354,8 @@ def test_a_path_id_cannot_escape_its_segment(edge) -> None:
     different route (`/v1/entities/{id}/relations` lives at that depth)."""
     client, rec = edge
     rec.responses = [(200, {}, {})]
-    try:
+    with contextlib.suppress(KeyError, TypeError):
         client.get_entity("a/b")
-    except (KeyError, TypeError):
-        pass
     assert rec.requests[0]["path"] == "/v1/entities/a%2Fb"
 
 
@@ -394,10 +388,8 @@ def test_replace_schema_always_states_force_drop_existing(edge) -> None:
     bool, so it rides every request rather than being compacted away."""
     client, rec = edge
     rec.responses = [(200, {}, {})]
-    try:
+    with contextlib.suppress(KeyError, TypeError):
         client.replace_schema("entity Person {}")
-    except (KeyError, TypeError):
-        pass
     assert rec.requests[0]["body"] == {
         "schema_document": "entity Person {}",
         "force_drop_existing": False,
@@ -554,9 +546,7 @@ def test_a_literal_statement_object_is_decoded_through_both_tags(edge) -> None:
             200,
             {
                 "statements": [
-                    _statement_with(
-                        {"kind": "value", "value": {"type": "integer", "value": 1815}}
-                    )
+                    _statement_with({"kind": "value", "value": {"type": "integer", "value": 1815}})
                 ],
                 "count": 1,
             },
@@ -606,9 +596,7 @@ def test_every_statement_value_tag_round_trips(edge, type_tag, raw) -> None:
             200,
             {
                 "statements": [
-                    _statement_with(
-                        {"kind": "value", "value": {"type": type_tag, "value": raw}}
-                    )
+                    _statement_with({"kind": "value", "value": {"type": type_tag, "value": raw}})
                 ],
                 "count": 1,
             },
@@ -649,7 +637,18 @@ def _minimal_body_for(path: str) -> dict:
             "removed": True,
         }
     if path == "/v1/whoami":
-        return {"namespace": "ns", "space_id": "s", "permissions": {"can_encode": True, "can_recall": True, "can_plan": True, "can_reason": True, "can_forget": True, "can_admin": False}}
+        return {
+            "namespace": "ns",
+            "space_id": "s",
+            "permissions": {
+                "can_encode": True,
+                "can_recall": True,
+                "can_plan": True,
+                "can_reason": True,
+                "can_forget": True,
+                "can_admin": False,
+            },
+        }
     return {}
 
 
@@ -658,9 +657,7 @@ def _minimal_body_for(path: str) -> dict:
 
 def test_error_body_becomes_a_structured_error(edge) -> None:
     client, rec = edge
-    rec.responses = [
-        (404, {"error": {"code": "not_found", "message": "no such memory"}}, {})
-    ]
+    rec.responses = [(404, {"error": {"code": "not_found", "message": "no such memory"}}, {})]
     with pytest.raises(BrainHttpError) as excinfo:
         client.forget("999")
 
@@ -682,7 +679,7 @@ def test_a_non_json_error_body_still_yields_an_error(edge) -> None:
 
 def test_transport_failure_is_a_brain_error_not_a_raw_socket_error(edge) -> None:
     """A caller catching BrainHttpError must not also have to catch OSError."""
-    client, _rec = edge
+    _client, _rec = edge
     dead = BrainHttpClient(API_KEY, "http://127.0.0.1:1", retry=HttpRetryPolicy(max_attempts=1))
     with pytest.raises(BrainHttpError) as excinfo:
         dead.whoami()
@@ -697,7 +694,22 @@ def test_an_idempotent_verb_retries_a_503_and_succeeds(edge) -> None:
     client, rec = edge
     rec.responses = [
         (503, {"error": {"code": "unavailable", "message": "shard restarting"}}, {}),
-        (200, {"namespace": "ns", "space_id": "s", "permissions": {"can_encode": True, "can_recall": True, "can_plan": True, "can_reason": True, "can_forget": True, "can_admin": False}}, {}),
+        (
+            200,
+            {
+                "namespace": "ns",
+                "space_id": "s",
+                "permissions": {
+                    "can_encode": True,
+                    "can_recall": True,
+                    "can_plan": True,
+                    "can_reason": True,
+                    "can_forget": True,
+                    "can_admin": False,
+                },
+            },
+            {},
+        ),
     ]
     client.whoami()
     assert len(rec.requests) == 2, "a 503 on an idempotent GET must be retried"

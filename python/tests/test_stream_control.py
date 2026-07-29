@@ -55,7 +55,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> None:
             WelcomePayload(
                 server_id="mock-brain",
                 chosen_version=1,
-                connection_id=b"\xAB" * 16,
+                connection_id=b"\xab" * 16,
                 capabilities=hello.capabilities,
                 server_features=ServerFeatures(
                     max_payload_size=1 << 20,

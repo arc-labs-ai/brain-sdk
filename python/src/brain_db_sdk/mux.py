@@ -16,20 +16,22 @@ and completes before request streams (numbered from 1) are issued.
 
 from __future__ import annotations
 
+import contextlib
 import queue
 import socket
 import threading
 import time
 from dataclasses import dataclass
+from typing import TypeVar
 
 from .errors import BrainTimeout, ConnectionClosed, ProtocolError, ServerError, VersionMismatch
 from .transport import read_frame, write_frame
 from .wire.frame import FLAG_EOS, Frame
 from .wire.opcode import Opcode
 from .wire.types import (
-    ByeRequest,
     AuthOkPayload,
     AuthPayload,
+    ByeRequest,
     ClientPongRequest,
     ErrorResponse,
     HelloPayload,
@@ -85,7 +87,7 @@ class MuxConnection:
         auth: AuthPayload,
         connect_timeout: float | None = 10.0,
         request_timeout: float | None = 30.0,
-    ) -> tuple["MuxConnection", HandshakeOutcome]:
+    ) -> tuple[MuxConnection, HandshakeOutcome]:
         """Connect to ``host:port``, run the handshake, and return the live
         connection plus the negotiated outcome."""
         sock = socket.create_connection((host, port), timeout=connect_timeout)
@@ -139,7 +141,7 @@ class MuxConnection:
             raise ProtocolError(f"expected a single response frame, got {len(frames)}")
         return frames[0]
 
-    def subscribe(self, request: SubscribeRequest) -> "Subscription":
+    def subscribe(self, request: SubscribeRequest) -> Subscription:
         """Open a long-lived subscription. Allocates a stream id, registers its
         route, sends the SUBSCRIBE frame as one EOS frame, and returns a
         :class:`Subscription` the caller drains with ``next()``. Unlike
@@ -199,10 +201,10 @@ class MuxConnection:
                     server_timestamp_unix_nanos=server_ts,
                     client_timestamp_unix_nanos=time.time_ns(),
                 )
-                try:
+                # A closed socket ends the loop on the next read; a failed
+                # heartbeat is not separately actionable.
+                with contextlib.suppress(Exception):
                     self._write(Opcode.CLIENT_PONG, HANDSHAKE_STREAM_ID, encode_payload(pong))
-                except Exception:  # noqa: BLE001 — closed socket ends the loop on next read
-                    pass
                 continue
             with self._routes_lock:
                 q = self._routes.get(frame.stream_id)
@@ -271,6 +273,10 @@ class MuxConnection:
             return stream_id
 
 
+# Stands in for `typing.Self`, which is 3.11+; requires-python here is >=3.9.
+_SelfSub = TypeVar("_SelfSub", bound="Subscription")
+
+
 class Subscription:
     """A live server-push subscription stream. Drain events with :meth:`next`
     (or iterate the object directly); call :meth:`unsubscribe` for a clean
@@ -282,7 +288,7 @@ class Subscription:
     Prefer :meth:`unsubscribe` before closing so the server stops pushing.
     """
 
-    def __init__(self, conn: "MuxConnection", stream_id: int, q: queue.Queue) -> None:
+    def __init__(self, conn: MuxConnection, stream_id: int, q: queue.Queue) -> None:
         self._conn = conn
         self._stream_id = stream_id
         self._q = q
@@ -323,7 +329,7 @@ class Subscription:
                 return None
         return decode_payload(SubscriptionEvent, frame.payload)
 
-    def __iter__(self) -> "Subscription":
+    def __iter__(self) -> Subscription:
         return self
 
     def __next__(self) -> SubscriptionEvent:
@@ -352,11 +358,11 @@ class Subscription:
         self._ended = True
         self._conn._deregister(self._stream_id)  # noqa: SLF001
 
-    def __enter__(self) -> "Subscription":
+    def __enter__(self: _SelfSub) -> _SelfSub:
         return self
 
     def __exit__(self, *exc: object) -> None:
         self.close()
 
 
-__all__ = ["MuxConnection", "Subscription", "HandshakeOutcome", "HANDSHAKE_STREAM_ID"]
+__all__ = ["HANDSHAKE_STREAM_ID", "HandshakeOutcome", "MuxConnection", "Subscription"]

@@ -19,7 +19,11 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-from . import wire  # noqa: F401
+# HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).
+from . import (
+    http,
+    wire,
+)
 from .client import (
     Auth,
     BrainClient,
@@ -28,11 +32,6 @@ from .client import (
     derive_space_id,
     new_id,
 )
-from .mux import HandshakeOutcome, MuxConnection, Subscription
-from .pool import Pool
-from .retry import RetryPolicy, with_retry
-from .verbs import EncodeBuilder, ForgetBuilder, RecallBuilder
-from .wire.types import AnswerKind, RecallAnswer, WaitMode
 from .errors import (
     ActAsDenied,
     BrainError,
@@ -43,10 +42,12 @@ from .errors import (
     VersionMismatch,
     is_retryable,
 )
-
-# HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).
-from . import http
 from .http import BrainHttpClient, BrainHttpError
+from .mux import HandshakeOutcome, MuxConnection, Subscription
+from .pool import Pool
+from .retry import RetryPolicy, with_retry
+from .verbs import EncodeBuilder, ForgetBuilder, RecallBuilder
+from .wire.types import AnswerKind, RecallAnswer, WaitMode
 
 __all__ = [
     "wire",

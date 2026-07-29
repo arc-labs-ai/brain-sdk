@@ -14,7 +14,6 @@ from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     EntityCreateRequest,
@@ -28,6 +27,7 @@ from brain_db_sdk.wire.types import (
     SchemaUploadRequest,
     SchemaUploadResponse,
     ServerFeatures,
+    SpacePermissions,
     StatementCreateRequest,
     StatementCreateResponse,
     StatementKind,
@@ -47,7 +47,9 @@ SERVER_AGENT_ID = b"\x22" * 16
 
 
 def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) -> None:
-    write_frame(sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload))
+    write_frame(
+        sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload)
+    )
 
 
 def _serve_graph(sock: socket.socket) -> None:
@@ -58,7 +60,7 @@ def _serve_graph(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xAB" * 16,
+        connection_id=b"\xab" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -92,7 +94,12 @@ def _serve_graph(sock: socket.socket) -> None:
     assert f.opcode == Opcode.ENTITY_CREATE_REQ
     req = decode_payload(EntityCreateRequest, f.payload)
     assert req.canonical_name == "Ada Lovelace"
-    _write(sock, Opcode.ENTITY_CREATE_RESP, f.stream_id, encode_payload(EntityCreateResponse(ENTITY_ID)))
+    _write(
+        sock,
+        Opcode.ENTITY_CREATE_RESP,
+        f.stream_id,
+        encode_payload(EntityCreateResponse(ENTITY_ID)),
+    )
 
     # STATEMENT_CREATE.
     f = read_frame(sock, buf)
@@ -111,7 +118,12 @@ def _serve_graph(sock: socket.socket) -> None:
     assert f.opcode == Opcode.RELATION_CREATE_REQ
     req = decode_payload(RelationCreateRequest, f.payload)
     assert req.relation_type == "collaborated_with"
-    _write(sock, Opcode.RELATION_CREATE_RESP, f.stream_id, encode_payload(RelationCreateResponse(RELATION_ID)))
+    _write(
+        sock,
+        Opcode.RELATION_CREATE_RESP,
+        f.stream_id,
+        encode_payload(RelationCreateResponse(RELATION_ID)),
+    )
 
     # SCHEMA_UPLOAD.
     f = read_frame(sock, buf)

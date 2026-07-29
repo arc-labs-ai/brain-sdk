@@ -18,7 +18,6 @@ from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     EncodeTrace,
@@ -44,6 +43,7 @@ from brain_db_sdk.wire.types import (
     RecallTraceRetriever,
     RecallTraceRetrieverStatus,
     ServerFeatures,
+    SpacePermissions,
     WaitMode,
     WelcomePayload,
     decode_payload,
@@ -130,7 +130,15 @@ def _serve_memory_list(sock: socket.socket) -> None:
             auth_methods=[0],
         ),
     )
-    write_frame(sock, Frame(opcode=int(Opcode.WELCOME), flags=FLAG_EOS, stream_id=hello.stream_id, payload=encode_payload(welcome)))
+    write_frame(
+        sock,
+        Frame(
+            opcode=int(Opcode.WELCOME),
+            flags=FLAG_EOS,
+            stream_id=hello.stream_id,
+            payload=encode_payload(welcome),
+        ),
+    )
 
     auth = read_frame(sock, buf)
     assert auth.opcode == Opcode.AUTH
@@ -142,7 +150,15 @@ def _serve_memory_list(sock: socket.socket) -> None:
         namespace="",
         server_time_unix_nanos=1700000000000000000,
     )
-    write_frame(sock, Frame(opcode=int(Opcode.AUTH_OK), flags=FLAG_EOS, stream_id=auth.stream_id, payload=encode_payload(auth_ok)))
+    write_frame(
+        sock,
+        Frame(
+            opcode=int(Opcode.AUTH_OK),
+            flags=FLAG_EOS,
+            stream_id=auth.stream_id,
+            payload=encode_payload(auth_ok),
+        ),
+    )
 
     # Serve MEMORY_LIST requests (two-frame page) until the client says BYE.
     while True:
@@ -152,10 +168,33 @@ def _serve_memory_list(sock: socket.socket) -> None:
         assert req.opcode == Opcode.MEMORY_LIST_REQ
         decode_payload(MemoryListRequest, req.payload)
         sid = req.stream_id
-        first = MemoryListResponseFrame(items=[_sample_item(0xAA, "one")], next_cursor=b"\x01", cumulative_count=1, is_final=False)
-        write_frame(sock, Frame(opcode=int(Opcode.MEMORY_LIST_RESP), flags=0, stream_id=sid, payload=encode_payload(first)))
-        second = MemoryListResponseFrame(items=[_sample_item(0xBB, "two")], next_cursor=b"", cumulative_count=2, is_final=True)
-        write_frame(sock, Frame(opcode=int(Opcode.MEMORY_LIST_RESP), flags=FLAG_EOS, stream_id=sid, payload=encode_payload(second)))
+        first = MemoryListResponseFrame(
+            items=[_sample_item(0xAA, "one")],
+            next_cursor=b"\x01",
+            cumulative_count=1,
+            is_final=False,
+        )
+        write_frame(
+            sock,
+            Frame(
+                opcode=int(Opcode.MEMORY_LIST_RESP),
+                flags=0,
+                stream_id=sid,
+                payload=encode_payload(first),
+            ),
+        )
+        second = MemoryListResponseFrame(
+            items=[_sample_item(0xBB, "two")], next_cursor=b"", cumulative_count=2, is_final=True
+        )
+        write_frame(
+            sock,
+            Frame(
+                opcode=int(Opcode.MEMORY_LIST_RESP),
+                flags=FLAG_EOS,
+                stream_id=sid,
+                payload=encode_payload(second),
+            ),
+        )
 
 
 def test_memory_list_streams_and_flattens() -> None:

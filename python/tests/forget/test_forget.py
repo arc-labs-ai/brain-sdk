@@ -26,7 +26,9 @@ def test_soft_forget_removes_from_recall(it, recall_until):
 
         client.forget(ForgetBuilder(mem_id).with_mode(ForgetMode.SOFT).build())
 
-        after = recall_until(client, req, lambda a: not any(m.memory_id == mem_id for m in a.memories))
+        after = recall_until(
+            client, req, lambda a: not any(m.memory_id == mem_id for m in a.memories)
+        )
         assert not any(m.memory_id == mem_id for m in after.memories)
     finally:
         client.close()

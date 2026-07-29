@@ -86,7 +86,10 @@ def test_tombstone_and_retract_are_accepted(it):
         a = client.create_statement(_fact(subject, "one"))
         ts = client.tombstone_statement(
             StatementTombstoneRequest(
-                statement_id=a.statement_id, reason=1, reason_message="superseded by hand", request_id=new_id()
+                statement_id=a.statement_id,
+                reason=1,
+                reason_message="superseded by hand",
+                request_id=new_id(),
             )
         )
         assert ts.tombstoned_at_unix_nanos > 0
@@ -94,7 +97,10 @@ def test_tombstone_and_retract_are_accepted(it):
         b = client.create_statement(_fact(subject, "two"))
         rt = client.retract_statement(
             StatementRetractRequest(
-                statement_id=b.statement_id, reason=1, reason_message="was wrong", request_id=new_id()
+                statement_id=b.statement_id,
+                reason=1,
+                reason_message="was wrong",
+                request_id=new_id(),
             )
         )
         assert rt.will_zero_at_unix_nanos >= rt.retracted_at_unix_nanos

@@ -45,7 +45,7 @@ class It:
     namespace: str
 
     @staticmethod
-    def from_env() -> Optional["It"]:
+    def from_env() -> Optional[It]:
         data = os.environ.get("BRAIN_SDK_IT_DATA")
         if not data:
             return None
@@ -146,7 +146,9 @@ def it() -> It:
                 "allow skipping, or boot one with scripts/it-server.sh.",
                 pytrace=False,
             )
-        pytest.skip("integration server not configured (set BRAIN_SDK_IT_DATA; see scripts/it-server.sh)")
+        pytest.skip(
+            "integration server not configured (set BRAIN_SDK_IT_DATA; see scripts/it-server.sh)"
+        )
     return target
 
 

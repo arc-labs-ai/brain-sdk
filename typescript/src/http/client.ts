@@ -7,6 +7,7 @@
  * management), use {@link BrainClient} instead.
  */
 import { BrainHttpError } from "./errors.js";
+import { describeThrown } from "../transport.js";
 import type {
   Capabilities,
   CreateEntityInput,
@@ -426,10 +427,18 @@ export class BrainHttpClient {
     try {
       res = await this.fetchImpl(this.base + url, init);
     } catch (e) {
+      // `cause` keeps the original error (and its stack) reachable; the message
+      // alone loses everything about where a transport failure came from.
+      //
+      // The rule below only recognises the two-argument
+      // `new Error(message, options)` shape, so it cannot see the `cause` in
+      // `BrainHttpError`'s (status, code, message, options) constructor.
+      // biome-ignore lint/style/useErrorCause: cause is passed in the options bag below
       throw new BrainHttpError(
         0,
         "transport",
-        `request to ${this.base}${url} failed: ${(e as Error).message}`,
+        `request to ${this.base}${url} failed: ${describeThrown(e)}`,
+        { cause: e },
       );
     } finally {
       clearTimeout(timer);

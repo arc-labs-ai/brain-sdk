@@ -281,7 +281,7 @@ use brain_db_sdk::wire::types::{
 fn id(seed: u8) -> [u8; 16] {
     let mut u = [0u8; 16];
     for (i, b) in u.iter_mut().enumerate() {
-        *b = seed.wrapping_add(i as u8);
+        *b = seed.wrapping_add(u8::try_from(i % 256).expect("i % 256 fits u8"));
     }
     u
 }

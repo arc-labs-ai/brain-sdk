@@ -78,8 +78,7 @@ def test_from_cbor_rejects_trailing_bytes() -> None:
         # Nested + mixed, resembling a result row.
         {
             "results": [
-                {"id": 2**64 + i, "score": round_f32(0.1 * i), "txt": "x" * i}
-                for i in range(5)
+                {"id": 2**64 + i, "score": round_f32(0.1 * i), "txt": "x" * i} for i in range(5)
             ],
             "final": True,
         },

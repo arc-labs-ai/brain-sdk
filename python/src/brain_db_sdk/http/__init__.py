@@ -56,10 +56,9 @@ from .types import (
 )
 
 __all__ = [
+    "DEFAULT_BASE_URL",
     "BrainHttpClient",
     "BrainHttpError",
-    "HttpRetryPolicy",
-    "DEFAULT_BASE_URL",
     "Capabilities",
     "CreateEntityResult",
     "EncodeResult",
@@ -68,6 +67,7 @@ __all__ = [
     "GraphEdge",
     "GraphNode",
     "GraphPage",
+    "HttpRetryPolicy",
     "InferenceStep",
     "LinkResult",
     "ListEntitiesResult",

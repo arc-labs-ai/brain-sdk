@@ -18,11 +18,10 @@ import uuid
 
 from brain_db_sdk import Auth, BrainClient
 from brain_db_sdk.transport import read_frame, write_frame
+from brain_db_sdk.wire.cbor import from_cbor, to_cbor
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
-from brain_db_sdk.wire.cbor import from_cbor, to_cbor
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     Capabilities,
@@ -67,6 +66,7 @@ from brain_db_sdk.wire.types import (
     SchemaValidateRequest,
     SchemaValidateResponse,
     ServerFeatures,
+    SpacePermissions,
     StatementGetRequest,
     StatementGetResponse,
     StatementKind,
@@ -196,9 +196,7 @@ def test_read_side_types_round_trip() -> None:
     # Entity get/list.
     _round_trip(EntityGetRequest(ENTITY_ID), EntityGetRequest)
     _round_trip(EntityGetResponse(_entity_view()), EntityGetResponse)
-    _round_trip(
-        EntityListRequest(1, "Ad", 0, False, False, 100, []), EntityListRequest
-    )
+    _round_trip(EntityListRequest(1, "Ad", 0, False, False, 100, []), EntityListRequest)
     _round_trip(
         EntityListResponseFrame([EntityListItem(_entity_view())], [9], 1, True),
         EntityListResponseFrame,
@@ -210,9 +208,7 @@ def test_read_side_types_round_trip() -> None:
         EntityResolveRequest,
     )
     _round_trip(
-        EntityResolveResponse(
-            ResolutionOutcome.RESOLVED, 1, 1.0, ENTITY_ID, [], b"\x00" * 16
-        ),
+        EntityResolveResponse(ResolutionOutcome.RESOLVED, 1, 1.0, ENTITY_ID, [], b"\x00" * 16),
         EntityResolveResponse,
     )
     _round_trip(
@@ -259,7 +255,9 @@ def test_read_side_types_round_trip() -> None:
 
     # Schema get/list/validate.
     _round_trip(SchemaGetRequest("people", 0), SchemaGetRequest)
-    _round_trip(SchemaGetResponse("people", 2, "entity Person {}", [1, 2], 10, 1), SchemaGetResponse)
+    _round_trip(
+        SchemaGetResponse("people", 2, "entity Person {}", [1, 2], 10, 1), SchemaGetResponse
+    )
     _round_trip(SchemaListRequest("people", 0, []), SchemaListRequest)
     _round_trip(
         SchemaListResponseFrame("people", [SchemaListItem(1, 5, 2, True)], 1, [], True),
@@ -313,10 +311,14 @@ def test_read_side_types_round_trip() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes, *, eos: bool = True) -> None:
+def _write(
+    sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes, *, eos: bool = True
+) -> None:
     write_frame(
         sock,
-        Frame(opcode=int(opcode), flags=FLAG_EOS if eos else 0, stream_id=stream_id, payload=payload),
+        Frame(
+            opcode=int(opcode), flags=FLAG_EOS if eos else 0, stream_id=stream_id, payload=payload
+        ),
     )
 
 
@@ -326,7 +328,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> AuthPayload:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xAB" * 16,
+        connection_id=b"\xab" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -360,7 +362,9 @@ def _serve_read_side(sock: socket.socket) -> None:
         sock,
         Opcode.GET_CAPABILITIES_RESP,
         f.stream_id,
-        encode_payload(GetCapabilitiesResponse(Capabilities(True, False, True, True, ["people"], 384))),
+        encode_payload(
+            GetCapabilitiesResponse(Capabilities(True, False, True, True, ["people"], 384))
+        ),
     )
 
     # LINK (unary).
@@ -388,7 +392,9 @@ def _serve_read_side(sock: socket.socket) -> None:
     # ENTITY_GET (unary).
     f = read_frame(sock, buf)
     assert f.opcode == Opcode.ENTITY_GET_REQ
-    _write(sock, Opcode.ENTITY_GET_RESP, f.stream_id, encode_payload(EntityGetResponse(_entity_view())))
+    _write(
+        sock, Opcode.ENTITY_GET_RESP, f.stream_id, encode_payload(EntityGetResponse(_entity_view()))
+    )
 
     # ENTITY_RESOLVE (unary).
     f = read_frame(sock, buf)
@@ -398,9 +404,7 @@ def _serve_read_side(sock: socket.socket) -> None:
         Opcode.ENTITY_RESOLVE_RESP,
         f.stream_id,
         encode_payload(
-            EntityResolveResponse(
-                ResolutionOutcome.RESOLVED, 1, 1.0, ENTITY_ID, [], b"\x00" * 16
-            )
+            EntityResolveResponse(ResolutionOutcome.RESOLVED, 1, 1.0, ENTITY_ID, [], b"\x00" * 16)
         ),
     )
 
@@ -438,17 +442,29 @@ def _serve_read_side(sock: socket.socket) -> None:
     f = read_frame(sock, buf)
     assert f.opcode == Opcode.TXN_BEGIN
     req = decode_payload(TxnBeginRequest, f.payload)
-    _write(sock, Opcode.TXN_BEGIN_RESP, f.stream_id, encode_payload(TxnBeginResponse(req.txn_id, req.timeout_seconds, 50)))
+    _write(
+        sock,
+        Opcode.TXN_BEGIN_RESP,
+        f.stream_id,
+        encode_payload(TxnBeginResponse(req.txn_id, req.timeout_seconds, 50)),
+    )
 
     f = read_frame(sock, buf)
     assert f.opcode == Opcode.TXN_COMMIT
     req = decode_payload(TxnCommitRequest, f.payload)
-    _write(sock, Opcode.TXN_COMMIT_RESP, f.stream_id, encode_payload(TxnCommitResponse(req.txn_id, 60, 2)))
+    _write(
+        sock,
+        Opcode.TXN_COMMIT_RESP,
+        f.stream_id,
+        encode_payload(TxnCommitResponse(req.txn_id, 60, 2)),
+    )
 
     f = read_frame(sock, buf)
     assert f.opcode == Opcode.TXN_ABORT
     req = decode_payload(TxnAbortRequest, f.payload)
-    _write(sock, Opcode.TXN_ABORT_RESP, f.stream_id, encode_payload(TxnAbortResponse(req.txn_id, 1)))
+    _write(
+        sock, Opcode.TXN_ABORT_RESP, f.stream_id, encode_payload(TxnAbortResponse(req.txn_id, 1))
+    )
 
     # ENTITY_LIST (streamed: two frames).
     f = read_frame(sock, buf)
@@ -504,7 +520,9 @@ def _serve_read_side(sock: socket.socket) -> None:
         sock,
         Opcode.SCHEMA_LIST_RESP,
         f.stream_id,
-        encode_payload(SchemaListResponseFrame("people", [SchemaListItem(2, 10, 1, True)], 1, [], True)),
+        encode_payload(
+            SchemaListResponseFrame("people", [SchemaListItem(2, 10, 1, True)], 1, [], True)
+        ),
     )
 
     # PLAN (streamed: two frames flatten to three steps).
@@ -592,9 +610,7 @@ def test_read_edge_cognitive_txn_verbs() -> None:
         entity = client.get_entity(EntityGetRequest(ENTITY_ID))
         assert entity.entity.canonical_name == "Ada Lovelace"
 
-        resolved = client.resolve_entity(
-            EntityResolveRequest("Ada Lovelace", "", 1, False, _rid())
-        )
+        resolved = client.resolve_entity(EntityResolveRequest("Ada Lovelace", "", 1, False, _rid()))
         assert resolved.outcome == ResolutionOutcome.RESOLVED
         assert resolved.resolved_entity == ENTITY_ID
 
@@ -650,9 +666,7 @@ def test_read_edge_cognitive_txn_verbs() -> None:
         assert [s.step_index for s in steps] == [0, 1, 2]  # frames flattened
 
         inferences = client.reason(
-            ReasonRequest(
-                ObservationInput.by_text("why?"), 3, 0.0, None, 10, 1000, _rid(), None
-            )
+            ReasonRequest(ObservationInput.by_text("why?"), 3, 0.0, None, 10, 1000, _rid(), None)
         )
         assert len(inferences) == 1 and inferences[0].claim == "c"
 

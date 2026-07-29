@@ -46,3 +46,89 @@ serde_json = { version = "1", features = ["arbitrary_precision"] }
 # round-trip tests against a mock server, no real socket required.
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "macros", "net", "time"] }
 # proptest  = "1"           # frame round-trip + CRC-rejection properties (build phase)
+
+# ---------------------------------------------------------------------------
+# Lints.
+#
+# Declared here rather than passed on the clippy command line so that one
+# definition covers `cargo clippy`, CI, and rust-analyzer in the editor — a lint
+# that only fires in CI gets discovered at the worst moment.
+#
+# Every lint below the group lines was produced by actually running
+# `-W clippy::pedantic -W clippy::nursery -W clippy::cargo` against this crate
+# (1056 warnings). The count in each comment is what that lint produced, so the
+# next person can see it was considered rather than overlooked.
+# ---------------------------------------------------------------------------
+
+[lints.rust]
+# This crate parses untrusted bytes off a socket. It has no `unsafe` and must
+# not acquire any: `forbid` cannot be lifted by an inner `allow`.
+unsafe_code = "forbid"
+# Every public item on a published SDK needs a doc comment.
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+# A public type that is not `Debug`-printable is painful in exactly the
+# situation you reach for it.
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+# -- allowed: fights what this crate is ------------------------------------
+# 399. Wants backticks around identifiers in prose, but its heuristic also
+# flags ordinary words and acronyms (SDK, CBOR, HTTP, brain-edge). The docs
+# here are long and deliberate; mechanical backticking would garble them.
+doc_markdown = "allow"
+# 230. Every fallible call returns `BrainError`, whose variants are documented
+# once on the type. Per-function `# Errors` sections would be 230 restatements
+# of the same taxonomy, which makes the real ones harder to notice.
+missing_errors_doc = "allow"
+# 94. Most wire types carry an `f32` (salience, confidence) somewhere in their
+# tree and cannot derive `Eq` at all; deriving it on the remainder splits the
+# family for no gain.
+derive_partial_eq_without_eq = "allow"
+# 14. `SpacePermissions` has seven bools because the server's does. The wire
+# shape is not ours to restructure.
+struct_excessive_bools = "allow"
+# 12. Reports version skew inside the dependency graph (reqwest vs tokio
+# transitives). Not actionable from here, and not a property of this code.
+multiple_crate_versions = "allow"
+
+# -- allowed: wrong for this code, on inspection ---------------------------
+# 22. Fires on the two generic request helpers (`streamed`, `unary`) because
+# their `Req` parameter has no `Sync` bound. Every public verb instantiates
+# `Req` with a concrete wire type that IS `Sync`, so the futures callers
+# actually get are `Send` — which `tests/send_sync.rs` asserts directly, at
+# compile time, on the real futures. That test is a tighter guarantee than
+# this lint, and fault injection confirms it fails when the property breaks.
+future_not_send = "allow"
+# 66. Nursery. Suggests `const fn` for functions whose bodies are const today
+# by accident; committing to it freezes implementation details into the API.
+missing_const_for_fn = "allow"
+# 6. Suggests dropping mutex guards earlier. Checked all six: none holds a
+# guard across an `.await` (which would be the real bug), and each is a short
+# table update where the tightening would only add scoping noise.
+significant_drop_tightening = "allow"
+
+# -- allowed: thresholds and style, not defects ----------------------------
+# 78 use_self, 68 too_long_first_doc_paragraph, 12 manual_assert,
+# 7 too_many_lines, 4 redundant_pub_crate, 2 single_match_else,
+# 2 option_if_let_else, 2 ref_option.
+use_self = "allow"
+too_long_first_doc_paragraph = "allow"
+manual_assert = "allow"
+too_many_lines = "allow"
+redundant_pub_crate = "allow"
+single_match_else = "allow"
+option_if_let_else = "allow"
+ref_option = "allow"
+
+# -- kept at warn, deliberately --------------------------------------------
+# Not listed above and therefore still enforced: cast_possible_truncation and
+# cast_precision_loss (a silent truncation in a byte codec is a wire bug — the
+# three in `src/` are now explicit `try_from`s), missing_panics_doc,
+# format_push_string, format_collect, map_unwrap_or, needless_pass_by_value,
+# manual_let_else, trivially_copy_pass_by_ref.

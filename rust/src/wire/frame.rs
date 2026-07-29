@@ -19,6 +19,14 @@
 //! Payload (not part of this header) = CBOR map + optional trailing raw
 //! little-endian f32 vector section.
 
+// The types below mirror the server's wire structs one-for-one: same names,
+// same field names, same order. Their documentation is the protocol itself —
+// `conformance/protocol.json` carries every field's type and serde attributes,
+// and the corpus pins the bytes. A doc comment on each of ~2000 fields would
+// restate the field name and nothing more, and the ones that DO carry meaning
+// beyond their name (written below) would be lost in the noise.
+#![allow(missing_docs)]
+
 /// Magic bytes at offset 0: ASCII `"BRN0"`.
 pub const MAGIC: [u8; 4] = *b"BRN0";
 
@@ -172,6 +180,11 @@ impl Frame {
     /// verifies the header CRC, then checks `payload_len` against
     /// [`MAX_PAYLOAD_BYTES`] **before** slicing the payload, and finally
     /// verifies the payload CRC.
+    ///
+    /// # Panics
+    ///
+    /// Never. The slice indexing below is all bounds-checked against
+    /// `HEADER_SIZE` and `payload_len` before it runs.
     pub fn decode(bytes: &[u8]) -> Result<(Frame, &[u8]), FrameError> {
         if bytes.len() < HEADER_SIZE {
             return Err(FrameError::Truncated {

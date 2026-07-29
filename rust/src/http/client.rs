@@ -51,7 +51,12 @@ fn segment(value: &str) -> String {
     for &b in value.as_bytes() {
         match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{b:02X}")),
+            // `write!` into the buffer directly; `format!` would allocate a
+            // String per escaped byte.
+            _ => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "%{b:02X}");
+            }
         }
     }
     out

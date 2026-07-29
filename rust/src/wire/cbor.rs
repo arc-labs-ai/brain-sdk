@@ -30,9 +30,14 @@ pub enum CborError {
     RaggedVector(usize),
 }
 
-/// Serialize a value to a fresh CBOR byte vector. The only failure mode
-/// for an owned in-memory value is allocation, so the unreachable error
-/// path carries a descriptive panic message.
+/// Serialize a value to a fresh CBOR byte vector.
+///
+/// # Panics
+///
+/// Never, for any value this crate serializes. `ciborium`'s only error path
+/// when writing to an in-memory `Vec` is the writer failing, which a `Vec`
+/// does not do short of allocation failure — so the `expect` documents an
+/// invariant rather than guarding a reachable case.
 pub fn to_cbor_bytes<T: Serialize>(value: &T) -> Vec<u8> {
     let mut buf = Vec::new();
     ciborium::into_writer(value, &mut buf)
@@ -46,7 +51,11 @@ pub fn from_cbor_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, CborError
     let mut cursor = std::io::Cursor::new(bytes);
     let value: T =
         ciborium::from_reader(&mut cursor).map_err(|e| CborError::Decode(e.to_string()))?;
-    if (cursor.position() as usize) != bytes.len() {
+    // `position()` is a u64, but it indexes a `&[u8]` whose length is a usize,
+    // so it cannot exceed `usize::MAX`. `try_from` states that rather than
+    // leaving a silent truncation on 32-bit targets to inspection.
+    let consumed = usize::try_from(cursor.position()).map_err(|_| CborError::TrailingBytes)?;
+    if consumed != bytes.len() {
         return Err(CborError::TrailingBytes);
     }
     Ok(value)
@@ -59,7 +68,10 @@ pub fn from_cbor_prefix<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, usize),
     let mut cursor = std::io::Cursor::new(bytes);
     let value: T =
         ciborium::from_reader(&mut cursor).map_err(|e| CborError::Decode(e.to_string()))?;
-    Ok((value, cursor.position() as usize))
+    // Same bound as `from_cbor_bytes`: the cursor indexes `bytes`, so its
+    // position fits a usize by construction.
+    let consumed = usize::try_from(cursor.position()).map_err(|_| CborError::TrailingBytes)?;
+    Ok((value, consumed))
 }
 
 /// Pack an `f32` slice into a contiguous little-endian byte vector for
@@ -98,6 +110,7 @@ pub mod vec_byte_array16 {
     use serde::ser::SerializeSeq;
     use std::fmt;
 
+    /// Write each id as its own CBOR byte string, framed separately.
     pub fn serialize<S>(v: &[[u8; 16]], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
@@ -109,6 +122,7 @@ pub mod vec_byte_array16 {
         seq.end()
     }
 
+    /// Read a CBOR sequence of 16-byte strings back into fixed-size arrays.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<[u8; 16]>, D::Error>
     where
         D: Deserializer<'de>,
@@ -116,7 +130,7 @@ pub mod vec_byte_array16 {
         struct V;
         impl<'de> Visitor<'de> for V {
             type Value = Vec<[u8; 16]>;
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a sequence of 16-byte byte strings")
             }
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -150,6 +164,7 @@ pub mod vec_byte_array16 {
 pub mod opt_vec_byte_array16 {
     use serde::de::Deserializer;
 
+    /// As [`vec_byte_array16::serialize`], but omits the field when `None`.
     pub fn serialize<S>(v: &Option<Vec<[u8; 16]>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
@@ -164,6 +179,8 @@ pub mod opt_vec_byte_array16 {
         }
     }
 
+    /// As [`vec_byte_array16::deserialize`], yielding `None` for a missing
+    /// or null field.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<[u8; 16]>>, D::Error>
     where
         D: Deserializer<'de>,

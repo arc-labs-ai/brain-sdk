@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from brain_db_sdk.errors import ServerError
 from brain_db_sdk import Auth, BrainClient, new_id
+from brain_db_sdk.errors import ServerError
 
 
 def test_minted_token_resolves_session(it):

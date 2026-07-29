@@ -14,6 +14,15 @@ from enum import IntEnum
 
 
 class Opcode(IntEnum):
+    """Every wire opcode, with the value the protocol assigns it.
+
+    Request opcodes are low; the matching response is the request with the
+    high bit of the second nibble set (ENCODE_REQ ``0x0020`` ->
+    ENCODE_RESP ``0x00A0``). `conformance/protocol.json` is the source of
+    truth, and `tests/test_corpus_coverage.py` fails if a value here drifts
+    from it.
+    """
+
     # Connection management.
     HELLO = 0x0001
     WELCOME = 0x0081

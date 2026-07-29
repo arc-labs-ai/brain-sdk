@@ -58,9 +58,7 @@ def test_update_then_rename_then_tombstone(it):
         assert "Ada Lovelace" in renamed.entity.aliases
 
         ts = client.tombstone_entity(
-            EntityTombstoneRequest(
-                entity_id=entity_id, reason="test cleanup", request_id=new_id()
-            )
+            EntityTombstoneRequest(entity_id=entity_id, reason="test cleanup", request_id=new_id())
         )
         assert ts.tombstoned_at_unix_nanos > 0
     finally:
@@ -84,9 +82,7 @@ def test_merge_then_unmerge(it):
         )
         assert m.grace_period_seconds > 0
 
-        u = client.unmerge_entity(
-            EntityUnmergeRequest(merged_entity=merged, request_id=new_id())
-        )
+        u = client.unmerge_entity(EntityUnmergeRequest(merged_entity=merged, request_id=new_id()))
         assert u.restored_entity_id == merged
     finally:
         client.close()

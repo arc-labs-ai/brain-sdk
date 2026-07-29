@@ -14,38 +14,40 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 from .errors import ProtocolError
 from .mux import MuxConnection, Subscription
 from .wire.opcode import Opcode
 from .wire.types import (
-    SpacePermissions,
     AnswerKind,
     AuthCredentials,
     AuthMethod,
     AuthPayload,
+    CancelStreamAck,
+    CancelStreamRequest,
     EncodeRequest,
     EncodeResponse,
     EncodeVectorDirectRequest,
     EntityCreateRequest,
     EntityCreateResponse,
     EntityGetRequest,
+    EntityGetResponse,
+    EntityListItem,
+    EntityListRequest,
+    EntityListResponseFrame,
     EntityMergeRequest,
     EntityMergeResponse,
     EntityRenameRequest,
     EntityRenameResponse,
+    EntityResolveRequest,
+    EntityResolveResponse,
     EntityTombstoneRequest,
     EntityTombstoneResponse,
     EntityUnmergeRequest,
     EntityUnmergeResponse,
     EntityUpdateRequest,
     EntityUpdateResponse,
-    EntityGetResponse,
-    EntityListItem,
-    EntityListRequest,
-    EntityListResponseFrame,
-    EntityResolveRequest,
-    EntityResolveResponse,
     ExtractorListRequest,
     ExtractorListResponseFrame,
     ForgetRequest,
@@ -102,8 +104,6 @@ from .wire.types import (
     SchemaListItem,
     SchemaListRequest,
     SchemaListResponseFrame,
-    CancelStreamAck,
-    CancelStreamRequest,
     SchemaReplaceRequest,
     SchemaReplaceResponse,
     SchemaUploadRequest,
@@ -123,6 +123,7 @@ from .wire.types import (
     SpaceDeleteResponse,
     SpaceListRequest,
     SpaceListResponse,
+    SpacePermissions,
     StatementCreateRequest,
     StatementCreateResponse,
     StatementGetRequest,
@@ -139,11 +140,11 @@ from .wire.types import (
     StatementTombstoneResponse,
     StatementView,
     SubscribeRequest,
+    TraversalPathWire,
     TxnAbortRequest,
     TxnAbortResponse,
     TxnBeginRequest,
     TxnBeginResponse,
-    TraversalPathWire,
     TxnCommitRequest,
     TxnCommitResponse,
     UnlinkRequest,
@@ -168,8 +169,22 @@ def new_id() -> bytes:
 _BRAIN_ROOT_NAMESPACE_UUID = uuid.UUID(
     bytes=bytes(
         [
-            0x6B, 0x72, 0x61, 0x69, 0x6E, 0x2D, 0x73, 0x70,
-            0x61, 0x63, 0x65, 0x2D, 0x72, 0x6F, 0x6F, 0x74,
+            0x6B,
+            0x72,
+            0x61,
+            0x69,
+            0x6E,
+            0x2D,
+            0x73,
+            0x70,
+            0x61,
+            0x63,
+            0x65,
+            0x2D,
+            0x72,
+            0x6F,
+            0x6F,
+            0x74,
         ]
     )
 )
@@ -198,12 +213,12 @@ class Auth:
     credentials: AuthCredentials
 
     @staticmethod
-    def token(token: bytes) -> "Auth":
+    def token(token: bytes) -> Auth:
         """A shared bearer token."""
         return Auth(AuthMethod.TOKEN, AuthCredentials.token(token))
 
     @staticmethod
-    def mtls(claim: MtlsClaim) -> "Auth":
+    def mtls(claim: MtlsClaim) -> Auth:
         """An mTLS subject claim."""
         return Auth(AuthMethod.MTLS, AuthCredentials.mtls(claim))
 
@@ -244,6 +259,13 @@ class ConnectionInfo:
     server_features: ServerFeatures
 
 
+# `type[_T]` on the decode helpers below: the response type a caller passes in
+# is the type that comes back, which an un-annotated parameter could not say.
+_T = TypeVar("_T")
+# Stands in for `typing.Self`, which is 3.11+; requires-python here is >=3.9.
+_SelfClient = TypeVar("_SelfClient", bound="BrainClient")
+
+
 class BrainClient:
     """A connected, handshaken Brain client over a multiplexed connection.
 
@@ -262,7 +284,7 @@ class BrainClient:
         host: str,
         port: int,
         auth: Auth,
-    ) -> "BrainClient":
+    ) -> BrainClient:
         """Connect to ``host:port`` with the given credential and default
         transport settings, run the handshake, and return the bound client. The
         credential is mandatory — the server resolves the connection's identity
@@ -276,7 +298,7 @@ class BrainClient:
         host: str,
         port: int,
         config: ClientConfig,
-    ) -> "BrainClient":
+    ) -> BrainClient:
         """Connect to ``host:port`` with an explicit configuration, run the
         handshake, and return the bound client."""
         hello = HelloPayload(
@@ -337,8 +359,7 @@ class BrainClient:
         frame = self._conn.request_one(Opcode.ENCODE_REQ, encode_payload(request))
         if frame.opcode != int(Opcode.ENCODE_RESP):
             raise ProtocolError(
-                f"expected ENCODE_RESP ({int(Opcode.ENCODE_RESP):#06x}), got "
-                f"{frame.opcode:#06x}"
+                f"expected ENCODE_RESP ({int(Opcode.ENCODE_RESP):#06x}), got {frame.opcode:#06x}"
             )
         return decode_payload(EncodeResponse, frame.payload)
 
@@ -393,8 +414,7 @@ class BrainClient:
         frame = self._conn.request_one(Opcode.FORGET_REQ, encode_payload(request))
         if frame.opcode != int(Opcode.FORGET_RESP):
             raise ProtocolError(
-                f"expected FORGET_RESP ({int(Opcode.FORGET_RESP):#06x}), got "
-                f"{frame.opcode:#06x}"
+                f"expected FORGET_RESP ({int(Opcode.FORGET_RESP):#06x}), got {frame.opcode:#06x}"
             )
         return decode_payload(ForgetResponse, frame.payload)
 
@@ -434,9 +454,7 @@ class BrainClient:
             request,
         )
 
-    def graph_fetch(
-        self, request: GraphFetchRequest
-    ) -> tuple[list[GraphNode], list[GraphEdge]]:
+    def graph_fetch(self, request: GraphFetchRequest) -> tuple[list[GraphNode], list[GraphEdge]]:
         """Export the caller's typed graph (GRAPH_FETCH), flattening every
         streamed frame's nodes + edges into two ordered lists. Nodes/edges may
         repeat across pages (completeness, not disjointness) — dedup by id if
@@ -449,9 +467,7 @@ class BrainClient:
             edges.extend(frame.edges)
         return nodes, edges
 
-    def graph_fetch_frames(
-        self, request: GraphFetchRequest
-    ) -> list[GraphFetchResponseFrame]:
+    def graph_fetch_frames(self, request: GraphFetchRequest) -> list[GraphFetchResponseFrame]:
         """Export the typed graph, returning each decoded GRAPH_FETCH_RESP frame
         as streamed (preserving ``next_cursor`` / ``is_final``)."""
         return self._streamed(
@@ -513,9 +529,7 @@ class BrainClient:
             request,
         )
 
-    def supersede_statement(
-        self, request: StatementSupersedeRequest
-    ) -> StatementSupersedeResponse:
+    def supersede_statement(self, request: StatementSupersedeRequest) -> StatementSupersedeResponse:
         """Replace a statement with a revised one (STATEMENT_SUPERSEDE), keeping
         both on the same chain so history is preserved."""
         return self._unary(
@@ -525,9 +539,7 @@ class BrainClient:
             request,
         )
 
-    def tombstone_statement(
-        self, request: StatementTombstoneRequest
-    ) -> StatementTombstoneResponse:
+    def tombstone_statement(self, request: StatementTombstoneRequest) -> StatementTombstoneResponse:
         """Retire a statement with a coded reason (STATEMENT_TOMBSTONE). Soft and
         recoverable."""
         return self._unary(
@@ -584,9 +596,7 @@ class BrainClient:
             Opcode.RELATION_GET_REQ, Opcode.RELATION_GET_RESP, RelationGetResponse, request
         )
 
-    def supersede_relation(
-        self, request: RelationSupersedeRequest
-    ) -> RelationSupersedeResponse:
+    def supersede_relation(self, request: RelationSupersedeRequest) -> RelationSupersedeResponse:
         """Revise a relation, keeping both on one chain (RELATION_SUPERSEDE)."""
         return self._unary(
             Opcode.RELATION_SUPERSEDE_REQ,
@@ -595,9 +605,7 @@ class BrainClient:
             request,
         )
 
-    def tombstone_relation(
-        self, request: RelationTombstoneRequest
-    ) -> RelationTombstoneResponse:
+    def tombstone_relation(self, request: RelationTombstoneRequest) -> RelationTombstoneResponse:
         """Soft-retire a relation with a reason (RELATION_TOMBSTONE)."""
         return self._unary(
             Opcode.RELATION_TOMBSTONE_REQ,
@@ -722,7 +730,9 @@ class BrainClient:
         """
         return self._unary(Opcode.UNLINK_REQ, Opcode.UNLINK_RESP, UnlinkResponse, request)
 
-    def capabilities(self, request: GetCapabilitiesRequest | None = None) -> GetCapabilitiesResponse:
+    def capabilities(
+        self, request: GetCapabilitiesRequest | None = None
+    ) -> GetCapabilitiesResponse:
         """Introspect the connected shard's live capabilities (GET_CAPABILITIES):
         whether the reranker is loaded, which extractor tiers are enabled, the
         active user schema namespaces, and the embedding dimensionality."""
@@ -751,7 +761,9 @@ class BrainClient:
 
     def get_entity(self, request: EntityGetRequest) -> EntityGetResponse:
         """Fetch one entity by id (ENTITY_GET)."""
-        return self._unary(Opcode.ENTITY_GET_REQ, Opcode.ENTITY_GET_RESP, EntityGetResponse, request)
+        return self._unary(
+            Opcode.ENTITY_GET_REQ, Opcode.ENTITY_GET_RESP, EntityGetResponse, request
+        )
 
     def resolve_entity(self, request: EntityResolveRequest) -> EntityResolveResponse:
         """Resolve a candidate name to an entity (ENTITY_RESOLVE). The server
@@ -777,7 +789,9 @@ class BrainClient:
     def get_schema(self, request: SchemaGetRequest) -> SchemaGetResponse:
         """Fetch one schema version (SCHEMA_GET). ``version == 0`` selects the
         active version."""
-        return self._unary(Opcode.SCHEMA_GET_REQ, Opcode.SCHEMA_GET_RESP, SchemaGetResponse, request)
+        return self._unary(
+            Opcode.SCHEMA_GET_REQ, Opcode.SCHEMA_GET_RESP, SchemaGetResponse, request
+        )
 
     def validate_schema(self, request: SchemaValidateRequest) -> SchemaValidateResponse:
         """Validate a schema document without persisting it (SCHEMA_VALIDATE)."""
@@ -969,12 +983,18 @@ class BrainClient:
         """
         return self._conn.subscribe(request)
 
-    def _streamed(self, req_opcode: Opcode, resp_opcode: Opcode, resp_type, request):
+    def _streamed(
+        self,
+        req_opcode: Opcode,
+        resp_opcode: Opcode,
+        resp_type: type[_T],
+        request: object,
+    ) -> list[_T]:
         """Send one request and decode every streamed response frame up to and
         including EOS, asserting each frame's opcode. The shape every LIST/streamed
         verb's ``*_frames`` method shares (mirrors :meth:`recall_frames`)."""
         frames = self._conn.request(req_opcode, encode_payload(request))
-        out = []
+        out: list[_T] = []
         for frame in frames:
             if frame.opcode != int(resp_opcode):
                 raise ProtocolError(
@@ -984,15 +1004,20 @@ class BrainClient:
             out.append(decode_payload(resp_type, frame.payload))
         return out
 
-    def _unary(self, req_opcode: Opcode, resp_opcode: Opcode, resp_type, request):
+    def _unary(
+        self,
+        req_opcode: Opcode,
+        resp_opcode: Opcode,
+        resp_type: type[_T],
+        request: object,
+    ) -> _T:
         """Send one request and decode a single typed response frame, asserting
         the response opcode. The shape every single-shot typed-graph verb shares.
         """
         frame = self._conn.request_one(req_opcode, encode_payload(request))
         if frame.opcode != int(resp_opcode):
             raise ProtocolError(
-                f"expected {resp_opcode.name} ({int(resp_opcode):#06x}), got "
-                f"{frame.opcode:#06x}"
+                f"expected {resp_opcode.name} ({int(resp_opcode):#06x}), got {frame.opcode:#06x}"
             )
         return decode_payload(resp_type, frame.payload)
 
@@ -1003,7 +1028,8 @@ class BrainClient:
         finally:
             self._conn.close()
 
-    def __enter__(self) -> "BrainClient":
+    def __enter__(self: _SelfClient) -> _SelfClient:
+        """Enter a context that closes the connection on exit."""
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -1011,9 +1037,9 @@ class BrainClient:
 
 
 __all__ = [
+    "Auth",
     "BrainClient",
     "ClientConfig",
     "ConnectionInfo",
-    "Auth",
     "new_id",
 ]

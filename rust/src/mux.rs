@@ -54,7 +54,10 @@ const HANDSHAKE_STREAM_ID: u32 = 0;
 /// [`MuxConnection::connect`] and surfaced to the caller as the initial session.
 #[derive(Clone, Debug)]
 pub struct HandshakeOutcome {
+    /// WELCOME: the negotiated wire version and the server's feature limits.
     pub welcome: WelcomePayload,
+    /// AUTH_OK: the session the credential resolved to — identity, namespace
+    /// and permissions.
     pub auth_ok: AuthOkPayload,
 }
 
@@ -63,8 +66,7 @@ pub struct HandshakeOutcome {
 fn now_unix_nanos() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
+        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
 }
 
 /// The route table the reader task delivers frames into. `closed` is set once
@@ -187,6 +189,19 @@ where
 pub struct MuxConnection<S> {
     shared: Arc<Shared<S>>,
     reader: JoinHandle<()>,
+}
+
+impl<S> std::fmt::Debug for MuxConnection<S> {
+    /// Hand-written so it does not require `S: Debug`, and so it reports the
+    /// one thing worth seeing — how many requests are still in flight. Reads
+    /// the table directly rather than through `route_count`, which is only
+    /// available where `S: AsyncWrite`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let live = self.shared.table.lock().ok().map(|t| t.routes.len());
+        f.debug_struct("MuxConnection")
+            .field("live_routes", &live)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<S> Drop for MuxConnection<S> {
@@ -319,6 +334,12 @@ where
 
     /// Number of live routes in the table. Test/diagnostics hook: a clean
     /// subscription teardown must leave no leaked route behind.
+    ///
+    /// # Panics
+    ///
+    /// If the route-table mutex is poisoned — which means another thread
+    /// panicked while holding it, and the connection's routing state is no
+    /// longer trustworthy.
     #[must_use]
     pub fn route_count(&self) -> usize {
         self.shared
@@ -346,6 +367,16 @@ pub struct Subscription<S> {
     /// Set once an EOS frame has been observed: the next `next()` returns
     /// `None` without touching the (already-removed) channel.
     ended: bool,
+}
+
+impl<S> std::fmt::Debug for Subscription<S> {
+    /// Hand-written so it does not require `S: Debug`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Subscription")
+            .field("stream_id", &self.stream_id)
+            .field("ended", &self.ended)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<S> Subscription<S>
@@ -460,8 +491,7 @@ async fn reader_loop<S>(
                 // the next read error, which closes the connection cleanly.
                 if frame.opcode == Opcode::ServerPing.as_u16() {
                     let server_ts = from_cbor_bytes::<ServerPingResponse>(&frame.payload)
-                        .map(|p| p.server_timestamp_unix_nanos)
-                        .unwrap_or(0);
+                        .map_or(0, |p| p.server_timestamp_unix_nanos);
                     let pong = ClientPongRequest {
                         server_timestamp_unix_nanos: server_ts,
                         client_timestamp_unix_nanos: now_unix_nanos(),

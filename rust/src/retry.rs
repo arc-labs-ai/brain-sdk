@@ -40,8 +40,12 @@ fn jittered(delay: Duration, floor: Duration) -> Duration {
     }
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0x9E37_79B9_7F4A_7C15);
+        // Keeping only the low 64 bits is the intent: these nanos seed a PRNG
+        // and never represent a duration, so the high bits are noise. The mask
+        // makes the `try_from` infallible rather than leaving a silent `as`.
+        .map_or(0x9E37_79B9_7F4A_7C15, |d| {
+            u64::try_from(d.as_nanos() & u128::from(u64::MAX)).unwrap_or(0)
+        });
     // SplitMix64: one mix is plenty to pick a point in the span.
     let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);

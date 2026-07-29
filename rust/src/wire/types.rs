@@ -8,6 +8,14 @@
 //! carries a trailing raw-vector section; every other payload is pure
 //! CBOR.
 
+// The types below mirror the server's wire structs one-for-one: same names,
+// same field names, same order. Their documentation is the protocol itself —
+// `conformance/protocol.json` carries every field's type and serde attributes,
+// and the corpus pins the bytes. A doc comment on each of ~2000 fields would
+// restate the field name and nothing more, and the ones that DO carry meaning
+// beyond their name (written below) would be lost in the noise.
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 
 /// 16-byte UUID-shaped identifier (space id, request id, txn id, …).

@@ -2,8 +2,14 @@
   "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
 
   // Biome covers both halves of what the other two SDKs already had: Rust runs
-  // `rustfmt` + `clippy -D warnings`, Python runs `ruff format` + `ruff check`.
-  // TypeScript had a linter only, and no formatter at all.
+  // `rustfmt` + `clippy`, Python runs `ruff format` + `ruff check`.
+  //
+  // Every one of Biome's 511 rules was run against this tree before this file
+  // was written. `preset: "all"` produced ~3300 findings, of which the large
+  // blocks were style opinions that fight what this package is — a byte-exact
+  // protocol codec. The rejected ones are recorded at the bottom with the count
+  // they produced and the reason, so the next person does not have to re-run
+  // the experiment to find out whether they were considered.
   //
   // `vcs.useIgnoreFile` is off deliberately: `.gitignore` lives at the repo
   // root, not in this package, and Biome errors out when it cannot find one
@@ -14,7 +20,7 @@
   },
 
   // Matched to the hand-formatting already in the tree so adopting the
-  // formatter is not also a restyling: 2-space indent, 100 columns, double
+  // formatter was not also a restyling: 2-space indent, 100 columns, double
   // quotes, semicolons, trailing commas.
   "formatter": {
     "enabled": true,
@@ -38,47 +44,82 @@
     "domains": { "types": "all" },
     "rules": {
       "recommended": true,
+
+      // ---- a11y ------------------------------------------------------------
+      // No DOM, no JSX, no markup of any kind. All 38 rules are inapplicable.
+      "a11y": { "preset": "none" },
+
+      // ---- correctness -----------------------------------------------------
       "correctness": {
         "noUnusedVariables": "error",
-        "noUnusedImports": "error"
+        "noUnusedImports": "error",
+        // Every import must be a declared dependency. Currently clean; it is
+        // here to stay clean, because a phantom import passes typecheck
+        // locally and fails on a consumer's `npm install`.
+        "noUndeclaredDependencies": "error",
+        // `/** …` vs `/*** …` — the second is not a doc comment and silently
+        // drops from generated docs. Found one.
+        "useSingleJsDocAsterisk": "error"
       },
+
+      // ---- security --------------------------------------------------------
+      "security": {
+        "preset": "all",
+        // The 5 hits were all fixture API keys in `http-client.test.ts`, which
+        // is what an HTTP client test is made of. The rule cannot tell those
+        // from a real leak, and a leaked key is caught by secret scanning at a
+        // layer that sees the whole repo.
+        "noSecrets": "off"
+      },
+
+      // ---- style -----------------------------------------------------------
       "style": {
+        // Throwing away the original error inside a `catch` loses its stack.
+        // Found two, both in the paths you most want a stack from: an HTTP
+        // transport failure and a CBOR decode failure.
+        "useErrorCause": "error",
         // `tsconfig.json` sets `noUncheckedIndexedAccess`, so every index read
         // is `T | undefined` and the `!` that follows is how you discharge it.
-        // Enabling this rule would push the codebase toward dropping the
-        // stricter compiler setting, which is the wrong trade.
+        // Enabling this would push the codebase toward dropping the stricter
+        // compiler setting, which is the wrong trade.
         "noNonNullAssertion": "off"
       },
-      // Type-aware rules that are still in nursery, so the `types` domain does
-      // not raise them to error on its own. These are asked for by name because
-      // each has already paid for itself here:
-      //   noBaseToString      — found `String(v)` rendering a query parameter as
-      //                         the literal `[object Object]`, and the same in
-      //                         the CBOR encoder's error message.
-      //   noFloatingPromises  — a dropped promise in the mux is a lost frame.
-      //   noMisusedPromises   — an async callback passed where sync is expected.
-      //   useAwaitThenable    — awaiting a non-promise silently yields the value.
-      //
-      // `noUselessTypeConversion` is deliberately NOT among them: it reads
-      // `Number((arg >> 8n) & 0xffn)` in `wire/cbor.ts` as "calling Number() on
-      // a number" when both operands are bigint literals. Taking its advice
-      // would hand a bigint to `pushByte`, whose `b & 0xff` throws "Cannot mix
-      // BigInt and other types" — in the byte-exact encoder every conformance
-      // vector depends on.
-      "nursery": {
-        "noBaseToString": "error",
-        "noFloatingPromises": "error",
-        "noMisusedPromises": "error",
-        "useAwaitThenable": "error"
-      },
+
+      // ---- suspicious ------------------------------------------------------
       "suspicious": {
         "noExplicitAny": "error",
+        // A local that hides a module-level binding of the same name. Found
+        // one: a `serverRetryAfterMs` parameter shadowing the
+        // `serverRetryAfterMs` function in the same file.
+        "noShadow": "error",
+        // An empty `catch {}` is either deliberate or a swallowed bug, and the
+        // two look identical. A comment inside the block satisfies the rule,
+        // so the cost is saying which one it is.
+        "noEmptyBlockStatements": "error",
         // Biome 2.5 narrows a class field to its initializer's literal type and
         // ignores later assignments. It reported `if (this.ended)` in `mux.ts`
         // as always-falsy while four separate branches set it true; acting on
         // that would delete the guard that terminates a subscription. Off until
         // the inference handles mutation.
         "noUnnecessaryConditions": "off"
+      },
+
+      // ---- nursery ---------------------------------------------------------
+      // Type-aware rules still in nursery, so the `types` domain does not raise
+      // them to error on its own. Named individually because each has already
+      // paid for itself here:
+      //   noBaseToString      — found `String(v)` rendering a query parameter as
+      //                         the literal `[object Object]`, the same in the
+      //                         CBOR encoder's error message, and two more in
+      //                         the mux and transport read loops.
+      //   noFloatingPromises  — a dropped promise in the mux is a lost frame.
+      //   noMisusedPromises   — an async callback passed where sync is expected.
+      //   useAwaitThenable    — awaiting a non-promise silently yields the value.
+      "nursery": {
+        "noBaseToString": "error",
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error",
+        "useAwaitThenable": "error"
       }
     }
   },
@@ -98,4 +139,54 @@
       "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
     }
   ]
+
+  // ---- evaluated and rejected ---------------------------------------------
+  //
+  // Ran under `preset: "all"`; the count is what each produced here.
+  //
+  // Fights what this package is:
+  //   useNamingConvention   570  field names are the server's wire names
+  //   noMagicNumbers        449  opcodes, CBOR major types, frame offsets
+  //   noBitwiseOperators    235  this is a byte codec; shifts and masks are it
+  //   noAssignInExpressions 126  `this.buf[this.len++] = b` in the writer
+  //   useLiteralKeys        103  dynamic field access is how the codecs work
+  //   noMisplacedAssertion   63  the mock servers assert inside their handlers
+  //   noEnum                 23  opcodes and wire enums are numeric enums
+  //   noNodejsModules        22  this is a Node SDK; `node:net` is the point
+  //   noReExportAll          18  `index.ts` re-export IS the public API
+  //   noParameterProperties  18  a deliberate TypeScript idiom here
+  //   noNamespaceImport      11  `import * as net` from a Node builtin
+  //   noBarrelFile            4  same as noReExportAll
+  //
+  // Wrong for the code, on inspection:
+  //   noAwaitInLoops         14  every one is sequential I/O by design —
+  //                              reading frames to EOS, retry backoff, polling
+  //                              for read-your-writes. Parallelising would be
+  //                              the bug.
+  //   useAwait               12  `async` on a method that returns a promise
+  //                              normalises a synchronous throw into a
+  //                              rejection, which a client API wants.
+  //   noEqualsToNull          9  `x != null` covers null AND undefined in one
+  //                              check, which is correct for a published
+  //                              library a JavaScript caller can reach.
+  //   noUselessTypeConversion 11 called `Number((arg >> 8n) & 0xffn)` "calling
+  //                              Number() on a number" when both operands are
+  //                              bigint literals. Its fix hands a bigint to
+  //                              `pushByte`, whose `b & 0xff` throws.
+  //   useTopLevelRegex        6  V8 caches literal regexes; the one hot path
+  //                              (`snakeCase`) was not among the hits.
+  //
+  // Arbitrary thresholds, not defects:
+  //   noExcessiveLinesPerFunction 36, noExcessiveLinesPerFile 18,
+  //   noExcessiveClassesPerFile 12, noExcessiveCognitiveComplexity 12,
+  //   useMaxParams 4
+  //
+  // Pure formatting preference, and the formatter already has an opinion:
+  //   useBlockStatements 284, useNumericSeparators 264, noTernary 149,
+  //   noIncrementDecrement 28, noContinue 14, useDefaultSwitchClause 14,
+  //   useExportsLast 16, noNegationElse 4, noNestedTernary 3,
+  //   useConsistentMemberAccessibility 7, noDefaultExport 1
+  //
+  // Other frameworks (Qwik, React, Solid, Vue, Next, Playwright, Drizzle,
+  // Tailwind, Turborepo): none are used, and their domains stay off.
 }

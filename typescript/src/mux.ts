@@ -353,7 +353,11 @@ export class MuxConnection {
       serverTimestampUnixNanos: serverTs,
       clientTimestampUnixNanos: nowUnixNanos(),
     });
-    void this.writeFrame(Opcode.ClientPong, HANDSHAKE_STREAM_ID, payload).catch(() => {});
+    // A PONG is best effort: the connection is already failing if this write
+    // does, and every real request has its own error path.
+    void this.writeFrame(Opcode.ClientPong, HANDSHAKE_STREAM_ID, payload).catch(() => {
+      /* ignored: liveness only */
+    });
   }
 
   private takeStreamId(): number {

@@ -43,16 +43,132 @@ dev = ["pytest>=8", "ruff>=0.16"]
 
 [tool.ruff]
 target-version = "py39"
+# Matches the TypeScript SDK's Biome setting and the width this code was
+# already written to. Ruff's default 88 would reflow 198 existing lines for no
+# reason; 100 reflows 93 and they are genuinely long.
+line-length = 100
+
+[tool.ruff.format]
+# The formatter half, which this package did not have. Rust has rustfmt and
+# TypeScript now has Biome; leaving Python unformatted was the odd one out.
+docstring-code-format = true
 
 [tool.ruff.lint]
-# Deliberately narrow: rules that catch bugs, not rules that reformat.
-#   F   pyflakes      -- undefined names, unused imports, bad f-strings
-#   E9  syntax errors
-#   B   bugbear       -- likely-wrong constructs (blind excepts, lost chaining)
-# The full default set flags 476 style issues here; gating on those would bury
-# a real finding in import ordering. This selection found four, including two
-# public re-exports missing from __all__.
-select = ["F", "E9", "B"]
+# Everything on, exceptions written down.
+#
+# The previous selection was ["F", "E9", "B"]. Running `--select ALL` produced
+# ~3400 findings; the ones removed below are removed for a stated reason, with
+# the count they produced, so the next person can see they were considered
+# rather than never enabled. Starting from ALL also means a new ruff release
+# arrives with its new rules already on, which is the same "no silent drift"
+# property the protocol gates give the wire.
+select = ["ALL"]
+
+ignore = [
+  # -- the formatter owns these ------------------------------------------
+  "E501",    # 299. line-too-long: `ruff format` decides line breaks.
+  "COM812",  # 174. missing-trailing-comma: same.
+  "ISC001",  #      single-line-implicit-concat: conflicts with the formatter.
+  "ISC003",  #      explicit-string-concat: directly contradicts ISC004, which
+             #      is kept. In a collection literal an *implicit* concat is
+             #      one missing comma away from silently merging two elements,
+             #      so the explicit `+` is the safer of the two.
+
+  # -- docstring style, not docstring absence -----------------------------
+  # This package is heavily documented; what pydocstyle objects to is the
+  # *shape*. The prose here is deliberately multi-paragraph and explanatory,
+  # and these rules would flatten it.
+  "D203",    #      incompatible with D211, which is the convention used.
+  "D205",    # 211. blank line required after a one-line summary.
+  "D209",    # 164. multi-line closing quotes on their own line.
+  "D213",    # 285. multi-line summary on the second line: this codebase puts
+             #      the summary on the first line (D212), which is the opposite.
+  "D401",    #  21. imperative mood ("Returns the…" vs "Return the…").
+  "D400",    #   1. first line must end with a period.
+  "D415",    #   1. same, with more punctuation allowed.
+
+  # -- fights what this package is ----------------------------------------
+  "PLR2004", #  74. magic-value-comparison: opcodes, CBOR major types and
+             #      frame offsets are magic numbers by definition.
+  "FBT001",  #  26. boolean-typed positional argument, and
+  "FBT002",  #   6. boolean default, and
+  "FBT003",  #  91. boolean positional in a call — the wire dataclasses mirror
+             #      the server's field order, which is not ours to reshape.
+  "TRY003",  #  29. long message outside the exception class, and
+  "EM101",   #   7. string literal in a raise, and
+  "EM102",   #  22. f-string in a raise — a wire error should say what byte or
+             #      field was wrong, at the point that knows.
+  "CPY001",  #  49. missing copyright notice: the licence is in LICENSE.
+  "UP045",   # 193. `Optional[X]` -> `X | None`, and
+  "UP007",   #   2. the same for Union — requires-python is >=3.9, where the
+             #      new syntax is not available at runtime and several of these
+             #      modules have annotations that are evaluated eagerly.
+  "PYI019",  #   3. same TypeVar-instead-of-Self constraint as PYI034 below.
+  "PYI034",  #   3. `__enter__` should return `Self` — which is 3.11+, while
+             #      requires-python is >=3.9, and `typing_extensions` is not a
+             #      dependency. A `TypeVar` bound to the class carries the same
+             #      meaning and is what these use; ruff's autofix for this rule
+             #      imports typing_extensions and breaks the install.
+  "TC001",   #   1. and
+  "TC003",   #   3. move typing-only imports into a TYPE_CHECKING block. The
+             #      saving is a few microseconds of import time; the risk is a
+             #      dataclass or a `get_type_hints` call resolving a name that
+             #      is no longer there at runtime. Not worth it for this shape
+             #      of code.
+  "D107",    #  12. undocumented `__init__`: every one is a one-line
+             #      constructor under a class docstring that already says what
+             #      the type is and what it carries. A second docstring below
+             #      it would restate the first.
+  "RUF022",  #   1. `__all__` is grouped by tier (wire, http, client) with a
+             #      comment on each group; alphabetising it would scatter the
+             #      groups and orphan the comments.
+  "D105",    #   8. undocumented magic method: `__enter__`/`__exit__`/`__iter__`
+             #      mean exactly what the protocol says they mean.
+  "N818",    #  11. exception names must end in "Error": these mirror the Rust
+             #      SDK's variant names (VersionMismatch, ConnectionClosed) so
+             #      the three SDKs read the same.
+
+  # -- thresholds, not defects --------------------------------------------
+  "PLR0913", #   7. too-many-arguments
+  "PLR0917", #   7. too-many-positional-arguments
+  "PLR0915", #   3. too-many-statements
+  "PLR0912", #   2. too-many-branches
+  "PLR0911", #   2. too-many-return-statements
+  "C901",    #   3. complex-structure
+
+  # -- wrong for this code, on inspection ---------------------------------
+  "PERF203", #   4. try-except in a loop: every one is a retry or a
+             #      best-effort cleanup, which is what the construct is for.
+  "S110",    #   4. try-except-pass: all four are best-effort connection
+             #      teardown, already carrying a comment saying so. A failure
+             #      to close a socket we are discarding is not actionable.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The wire and HTTP type modules mirror the server's structs one-for-one. Their
+# documentation is the protocol itself — `conformance/protocol.json` carries
+# every field and serde attribute, and the corpus pins the bytes. A docstring
+# on each of ~495 generated-equivalent `to_map`/`from_map` methods would
+# restate the method name and bury the ones that do carry meaning.
+"src/brain_db_sdk/wire/types.py" = ["D101", "D102", "D105", "D106", "D107", "RUF012"]
+"src/brain_db_sdk/http/types.py" = ["D101", "D102", "D105", "D106", "D107"]
+
+# Tests: `assert` is what pytest is built on, fixture data is camelCase because
+# the wire is, and the feature folders deliberately have no `__init__.py` (the
+# pytest importlib mode below is what makes that work).
+"tests/**" = [
+  "S101",    # 368. assert
+  "INP001",  #  30. implicit namespace package
+  "ANN",     # 111. missing annotations on test helpers
+  "D100", "D101", "D102", "D103", "D104", "D107",
+  "N815",    #   4. camelCase in class scope — JSON fixture keys
+  "N812",    #   1. lowercase import aliased to non-lowercase
+  "PLC0415", #   3. import outside top-level — deliberate lazy imports
+  "E402",    #   1. import not at top — after a guard
+  "PT018",   #  15. composite assertion
+  "SLF001",  #      private member access: tests check internals on purpose
+  "S105", "S106", "S311",
+]
 
 [tool.pytest.ini_options]
 # importlib import mode lets the feature folders (tests/encode/, tests/recall/,

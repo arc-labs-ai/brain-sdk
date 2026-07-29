@@ -30,7 +30,7 @@ class HttpRetryPolicy:
     max_delay: float = 2.0
 
     @staticmethod
-    def none() -> "HttpRetryPolicy":
+    def none() -> HttpRetryPolicy:
         """No retry: a single attempt."""
         return HttpRetryPolicy(max_attempts=1, base_delay=0.0, max_delay=0.0)
 
@@ -38,7 +38,7 @@ class HttpRetryPolicy:
     def is_retryable_status(status: int) -> bool:
         """Transport/timeout (``0``) or a server ``503``; every other status
         — including all ``4xx`` — is terminal."""
-        return status == 0 or status == 503
+        return status in (0, 503)
 
     def should_retry(self, attempt: int, err: BrainHttpError) -> bool:
         """Whether to retry after ``attempt`` (1-based) produced ``err``."""

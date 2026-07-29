@@ -264,7 +264,9 @@ describe("read-side, entity, graph and schema routes", () => {
     // An id is caller data. Unescaped, a `/` in it would silently address a
     // different route.
     replies = [[200, {}]];
-    await client.getEntity("weird/id?x").catch(() => {});
+    await client.getEntity("weird/id?x").catch(() => {
+      /* the request is expected to fail; the assertion is on what was sent */
+    });
     expect(seen[0]!.path).toBe("/v1/entities/weird%2Fid%3Fx");
   });
 });
@@ -326,7 +328,9 @@ describe("query parameters", () => {
     for (const [call, expected] of cases) {
       seen = [];
       replies = [[200, {}]];
-      await call().catch(() => {});
+      await call().catch(() => {
+        /* the request is expected to fail; the assertion is on what was sent */
+      });
       expect(seen[0]!.path).toBe(expected);
     }
   });
@@ -453,7 +457,9 @@ describe("idempotency of the new routes", () => {
         [503, { error: { code: "unavailable", message: "shard restarting" } }],
         [200, {}],
       ];
-      await call().catch(() => {});
+      await call().catch(() => {
+        /* the request is expected to fail; the assertion is on what was sent */
+      });
       expect(seen, `${name} is idempotent and must be retried`).toHaveLength(2);
     });
   }

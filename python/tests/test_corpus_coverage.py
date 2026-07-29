@@ -43,9 +43,7 @@ def test_every_opcode_is_corpus_pinned_or_on_the_tracked_gap_list() -> None:
     gap = _gap_values()
     declared = {op.name: int(op) for op in Opcode}
 
-    assert len(declared) > 100, (
-        f"only {len(declared)} opcodes found — the enum import has drifted"
-    )
+    assert len(declared) > 100, f"only {len(declared)} opcodes found — the enum import has drifted"
 
     unaccounted = sorted(
         f"{name} (0x{value:04X})"

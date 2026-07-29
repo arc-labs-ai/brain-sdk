@@ -129,17 +129,28 @@ impl ClientConfig {
 /// The connection the server granted at handshake time.
 #[derive(Clone, Debug)]
 pub struct ConnectionInfo {
+    /// Identity the server resolved from the credential. The client never
+    /// claims one; this is who the connection turned out to be.
     pub space_id: [u8; 16],
+    /// Free-form server build identifier from WELCOME, for diagnostics.
     pub server_id: String,
+    /// Wire version both sides settled on. Always `1` today; a value the
+    /// client did not offer is rejected as [`BrainError::VersionMismatch`].
     pub chosen_version: u8,
     /// Per-connection identifier the server minted at WELCOME.
     pub connection_id: [u8; 16],
+    /// Shard this connection's space lives on. Routing detail, surfaced for
+    /// diagnostics; a client never chooses it.
     pub bound_shard_id: u16,
+    /// What this credential is allowed to do. Checked server-side on every
+    /// request — reading it here only lets a caller fail early.
     pub permissions: SpacePermissions,
     /// Owning tenant the server bound this connection to (server-derived from
     /// auth). Empty when the connection resolves to the reserved `brain`
     /// system namespace. Read-only — the client never sends a namespace.
     pub namespace: String,
+    /// Negotiated limits from WELCOME (max payload, max concurrent streams,
+    /// idle timeout).
     pub server_features: ServerFeatures,
 }
 
@@ -149,7 +160,9 @@ pub struct ConnectionInfo {
 /// `memories` carries the recalled memory hits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecallAnswer {
+    /// What shape the answer took: one memory, many, or none.
     pub answer_kind: AnswerKindWire,
+    /// The recalled memories, in the order the server streamed them.
     pub memories: Vec<MemoryResult>,
 }
 
@@ -172,6 +185,26 @@ impl RecallAnswer {
 pub struct BrainClient {
     conn: MuxConnection<TcpStream>,
     connection: ConnectionInfo,
+}
+
+impl std::fmt::Debug for BrainClient {
+    /// Prints the session, never the socket or the credential.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrainClient")
+            .field("space_id", &hex16(&self.connection.space_id))
+            .field("namespace", &self.connection.namespace)
+            .field("chosen_version", &self.connection.chosen_version)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Lowercase hex of a 16-byte id, for `Debug` output.
+fn hex16(id: &[u8; 16]) -> String {
+    id.iter().fold(String::with_capacity(32), |mut s, b| {
+        use std::fmt::Write as _;
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 impl BrainClient {

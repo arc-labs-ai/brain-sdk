@@ -17,7 +17,6 @@ from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     EncodeRequest,
@@ -25,6 +24,7 @@ from brain_db_sdk.wire.types import (
     HelloPayload,
     MemoryKind,
     ServerFeatures,
+    SpacePermissions,
     WelcomePayload,
     decode_payload,
     encode_payload,
@@ -32,7 +32,9 @@ from brain_db_sdk.wire.types import (
 
 
 def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) -> None:
-    write_frame(sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload))
+    write_frame(
+        sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload)
+    )
 
 
 # The server assigns the agent id from the credential; the client never sends one.
@@ -49,7 +51,7 @@ def _serve_member(sock: socket.socket, tag: int) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xAB" * 16,
+        connection_id=b"\xab" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,

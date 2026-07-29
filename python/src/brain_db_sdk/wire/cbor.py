@@ -26,6 +26,7 @@ Determinism is field-order plus per-field float width:
 
 from __future__ import annotations
 
+import math
 import struct
 
 import cbor2
@@ -84,7 +85,7 @@ def _shortest_float_bytes(value: float) -> bytes:
     the only difference upstream is whether the value was first rounded to
     32-bit precision.
     """
-    if value == value and value not in (float("inf"), float("-inf")):
+    if not math.isnan(value) and not math.isinf(value):
         try:
             half = struct.pack(">e", value)
             if struct.unpack(">e", half)[0] == value:
@@ -119,7 +120,7 @@ def to_cbor(value: object) -> bytes:
     return cbor2.dumps(value, default=_default_hook)
 
 
-def _default_hook(encoder: "cbor2.CBOREncoder", value: object) -> None:
+def _default_hook(encoder: cbor2.CBOREncoder, value: object) -> None:
     if isinstance(value, _FloatField):
         encoder.write(_shortest_float_bytes(float(value)))
         return
@@ -134,9 +135,7 @@ def from_cbor(data: bytes) -> object:
     """
     value, consumed = from_cbor_prefix(data)
     if consumed != len(data):
-        raise TrailingBytesError(
-            f"{len(data) - consumed} trailing bytes after CBOR payload"
-        )
+        raise TrailingBytesError(f"{len(data) - consumed} trailing bytes after CBOR payload")
     return value
 
 
@@ -187,15 +186,11 @@ def _cbor_item_end(data: bytes, start: int) -> int:
 
     def need(i: int, k: int) -> None:
         if i + k > n:
-            raise CborError(
-                f"truncated CBOR: need {k} byte(s) at offset {i}, have {n - i}"
-            )
+            raise CborError(f"truncated CBOR: need {k} byte(s) at offset {i}, have {n - i}")
 
     def scan(i: int, depth: int = 0) -> int:
         if depth > _MAX_NESTING_DEPTH:
-            raise CborError(
-                f"CBOR nesting deeper than {_MAX_NESTING_DEPTH} at offset {i}"
-            )
+            raise CborError(f"CBOR nesting deeper than {_MAX_NESTING_DEPTH} at offset {i}")
         need(i, 1)
         ib = data[i]
         i += 1
@@ -300,8 +295,6 @@ def le_bytes_to_f32_list(data: bytes) -> list[float]:
     The byte length must be a whole number of 4-byte floats.
     """
     if len(data) % 4 != 0:
-        raise RaggedVectorError(
-            f"vector section is {len(data)} bytes, not a multiple of 4"
-        )
+        raise RaggedVectorError(f"vector section is {len(data)} bytes, not a multiple of 4")
     count = len(data) // 4
     return list(struct.unpack(f"<{count}f", data))

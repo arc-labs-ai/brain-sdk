@@ -54,4 +54,4 @@ def read_frame(sock: socket.socket, buf: bytearray) -> Frame:
         return frame
 
 
-__all__ = ["write_frame", "read_frame", "READ_CHUNK"]
+__all__ = ["READ_CHUNK", "read_frame", "write_frame"]

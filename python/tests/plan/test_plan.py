@@ -58,9 +58,7 @@ def test_plan_between_two_memories_round_trips(it):
 def test_plan_to_a_text_goal_round_trips(it):
     client, _space = it.connect_fresh()
     try:
-        start = client.encode(
-            EncodeBuilder("The project kicked off in January.").build()
-        ).memory_id
+        start = client.encode(EncodeBuilder("The project kicked off in January.").build()).memory_id
 
         steps = client.plan(
             PlanRequest(

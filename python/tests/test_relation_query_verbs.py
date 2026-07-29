@@ -13,10 +13,11 @@ Two layers of coverage:
 
 from __future__ import annotations
 
-import cbor2
 import socket
 import threading
 import uuid
+
+import cbor2
 
 from brain_db_sdk import Auth, BrainClient
 from brain_db_sdk.transport import read_frame, write_frame
@@ -24,7 +25,6 @@ from brain_db_sdk.wire.cbor import from_cbor, to_cbor
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     EncodeResponse,
@@ -50,6 +50,7 @@ from brain_db_sdk.wire.types import (
     Retriever,
     RetrieverSelection,
     ServerFeatures,
+    SpacePermissions,
     TraversalPathWire,
     TraversalStepWire,
     WelcomePayload,
@@ -158,7 +159,7 @@ def test_relation_query_types_round_trip() -> None:
     # the encode/decode_payload seam rather than plain to_map/from_map.
     evd = EncodeVectorDirectRequest(
         text="hello",
-        model_fingerprint=b"\xAB" * 16,
+        model_fingerprint=b"\xab" * 16,
         session_id=0,
         kind=MemoryKind.SEMANTIC,
         salience_hint=0.5,
@@ -208,10 +209,14 @@ def test_relation_query_types_round_trip() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes, *, eos: bool = True) -> None:
+def _write(
+    sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes, *, eos: bool = True
+) -> None:
     write_frame(
         sock,
-        Frame(opcode=int(opcode), flags=FLAG_EOS if eos else 0, stream_id=stream_id, payload=payload),
+        Frame(
+            opcode=int(opcode), flags=FLAG_EOS if eos else 0, stream_id=stream_id, payload=payload
+        ),
     )
 
 
@@ -221,7 +226,7 @@ def _handshake(sock: socket.socket, buf: bytearray) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xAB" * 16,
+        connection_id=b"\xab" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -268,7 +273,7 @@ def _serve(sock: socket.socket) -> None:
                 kind=MemoryKind.SEMANTIC,
                 created_at_unix_nanos=1,
                 edges_out_count=0,
-                embedding_model_fp=b"\xAB" * 16,
+                embedding_model_fp=b"\xab" * 16,
                 pending_stages=[],
                 has_active_schema=True,
             )
@@ -326,9 +331,7 @@ def _serve(sock: socket.socket) -> None:
     f = read_frame(sock, buf)
     assert f.opcode == Opcode.QUERY_EXPLAIN_REQ
     explain_req = decode_payload(QueryExplainRequest, f.payload)
-    assert explain_req.query.session_filter == [7, 9], (
-        "session_filter must survive the round trip"
-    )
+    assert explain_req.query.session_filter == [7, 9], "session_filter must survive the round trip"
     # Read the RAW CBOR, not the SDK's decode: a decoder and encoder that are
     # wrong the same way agree with each other. The server's RetrieverWire is a
     # plain serde enum, so the wire carries variant-name strings.
@@ -383,7 +386,7 @@ def test_relation_query_verbs() -> None:
         encoded = client.encode_vector_direct(
             EncodeVectorDirectRequest(
                 text="hello",
-                model_fingerprint=b"\xAB" * 16,
+                model_fingerprint=b"\xab" * 16,
                 session_id=0,
                 kind=MemoryKind.SEMANTIC,
                 salience_hint=0.5,

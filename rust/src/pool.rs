@@ -30,6 +30,14 @@ pub struct Pool {
     next: AtomicUsize,
 }
 
+impl std::fmt::Debug for Pool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pool")
+            .field("size", &self.clients.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Pool {
     /// Open `size` connections to `addr` with the given credential and default
     /// transport settings, and run every handshake. Fails (closing any

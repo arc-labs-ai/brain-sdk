@@ -46,9 +46,7 @@ class VersionMismatch(BrainError):
     """The server chose a wire version the client did not offer."""
 
     def __init__(self, chosen: int, supported: list[int]) -> None:
-        super().__init__(
-            f"version mismatch: server chose {chosen}, client supports {supported}"
-        )
+        super().__init__(f"version mismatch: server chose {chosen}, client supports {supported}")
         self.chosen = chosen
         self.supported = supported
 
@@ -74,7 +72,7 @@ class ServerError(BrainError):
         self.response = response
 
     @staticmethod
-    def from_response(response: ErrorResponse) -> "ServerError":
+    def from_response(response: ErrorResponse) -> ServerError:
         """Build the most specific :class:`ServerError` subclass for the wire
         ``code``, falling back to the base class for unmapped codes."""
         subclass = _CODE_TO_ERROR.get(response.code, ServerError)
@@ -108,12 +106,12 @@ def is_retryable(exc: BaseException) -> bool:
 
 
 __all__ = [
-    "BrainError",
-    "ProtocolError",
-    "ConnectionClosed",
-    "BrainTimeout",
-    "VersionMismatch",
-    "ServerError",
     "ActAsDenied",
+    "BrainError",
+    "BrainTimeout",
+    "ConnectionClosed",
+    "ProtocolError",
+    "ServerError",
+    "VersionMismatch",
     "is_retryable",
 ]

@@ -42,6 +42,7 @@ async fn encode_vector_direct_round_trips() {
     // BGE-small is 384-dim; a normalized constant vector is a valid unit-ish
     // embedding for the direct-write path.
     let dim = 384usize;
+    #[allow(clippy::cast_precision_loss)] // test dimensions are < 2^24
     let v = (1.0f32 / (dim as f32).sqrt()).max(f32::MIN_POSITIVE);
     let vector = vec![v; dim];
 
@@ -70,7 +71,11 @@ async fn encode_vector_direct_round_trips() {
 const DIM: usize = 384;
 
 fn unit_vector(dim: usize) -> Vec<f32> {
-    vec![1.0f32 / (dim as f32).sqrt(); dim]
+    {
+        #[allow(clippy::cast_precision_loss)] // test dimensions are < 2^24
+        let inv = 1.0f32 / (dim as f32).sqrt();
+        vec![inv; dim]
+    }
 }
 
 fn request(fingerprint: [u8; 16], vector: Vec<f32>, label: &str) -> EncodeVectorDirectRequest {
@@ -90,7 +95,11 @@ fn request(fingerprint: [u8; 16], vector: Vec<f32>, label: &str) -> EncodeVector
 
 /// A per-call unique suffix so repeated runs do not dedupe into one memory.
 fn uuid_like() -> String {
-    new_id().iter().map(|b| format!("{b:02x}")).collect()
+    new_id().iter().fold(String::with_capacity(32), |mut s, b| {
+        use std::fmt::Write as _;
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 /// Learn the server's embedding-model fingerprint from a normal ENCODE.

@@ -19,9 +19,7 @@ def test_recall_finds_what_was_encoded(it, recall_until):
         ).memory_id
 
         req = RecallBuilder("What language do I like?").limit(10).text(True).build()
-        answer = recall_until(
-            client, req, lambda a: any(m.memory_id == stored for m in a.memories)
-        )
+        answer = recall_until(client, req, lambda a: any(m.memory_id == stored for m in a.memories))
         assert answer.answer_kind != AnswerKind.NONE
         assert any(m.memory_id == stored for m in answer.memories)
     finally:

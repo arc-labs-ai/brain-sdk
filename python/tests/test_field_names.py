@@ -124,8 +124,10 @@ def _compare(got, exp, path: str, errors: list[str]) -> None:
             if k in MIRROR_OMITS or not got[k]:
                 continue
             errors.append(f"{path}.{k}: SDK has a field the server does not send")
-        for k in exp.keys() - got.keys():
-            errors.append(f"{path}.{k}: server sends a field the SDK does not declare")
+        errors.extend(
+            f"{path}.{k}: server sends a field the SDK does not declare"
+            for k in exp.keys() - got.keys()
+        )
         for k in got.keys() & exp.keys():
             _compare(got[k], exp[k], f"{path}.{k}", errors)
         return
@@ -164,6 +166,4 @@ def test_declared_field_names_match_the_server(name: str) -> None:
     errors: list[str] = []
     _compare(_project(value), _read_json(name), name, errors)
 
-    assert not errors, f"{name}: declared fields disagree with the server\n  " + "\n  ".join(
-        errors
-    )
+    assert not errors, f"{name}: declared fields disagree with the server\n  " + "\n  ".join(errors)

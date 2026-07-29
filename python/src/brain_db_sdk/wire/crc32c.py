@@ -34,4 +34,9 @@ def crc32c(data: bytes) -> int:
 
 
 # Standard check vector pins the polynomial choice: CRC32C("123456789").
-assert crc32c(b"123456789") == 0xE3069283, "CRC32C check vector failed"
+# Deliberately a raise, not an assert: `python -O` strips asserts, and this is
+# the one line standing between a wrong table and every frame failing CRC on
+# the server with no local symptom.
+if crc32c(b"123456789") != 0xE3069283:  # pragma: no cover - import-time guard
+    msg = "CRC32C check vector failed: the polynomial table is wrong"
+    raise RuntimeError(msg)

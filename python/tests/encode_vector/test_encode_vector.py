@@ -121,13 +121,9 @@ def test_a_byte_swapped_vector_is_rejected(it, fingerprint) -> None:
     """
     client, _space = it.connect_fresh()
     try:
-        swapped = [
-            struct.unpack("<f", struct.pack(">f", x))[0] for x in _unit_vector()
-        ]
+        swapped = [struct.unpack("<f", struct.pack(">f", x))[0] for x in _unit_vector()]
         with pytest.raises(ServerError) as excinfo:
-            client.encode_vector_direct(
-                _request(fingerprint, vector=swapped, label="byte-swapped")
-            )
+            client.encode_vector_direct(_request(fingerprint, vector=swapped, label="byte-swapped"))
         assert "vector" in str(excinfo.value), (
             f"expected the server to reject a mis-ordered vector, got: {excinfo.value}"
         )

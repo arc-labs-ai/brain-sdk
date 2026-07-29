@@ -11,6 +11,14 @@
 //! corpus exercises (entity / statement / relation / schema CRUD, history,
 //! and traversal).
 
+// The types below mirror the server's wire structs one-for-one: same names,
+// same field names, same order. Their documentation is the protocol itself —
+// `conformance/protocol.json` carries every field's type and serde attributes,
+// and the corpus pins the bytes. A doc comment on each of ~2000 fields would
+// restate the field name and nothing more, and the ones that DO carry meaning
+// beyond their name (written below) would be lost in the noise.
+#![allow(missing_docs)]
+
 /// Wire-protocol opcode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[repr(u16)]

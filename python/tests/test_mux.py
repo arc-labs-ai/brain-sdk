@@ -14,7 +14,6 @@ from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AuthCredentials,
     AuthMethod,
     AuthOkPayload,
@@ -27,6 +26,7 @@ from brain_db_sdk.wire.types import (
     MemoryKind,
     ServerFeatures,
     ServerPingResponse,
+    SpacePermissions,
     WelcomePayload,
     decode_payload,
     encode_payload,
@@ -34,7 +34,9 @@ from brain_db_sdk.wire.types import (
 
 
 def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes) -> None:
-    write_frame(sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload))
+    write_frame(
+        sock, Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload)
+    )
 
 
 # The server assigns the agent id from the credential; the client never sends
@@ -78,7 +80,7 @@ def _serve_two_concurrent(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xAB" * 16,
+        connection_id=b"\xab" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -149,10 +151,14 @@ def test_two_requests_in_flight_route_back_correctly() -> None:
         hello = HelloPayload(
             client_id="mux-test",
             supported_versions=[1],
-            capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=False),
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=False
+            ),
             client_connection_token=None,
         )
-        auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
         conn, outcome = MuxConnection.connect(host, port, hello, auth)
         assert outcome.welcome.chosen_version == 1
 
@@ -231,7 +237,7 @@ def _serve_subscription(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xAB" * 16,
+        connection_id=b"\xab" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -298,7 +304,9 @@ def _serve_subscription(sock: socket.socket) -> None:
     # closes the subscription stream. The client observes this as end-of-stream.
     write_frame(
         sock,
-        Frame(opcode=int(Opcode.SUBSCRIBE_EVENT), flags=FLAG_EOS, stream_id=sub_stream, payload=b""),
+        Frame(
+            opcode=int(Opcode.SUBSCRIBE_EVENT), flags=FLAG_EOS, stream_id=sub_stream, payload=b""
+        ),
     )
 
     bye = read_frame(sock, buf)
@@ -311,16 +319,22 @@ def test_subscription_drains_events_unsubscribes_and_leaks_no_route() -> None:
         hello = HelloPayload(
             client_id="sub-test",
             supported_versions=[1],
-            capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=True),
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=True
+            ),
             client_connection_token=None,
         )
-        auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
         conn, outcome = MuxConnection.connect(host, port, hello, auth)
         assert outcome.welcome.chosen_version == 1
 
         sub = conn.subscribe(
             SubscribeRequest(
-                filter=SubscriptionFilter(session_filter=None, kinds=None, similar_to=None, spaces=None),
+                filter=SubscriptionFilter(
+                    session_filter=None, kinds=None, similar_to=None, spaces=None
+                ),
                 include_history=False,
                 from_lsn=None,
                 max_inflight=8,
@@ -374,7 +388,7 @@ def _serve_keepalive(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xAB" * 16,
+        connection_id=b"\xab" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,
@@ -426,10 +440,14 @@ def test_server_ping_is_answered_with_client_pong() -> None:
         hello = HelloPayload(
             client_id="keepalive-test",
             supported_versions=[1],
-            capabilities=HelloCapabilities(streaming=True, compression_zstd=False, server_push=False),
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=False
+            ),
             client_connection_token=None,
         )
-        auth = AuthPayload(method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token"))
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
         # Hold `conn` (and its reader thread) alive while the server sends
         # SERVER_PING and reads back the auto-replied CLIENT_PONG.
         conn, _outcome = MuxConnection.connect(host, port, hello, auth)

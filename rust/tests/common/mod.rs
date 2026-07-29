@@ -11,6 +11,10 @@
 //! mints a fresh `brain_` token bound to `(namespace, space_id)` via the admin
 //! plane (`POST /v1/api-keys`) and connects with it, so isolation is real —
 //! two tests never share an agent unless they mint the same id on purpose.
+// Included by twelve test binaries via `#[path]`. Each uses a different
+// subset of these helpers, so whatever a given binary does not call looks
+// unreachable to it.
+#![allow(unreachable_pub)]
 #![allow(dead_code)]
 
 use std::net::SocketAddr;

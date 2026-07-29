@@ -52,9 +52,7 @@ def test_explain_returns_a_plan_with_explicit_retrievers(it):
             QueryExplainRequest(
                 _query(
                     "coffee",
-                    retrievers=RetrieverSelection.explicit(
-                        [Retriever.SEMANTIC, Retriever.GRAPH]
-                    ),
+                    retrievers=RetrieverSelection.explicit([Retriever.SEMANTIC, Retriever.GRAPH]),
                 )
             )
         )

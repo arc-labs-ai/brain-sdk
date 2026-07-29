@@ -42,9 +42,10 @@ fn taxonomy(e: &FrameError) -> &'static str {
 
 fn valid_frame(base: &serde_json::Value) -> Vec<u8> {
     Frame {
-        opcode: base["opcode"].as_u64().expect("opcode") as u16,
-        flags: base["flags"].as_u64().expect("flags") as u8,
-        stream_id: base["stream_id"].as_u64().expect("stream_id") as u32,
+        opcode: u16::try_from(base["opcode"].as_u64().expect("opcode")).expect("opcode fits u16"),
+        flags: u8::try_from(base["flags"].as_u64().expect("flags")).expect("flags fit u8"),
+        stream_id: u32::try_from(base["stream_id"].as_u64().expect("stream_id"))
+            .expect("stream_id fits u32"),
         payload: hex_decode(base["payload_hex"].as_str().expect("payload_hex")),
     }
     .encode()
@@ -86,14 +87,20 @@ fn malformed_frames_are_rejected_with_the_right_error() {
             let op = m["op"].as_str().expect("op");
             match op {
                 "set" => {
-                    let off = m["offset"].as_u64().expect("offset") as usize;
-                    buf[off] = m["value"].as_u64().expect("value") as u8;
+                    let off = usize::try_from(m["offset"].as_u64().expect("offset"))
+                        .expect("offset fits usize");
+                    buf[off] =
+                        u8::try_from(m["value"].as_u64().expect("value")).expect("value fits u8");
                 }
                 "xor" => {
-                    let off = m["offset"].as_u64().expect("offset") as usize;
-                    buf[off] ^= m["value"].as_u64().expect("value") as u8;
+                    let off = usize::try_from(m["offset"].as_u64().expect("offset"))
+                        .expect("offset fits usize");
+                    buf[off] ^=
+                        u8::try_from(m["value"].as_u64().expect("value")).expect("value fits u8");
                 }
-                "truncate" => buf.truncate(m["len"].as_u64().expect("len") as usize),
+                "truncate" => buf.truncate(
+                    usize::try_from(m["len"].as_u64().expect("len")).expect("len fits usize"),
+                ),
                 other => panic!("{name}: unknown mutation op {other:?}"),
             }
         }
@@ -123,7 +130,10 @@ fn the_unmutated_frame_still_decodes() {
     let v = vectors();
     let buf = valid_frame(&v["base"]);
     let (frame, rest) = Frame::decode(&buf).expect("valid frame decodes");
-    assert_eq!(frame.opcode, v["base"]["opcode"].as_u64().unwrap() as u16);
+    assert_eq!(
+        frame.opcode,
+        u16::try_from(v["base"]["opcode"].as_u64().unwrap()).expect("opcode fits u16")
+    );
     assert_eq!(rest.len(), 0, "a single frame leaves no trailing bytes");
 }
 

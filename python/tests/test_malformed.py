@@ -117,8 +117,10 @@ def test_malformed_cbor_errors_rather_than_crashing(case) -> None:
     payload = _cbor_payload(case["payload"])
     try:
         from_cbor(payload)
-    except Exception as e:  # noqa: BLE001 - the point is that it stays catchable
-        assert not isinstance(e, RecursionError), (
+    except Exception as e:  # noqa: BLE001 - asserting WHICH type escaped
+        # PT017: `pytest.raises` cannot express "any exception EXCEPT this
+        # subclass", which is exactly what this asserts.
+        assert not isinstance(e, RecursionError), (  # noqa: PT017
             "a RecursionError means the depth cap is missing; cbor2 >= 5.9 "
             "raises CBORDecodeError instead. See the pin in pyproject.toml."
         )

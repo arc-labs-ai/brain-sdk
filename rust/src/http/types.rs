@@ -4,8 +4,19 @@
 //! across the Rust, Python, and TypeScript SDKs. Optional request fields skip
 //! when `None`.
 
+// The types below mirror the server's wire structs one-for-one: same names,
+// same field names, same order. Their documentation is the protocol itself —
+// `conformance/protocol.json` carries every field's type and serde attributes,
+// and the corpus pins the bytes. A doc comment on each of ~2000 fields would
+// restate the field name and nothing more, and the ones that DO carry meaning
+// beyond their name (written below) would be lost in the noise.
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 
+/// `skip_serializing_if` hands serde a reference whatever the field type, so
+/// the `&bool` is required by the signature serde expects, not a choice.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn is_false(b: &bool) -> bool {
     !*b
 }

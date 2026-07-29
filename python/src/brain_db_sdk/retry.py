@@ -39,7 +39,8 @@ def _jittered(delay: float, floor: float) -> float:
     floor = min(floor, delay)
     if delay <= floor:
         return floor
-    return random.uniform(floor, delay)
+    # Retry jitter is scheduling, not a secret; `random` is the right tool.
+    return random.uniform(floor, delay)  # noqa: S311
 
 
 @dataclass
@@ -57,7 +58,7 @@ class RetryPolicy:
     max_delay: float = 5.0
 
     @staticmethod
-    def none() -> "RetryPolicy":
+    def none() -> RetryPolicy:
         """No retry: a single attempt."""
         return RetryPolicy(max_attempts=1, base_delay=0.0, max_delay=0.0)
 
@@ -91,7 +92,7 @@ def with_retry(op: Callable[[], T], policy: Optional[RetryPolicy] = None) -> T:
     while True:
         try:
             return op()
-        except Exception as exc:  # noqa: BLE001 — re-raised below if not retryable
+        except Exception as exc:
             if attempt < policy.max_attempts and is_retryable(exc):
                 server_floor = _server_retry_after_seconds(exc)
                 delay = policy.backoff(attempt, server_floor)

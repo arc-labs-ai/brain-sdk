@@ -21,7 +21,7 @@ class EncodeResult:
     auto_edges_added: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "EncodeResult":
+    def from_dict(cls, d: dict[str, Any]) -> EncodeResult:
         return cls(
             memory_id=d["memory_id"],
             was_deduplicated=d["was_deduplicated"],
@@ -43,7 +43,7 @@ class MemoryHit:
     created_at_unix_nanos: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "MemoryHit":
+    def from_dict(cls, d: dict[str, Any]) -> MemoryHit:
         return cls(
             memory_id=d["memory_id"],
             text=d["text"],
@@ -61,7 +61,7 @@ class RecallResult:
     memories: list[MemoryHit]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "RecallResult":
+    def from_dict(cls, d: dict[str, Any]) -> RecallResult:
         return cls(
             answer_kind=d["answer_kind"],
             memories=[MemoryHit.from_dict(m) for m in d.get("memories", [])],
@@ -75,7 +75,7 @@ class ForgetResult:
     edges_removed: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ForgetResult":
+    def from_dict(cls, d: dict[str, Any]) -> ForgetResult:
         return cls(
             memory_id=d["memory_id"],
             was_already_forgotten=d["was_already_forgotten"],
@@ -93,7 +93,7 @@ class LinkResult:
     already_existed: bool
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "LinkResult":
+    def from_dict(cls, d: dict[str, Any]) -> LinkResult:
         return cls(
             source=d["source"],
             target=d["target"],
@@ -112,7 +112,7 @@ class UnlinkResult:
     removed: bool
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "UnlinkResult":
+    def from_dict(cls, d: dict[str, Any]) -> UnlinkResult:
         return cls(source=d["source"], target=d["target"], kind=d["kind"], removed=d["removed"])
 
 
@@ -126,7 +126,7 @@ class PlanStep:
     estimated_distance_to_goal: float
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "PlanStep":
+    def from_dict(cls, d: dict[str, Any]) -> PlanStep:
         return cls(
             step_index=d["step_index"],
             memory_id=d["memory_id"],
@@ -142,7 +142,7 @@ class PlanResult:
     steps: list[PlanStep]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "PlanResult":
+    def from_dict(cls, d: dict[str, Any]) -> PlanResult:
         return cls(steps=[PlanStep.from_dict(s) for s in d.get("steps", [])])
 
 
@@ -156,7 +156,7 @@ class InferenceStep:
     inference_kind: str
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "InferenceStep":
+    def from_dict(cls, d: dict[str, Any]) -> InferenceStep:
         return cls(
             step_index=d["step_index"],
             claim=d["claim"],
@@ -172,7 +172,7 @@ class ReasonResult:
     inferences: list[InferenceStep]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ReasonResult":
+    def from_dict(cls, d: dict[str, Any]) -> ReasonResult:
         return cls(inferences=[InferenceStep.from_dict(s) for s in d.get("inferences", [])])
 
 
@@ -186,7 +186,7 @@ class Permissions:
     can_admin: bool
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Permissions":
+    def from_dict(cls, d: dict[str, Any]) -> Permissions:
         return cls(
             can_encode=d["can_encode"],
             can_recall=d["can_recall"],
@@ -204,7 +204,7 @@ class Whoami:
     permissions: Permissions
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Whoami":
+    def from_dict(cls, d: dict[str, Any]) -> Whoami:
         return cls(
             namespace=d["namespace"],
             space_id=d["space_id"],
@@ -222,7 +222,7 @@ class Capabilities:
     vector_dim: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Capabilities":
+    def from_dict(cls, d: dict[str, Any]) -> Capabilities:
         return cls(
             rerank=d["rerank"],
             llm_extractor=d["llm_extractor"],
@@ -248,7 +248,7 @@ class EntityDetail:
     merged_into: Optional[str]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "EntityDetail":
+    def from_dict(cls, d: dict[str, Any]) -> EntityDetail:
         return cls(
             entity_id=d["entity_id"],
             entity_type_id=d["entity_type_id"],
@@ -267,7 +267,7 @@ class ListEntitiesResult:
     count: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ListEntitiesResult":
+    def from_dict(cls, d: dict[str, Any]) -> ListEntitiesResult:
         return cls(
             entities=[EntityDetail.from_dict(e) for e in d.get("entities", [])],
             count=d["count"],
@@ -279,7 +279,7 @@ class CreateEntityResult:
     entity_id: str
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "CreateEntityResult":
+    def from_dict(cls, d: dict[str, Any]) -> CreateEntityResult:
         return cls(entity_id=d["entity_id"])
 
 
@@ -292,7 +292,7 @@ class ResolveEntityResult:
     candidate_ids: list[str]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ResolveEntityResult":
+    def from_dict(cls, d: dict[str, Any]) -> ResolveEntityResult:
         return cls(
             outcome=d["outcome"],
             tier=d["tier"],
@@ -321,7 +321,7 @@ class TraversalStep:
     depth: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TraversalStep":
+    def from_dict(cls, d: dict[str, Any]) -> TraversalStep:
         return cls(
             relation_id=d["relation_id"],
             from_=d["from"],
@@ -336,7 +336,7 @@ class TraversalPath:
     steps: list[TraversalStep]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TraversalPath":
+    def from_dict(cls, d: dict[str, Any]) -> TraversalPath:
         return cls(steps=[TraversalStep.from_dict(s) for s in d.get("steps", [])])
 
 
@@ -347,7 +347,7 @@ class TraverseResult:
     truncated: bool
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TraverseResult":
+    def from_dict(cls, d: dict[str, Any]) -> TraverseResult:
         return cls(
             paths=[TraversalPath.from_dict(p) for p in d.get("paths", [])],
             total_paths=d["total_paths"],
@@ -371,7 +371,7 @@ class RelationDetail:
     tombstoned: bool
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "RelationDetail":
+    def from_dict(cls, d: dict[str, Any]) -> RelationDetail:
         return cls(
             relation_id=d["relation_id"],
             relation_type=d["relation_type"],
@@ -391,7 +391,7 @@ class ListRelationsResult:
     count: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ListRelationsResult":
+    def from_dict(cls, d: dict[str, Any]) -> ListRelationsResult:
         return cls(
             relations=[RelationDetail.from_dict(r) for r in d.get("relations", [])],
             count=d["count"],
@@ -424,7 +424,7 @@ class StatementValue:
     TYPES = ("text", "integer", "float", "bool", "unix_nanos", "blob")
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StatementValue":
+    def from_dict(cls, d: dict[str, Any]) -> StatementValue:
         return cls(type=d["type"], value=d["value"])
 
 
@@ -451,7 +451,7 @@ class StatementObject:
     KINDS = ("entity", "value", "memory", "statement")
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StatementObject":
+    def from_dict(cls, d: dict[str, Any]) -> StatementObject:
         value = d.get("value")
         return cls(
             kind=d["kind"],
@@ -476,7 +476,7 @@ class StatementDetail:
     tombstoned: bool
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StatementDetail":
+    def from_dict(cls, d: dict[str, Any]) -> StatementDetail:
         return cls(
             statement_id=d["statement_id"],
             kind=d["kind"],
@@ -497,7 +497,7 @@ class ListStatementsResult:
     count: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ListStatementsResult":
+    def from_dict(cls, d: dict[str, Any]) -> ListStatementsResult:
         return cls(
             statements=[StatementDetail.from_dict(s) for s in d.get("statements", [])],
             count=d["count"],
@@ -515,7 +515,7 @@ class GraphNode:
     type_qname: str
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "GraphNode":
+    def from_dict(cls, d: dict[str, Any]) -> GraphNode:
         return cls(
             id=d["id"],
             kind=d["kind"],
@@ -532,7 +532,7 @@ class GraphEdge:
     label: str
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "GraphEdge":
+    def from_dict(cls, d: dict[str, Any]) -> GraphEdge:
         return cls(
             from_id=d["from_id"],
             to_id=d["to_id"],
@@ -548,7 +548,7 @@ class GraphPage:
     next_cursor: Optional[str]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "GraphPage":
+    def from_dict(cls, d: dict[str, Any]) -> GraphPage:
         return cls(
             nodes=[GraphNode.from_dict(n) for n in d.get("nodes", [])],
             edges=[GraphEdge.from_dict(e) for e in d.get("edges", [])],
@@ -577,7 +577,7 @@ class MemoryListItem:
     relation_count: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "MemoryListItem":
+    def from_dict(cls, d: dict[str, Any]) -> MemoryListItem:
         return cls(
             memory_id=d["memory_id"],
             text=d["text"],
@@ -600,7 +600,7 @@ class MemoryListPage:
     next_cursor: Optional[str]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "MemoryListPage":
+    def from_dict(cls, d: dict[str, Any]) -> MemoryListPage:
         return cls(
             items=[MemoryListItem.from_dict(i) for i in d.get("items", [])],
             # ``skip_serializing_if = Option::is_none`` — absent, not null, on
@@ -624,7 +624,7 @@ class StageRecord:
     lsn: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StageRecord":
+    def from_dict(cls, d: dict[str, Any]) -> StageRecord:
         return cls(
             memory_id=d["memory_id"],
             kind=d["kind"],
@@ -643,7 +643,7 @@ class StageKeywordField:
     terms: list[str]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StageKeywordField":
+    def from_dict(cls, d: dict[str, Any]) -> StageKeywordField:
         return cls(field=d["field"], terms=list(d.get("terms", [])))
 
 
@@ -655,7 +655,7 @@ class StageGraphNode:
     type_qname: str
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StageGraphNode":
+    def from_dict(cls, d: dict[str, Any]) -> StageGraphNode:
         return cls(
             id=d["id"],
             name=d["name"],
@@ -674,7 +674,7 @@ class StageGraphEdge:
     event_at_unix_nanos: Optional[int]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StageGraphEdge":
+    def from_dict(cls, d: dict[str, Any]) -> StageGraphEdge:
         return cls(
             source=d["source"],
             target=d["target"],
@@ -691,7 +691,7 @@ class StageGraph:
     edges: list[StageGraphEdge]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StageGraph":
+    def from_dict(cls, d: dict[str, Any]) -> StageGraph:
         return cls(
             nodes=[StageGraphNode.from_dict(n) for n in d.get("nodes", [])],
             edges=[StageGraphEdge.from_dict(e) for e in d.get("edges", [])],
@@ -707,16 +707,14 @@ class StageArtifact:
     graph: Optional[StageGraph]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "StageArtifact":
+    def from_dict(cls, d: dict[str, Any]) -> StageArtifact:
         record = d.get("record")
         graph = d.get("graph")
         return cls(
             vector=list(d.get("vector", [])),
             record=StageRecord.from_dict(record) if record is not None else None,
             hype_questions=list(d.get("hype_questions", [])),
-            keyword_fields=[
-                StageKeywordField.from_dict(k) for k in d.get("keyword_fields", [])
-            ],
+            keyword_fields=[StageKeywordField.from_dict(k) for k in d.get("keyword_fields", [])],
             graph=StageGraph.from_dict(graph) if graph is not None else None,
         )
 
@@ -729,7 +727,7 @@ class MemoryInspect:
     artifact: StageArtifact
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "MemoryInspect":
+    def from_dict(cls, d: dict[str, Any]) -> MemoryInspect:
         return cls(
             found=d["found"],
             memory_id=d["memory_id"],
@@ -751,7 +749,7 @@ class SchemaError:
     severity: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SchemaError":
+    def from_dict(cls, d: dict[str, Any]) -> SchemaError:
         return cls(
             code=d["code"],
             message=d["message"],
@@ -771,7 +769,7 @@ class Schema:
     validator_version: int
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Schema":
+    def from_dict(cls, d: dict[str, Any]) -> Schema:
         return cls(
             namespace=d["namespace"],
             schema_version=d["schema_version"],
@@ -789,14 +787,12 @@ class SchemaUpload:
     validation_errors: list[SchemaError]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SchemaUpload":
+    def from_dict(cls, d: dict[str, Any]) -> SchemaUpload:
         return cls(
             namespace=d["namespace"],
             schema_version=d["schema_version"],
             backward_compatible=d["backward_compatible"],
-            validation_errors=[
-                SchemaError.from_dict(e) for e in d.get("validation_errors", [])
-            ],
+            validation_errors=[SchemaError.from_dict(e) for e in d.get("validation_errors", [])],
         )
 
 
@@ -807,13 +803,11 @@ class SchemaValidate:
     validation_errors: list[SchemaError]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SchemaValidate":
+    def from_dict(cls, d: dict[str, Any]) -> SchemaValidate:
         return cls(
             namespace=d["namespace"],
             would_be_version=d["would_be_version"],
-            validation_errors=[
-                SchemaError.from_dict(e) for e in d.get("validation_errors", [])
-            ],
+            validation_errors=[SchemaError.from_dict(e) for e in d.get("validation_errors", [])],
         )
 
 
@@ -825,12 +819,10 @@ class SchemaReplace:
     validation_errors: list[SchemaError]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SchemaReplace":
+    def from_dict(cls, d: dict[str, Any]) -> SchemaReplace:
         return cls(
             namespace=d["namespace"],
             schema_version=d["schema_version"],
             dropped_count=d["dropped_count"],
-            validation_errors=[
-                SchemaError.from_dict(e) for e in d.get("validation_errors", [])
-            ],
+            validation_errors=[SchemaError.from_dict(e) for e in d.get("validation_errors", [])],
         )

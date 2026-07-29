@@ -23,9 +23,9 @@ fn conformance_dir() -> PathBuf {
         .join("conformance")
 }
 
-fn read_json(path: PathBuf) -> serde_json::Value {
+fn read_json(path: &std::path::Path) -> serde_json::Value {
     let text =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
 }
 
@@ -50,7 +50,7 @@ fn declared_opcodes() -> Vec<(String, u16)> {
 
 #[test]
 fn every_opcode_is_corpus_pinned_or_on_the_tracked_gap_list() {
-    let index = read_json(conformance_dir().join("corpus").join("index.json"));
+    let index = read_json(&conformance_dir().join("corpus").join("index.json"));
     let covered_values: BTreeSet<u16> = index
         .as_array()
         .expect("index.json is an array")
@@ -64,7 +64,7 @@ fn every_opcode_is_corpus_pinned_or_on_the_tracked_gap_list() {
     // Matched by VALUE, not name: the three SDKs spell the variants
     // differently (`EntityGetReq` / `ENTITY_GET_REQ` / `EntityGetReq`), and the
     // number is the thing the wire actually carries.
-    let coverage = read_json(conformance_dir().join("coverage.json"));
+    let coverage = read_json(&conformance_dir().join("coverage.json"));
     let gap: BTreeSet<u16> = coverage["opcode_values"]
         .as_object()
         .expect("coverage.opcode_values is an object")

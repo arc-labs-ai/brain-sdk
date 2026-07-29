@@ -8,8 +8,8 @@ export class BrainHttpError extends Error {
   /** Stable error code from the edge (`"transport"` for network failures). */
   readonly code: string;
 
-  constructor(status: number, code: string, message: string) {
-    super(message);
+  constructor(status: number, code: string, message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "BrainHttpError";
     this.status = status;
     this.code = code;

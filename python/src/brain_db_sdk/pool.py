@@ -19,11 +19,16 @@ without ``close`` just drops the clients (each closes its socket).
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import threading
+from typing import TypeVar
 
 from .client import Auth, BrainClient, ClientConfig
 from .errors import ProtocolError
+
+# Stands in for `typing.Self`, which is 3.11+; requires-python here is >=3.9.
+_SelfPool = TypeVar("_SelfPool", bound="Pool")
 
 
 class Pool:
@@ -42,7 +47,7 @@ class Pool:
         port: int,
         size: int,
         auth: Auth,
-    ) -> "Pool":
+    ) -> Pool:
         """Open ``size`` connections to ``host:port`` with the given credential
         and default transport settings, each running its own handshake, and
         return the pool. For full control over the configuration, use
@@ -56,7 +61,7 @@ class Pool:
         port: int,
         size: int,
         config: ClientConfig,
-    ) -> "Pool":
+    ) -> Pool:
         """Open ``size`` connections to ``host:port`` from an explicit
         configuration template, each running its own handshake, and return the
         pool. All members share the template's credential, so the server binds
@@ -67,14 +72,12 @@ class Pool:
             raise ProtocolError("connection pool size must be >= 1")
         clients: list[BrainClient] = []
         try:
-            for _ in range(size):
-                clients.append(BrainClient.connect_with(host, port, config))
+            clients.extend(BrainClient.connect_with(host, port, config) for _ in range(size))
         except Exception:
             for client in clients:
-                try:
+                # Best-effort teardown: a socket we are discarding either way.
+                with contextlib.suppress(Exception):
                     client.close()
-                except Exception:  # noqa: BLE001 — best-effort cleanup
-                    pass
             raise
         return cls(clients)
 
@@ -92,12 +95,11 @@ class Pool:
     def close(self) -> None:
         """Send BYE and close every pooled connection (best-effort)."""
         for client in self._clients:
-            try:
+            # Best-effort teardown: a socket we are discarding either way.
+            with contextlib.suppress(Exception):
                 client.close()
-            except Exception:  # noqa: BLE001 — best-effort
-                pass
 
-    def __enter__(self) -> "Pool":
+    def __enter__(self: _SelfPool) -> _SelfPool:
         return self
 
     def __exit__(self, *exc: object) -> None:

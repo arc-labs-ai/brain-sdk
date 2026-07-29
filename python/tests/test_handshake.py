@@ -23,7 +23,6 @@ from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AuthOkPayload,
     AuthPayload,
     EncodeRequest,
@@ -31,6 +30,7 @@ from brain_db_sdk.wire.types import (
     HelloPayload,
     MemoryKind,
     ServerFeatures,
+    SpacePermissions,
     StageKind,
     WelcomePayload,
     decode_payload,
@@ -64,7 +64,7 @@ def _serve_one(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xAB" * 16,
+        connection_id=b"\xab" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=16 * 1024 * 1024,
@@ -110,7 +110,7 @@ def _serve_one(sock: socket.socket) -> None:
         kind=MemoryKind.SEMANTIC,
         created_at_unix_nanos=1_700_000_000_000_000_001,
         edges_out_count=0,
-        embedding_model_fp=b"\x11\x22\x33\x44\x55\x66\x77\x88\x99\xAA\xBB\xCC\xDD\xEE\xFF\x00",
+        embedding_model_fp=b"\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff\x00",
         pending_stages=[StageKind.AUTO_EDGE, StageKind.EXTRACTOR],
         has_active_schema=True,
     )
@@ -156,7 +156,7 @@ def test_connect_handshake_encode_round_trip_against_mock_server() -> None:
         assert session.chosen_version == 1
         assert session.server_id == "mock-brain"
         assert session.bound_shard_id == 3
-        assert session.connection_id == b"\xAB" * 16
+        assert session.connection_id == b"\xab" * 16
         assert session.permissions.can_encode
         assert not session.permissions.can_admin
         assert session.server_features.max_concurrent_streams == 256
@@ -190,7 +190,7 @@ def test_client_exposes_server_assigned_namespace() -> None:
         welcome = WelcomePayload(
             server_id="mock-brain",
             chosen_version=1,
-            connection_id=b"\xAB" * 16,
+            connection_id=b"\xab" * 16,
             capabilities=hello.capabilities,
             server_features=ServerFeatures(
                 max_payload_size=1 << 20,
@@ -261,5 +261,3 @@ def test_rejects_a_server_that_chooses_an_unoffered_version() -> None:
     finally:
         listener.close()
         thread.join(timeout=5)
-
-

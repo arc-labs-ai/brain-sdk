@@ -10,7 +10,7 @@
  * hint as the floor) so clients that failed together don't retry in lockstep.
  *
  * Because every request builder mints a stable `requestId`, re-sending the
- * *same* request is idempotent on the server (24h idempotency window), so a
+ *same* request is idempotent on the server (24h idempotency window), so a
  * retried verb does not double-apply. A server `ResourceExhausted` /
  * `Unavailable` verdict arrives as a normal ERROR frame, leaving the connection
  * usable — so those retry in place. A transport drop is reported retryable too,
@@ -52,10 +52,10 @@ export const NO_RETRY: RetryPolicy = {
 export function backoffMs(
   policy: RetryPolicy,
   attempt: number,
-  serverRetryAfterMs: number | null,
+  serverHintMs: number | null,
 ): number | null {
-  if (serverRetryAfterMs !== null) {
-    return Math.min(serverRetryAfterMs, policy.maxDelayMs);
+  if (serverHintMs !== null) {
+    return Math.min(serverHintMs, policy.maxDelayMs);
   }
   if (policy.baseDelayMs <= 0) return null;
   const delay = policy.baseDelayMs * 2 ** Math.max(0, attempt - 1);

@@ -39,18 +39,18 @@ class EncodeBuilder:
     wait_mode: int = WaitMode.ACK
     allow_dups: bool = False
 
-    def session(self, session_id: int) -> "EncodeBuilder":
+    def session(self, session_id: int) -> EncodeBuilder:
         """Store the memory under a specific session id instead of the default 0."""
         self.session_id = session_id
         return self
 
-    def occurred_at(self, occurred_at_unix_nanos: Optional[int]) -> "EncodeBuilder":
+    def occurred_at(self, occurred_at_unix_nanos: Optional[int]) -> EncodeBuilder:
         """Record when the event the text describes happened (event time),
         distinct from the server's ingest time."""
         self.occurred_at_unix_nanos = occurred_at_unix_nanos
         return self
 
-    def wait(self, mode: int = WaitMode.ACK) -> "EncodeBuilder":
+    def wait(self, mode: int = WaitMode.ACK) -> EncodeBuilder:
         """Set the write-completion mode. ``WaitMode.ACK`` (the default)
         returns as soon as the write is durable and the async derivation
         stages run in the background; ``WaitMode.DERIVED`` blocks until they
@@ -59,13 +59,13 @@ class EncodeBuilder:
         self.wait_mode = mode
         return self
 
-    def derived(self) -> "EncodeBuilder":
+    def derived(self) -> EncodeBuilder:
         """Convenience for ``wait(WaitMode.DERIVED)``: block until async
         derivation completes and return the full synchronous write trace."""
         self.wait_mode = WaitMode.DERIVED
         return self
 
-    def act_as(self, namespace: str, space_id: str) -> "EncodeBuilder":
+    def act_as(self, namespace: str, space_id: str) -> EncodeBuilder:
         """Run this encode as the effective identity ``(namespace, space_id)``
         on behalf of the connection principal. ``space_id`` is the human-readable
         structured space string (empty selects the key-bound space). Requires the
@@ -74,7 +74,7 @@ class EncodeBuilder:
         self.act_as_identity = ActAs(namespace=namespace, space_id=space_id)
         return self
 
-    def allow_duplicates(self, allow: bool = True) -> "EncodeBuilder":
+    def allow_duplicates(self, allow: bool = True) -> EncodeBuilder:
         """Opt out of content dedup and force a distinct memory. By default
         Brain dedupes byte-identical text on ``(space_id, session_id,
         BLAKE3(text))`` and returns the existing memory (``was_deduplicated =
@@ -120,66 +120,66 @@ class RecallBuilder:
     trace_enabled: bool = False
     act_as_identity: Optional[ActAs] = None
 
-    def subject(self, subject_name: str) -> "RecallBuilder":
+    def subject(self, subject_name: str) -> RecallBuilder:
         """Name the entity a fact lookup is about, so recall resolves the
         subject before matching the cue."""
         self.subject_name = subject_name
         return self
 
-    def limit(self, max_results: int) -> "RecallBuilder":
+    def limit(self, max_results: int) -> RecallBuilder:
         """Cap how many memories recall returns."""
         self.max_results = max_results
         return self
 
-    def as_of(self, as_of_record_time_unix_nanos: Optional[int]) -> "RecallBuilder":
+    def as_of(self, as_of_record_time_unix_nanos: Optional[int]) -> RecallBuilder:
         """Query the graph as it stood at a record time (bi-temporal travel)."""
         self.as_of_record_time_unix_nanos = as_of_record_time_unix_nanos
         return self
 
-    def confidence(self, threshold: float) -> "RecallBuilder":
+    def confidence(self, threshold: float) -> RecallBuilder:
         """Drop memories whose salience falls below this floor."""
         self.confidence_threshold = threshold
         return self
 
-    def sessions(self, sessions: list[int]) -> "RecallBuilder":
+    def sessions(self, sessions: list[int]) -> RecallBuilder:
         """Restrict recall to memories in these session ids."""
         self.session_filter = list(sessions)
         return self
 
-    def kinds(self, kinds: list[int]) -> "RecallBuilder":
+    def kinds(self, kinds: list[int]) -> RecallBuilder:
         """Restrict recall to these memory kinds (integer discriminants)."""
         self.kind_filter = list(kinds)
         return self
 
-    def salience(self, floor: float) -> "RecallBuilder":
+    def salience(self, floor: float) -> RecallBuilder:
         """Drop memories below this salience floor."""
         self.salience_floor = floor
         return self
 
-    def edges(self, include: bool) -> "RecallBuilder":
+    def edges(self, include: bool) -> RecallBuilder:
         """Include (or omit) each memory's outgoing edges in the response."""
         self.include_edges = include
         return self
 
-    def graph(self, include: bool) -> "RecallBuilder":
+    def graph(self, include: bool) -> RecallBuilder:
         """Include (or omit) the resolved entity/statement/relation graph
         enrichment alongside the memories."""
         self.include_graph = include
         return self
 
-    def text(self, include: bool) -> "RecallBuilder":
+    def text(self, include: bool) -> RecallBuilder:
         """Include (or omit) the stored memory text in the response."""
         self.include_text = include
         return self
 
-    def trace(self, trace: bool = True) -> "RecallBuilder":
+    def trace(self, trace: bool = True) -> RecallBuilder:
         """Ask for the per-stage read-pipeline trace on the final frame
         (``RecallResponseFrame.trace``). Off by default; costs nothing when
         off."""
         self.trace_enabled = trace
         return self
 
-    def act_as(self, namespace: str, space_id: str) -> "RecallBuilder":
+    def act_as(self, namespace: str, space_id: str) -> RecallBuilder:
         """Run this recall as the effective identity ``(namespace, space_id)``
         on behalf of the connection principal. ``space_id`` is the human-readable
         structured space string (empty selects the key-bound space). Requires the
@@ -219,18 +219,18 @@ class ForgetBuilder:
     mode: int = ForgetMode.SOFT
     act_as_identity: Optional[ActAs] = None
 
-    def hard(self) -> "ForgetBuilder":
+    def hard(self) -> ForgetBuilder:
         """Switch to a hard forget: zero the memory immediately, no grace
         period."""
         self.mode = ForgetMode.HARD
         return self
 
-    def with_mode(self, mode: int) -> "ForgetBuilder":
+    def with_mode(self, mode: int) -> ForgetBuilder:
         """Set the forget mode explicitly (integer discriminant)."""
         self.mode = mode
         return self
 
-    def act_as(self, namespace: str, space_id: str) -> "ForgetBuilder":
+    def act_as(self, namespace: str, space_id: str) -> ForgetBuilder:
         """Run this forget as the effective identity ``(namespace, space_id)``
         on behalf of the connection principal. ``space_id`` is the human-readable
         structured space string (empty selects the key-bound space). Requires the
@@ -250,4 +250,4 @@ class ForgetBuilder:
         )
 
 
-__all__ = ["EncodeBuilder", "RecallBuilder", "ForgetBuilder"]
+__all__ = ["EncodeBuilder", "ForgetBuilder", "RecallBuilder"]

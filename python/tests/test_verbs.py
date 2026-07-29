@@ -16,7 +16,6 @@ from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
-    SpacePermissions,
     AnswerKind,
     AuthOkPayload,
     AuthPayload,
@@ -29,13 +28,16 @@ from brain_db_sdk.wire.types import (
     RecallRequest,
     RecallResponseFrame,
     ServerFeatures,
+    SpacePermissions,
     WelcomePayload,
     decode_payload,
     encode_payload,
 )
 
 
-def _write(sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes, eos: bool = True) -> None:
+def _write(
+    sock: socket.socket, opcode: Opcode, stream_id: int, payload: bytes, eos: bool = True
+) -> None:
     flags = FLAG_EOS if eos else 0
     write_frame(sock, Frame(opcode=int(opcode), flags=flags, stream_id=stream_id, payload=payload))
 
@@ -81,7 +83,7 @@ def _serve_recall_forget(sock: socket.socket) -> None:
     welcome = WelcomePayload(
         server_id="mock-brain",
         chosen_version=1,
-        connection_id=b"\xCD" * 16,
+        connection_id=b"\xcd" * 16,
         capabilities=hello.capabilities,
         server_features=ServerFeatures(
             max_payload_size=1 << 20,

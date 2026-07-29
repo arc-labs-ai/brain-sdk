@@ -45,7 +45,12 @@ fn read_json(name: &str) -> serde_json::Value {
 }
 
 fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    b.iter()
+        .fold(String::with_capacity(b.len() * 2), |mut s, x| {
+            use std::fmt::Write as _;
+            let _ = write!(s, "{x:02x}");
+            s
+        })
 }
 
 fn hex_to_bytes(s: &str) -> Vec<u8> {

@@ -15,7 +15,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Mapping, Optional, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any, Optional
 
 from .errors import BrainHttpError
 from .retry import HttpRetryPolicy
@@ -62,6 +63,17 @@ class BrainHttpClient:
     ) -> None:
         if not api_key:
             raise BrainHttpError(0, "config", "api_key is required")
+        # `urlopen` honours every scheme urllib supports, so a `file://` or
+        # `ftp://` base_url would turn an SDK call into a local file read.
+        # base_url routinely comes from config or an environment variable, so
+        # it is checked here, where it enters, rather than at each call site.
+        scheme = urllib.parse.urlparse(base_url).scheme.lower()
+        if scheme not in ("http", "https"):
+            raise BrainHttpError(
+                0,
+                "config",
+                f"base_url must be http:// or https://, got {scheme or 'no'} scheme",
+            )
         self._base = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout
@@ -77,9 +89,7 @@ class BrainHttpClient:
     ) -> EncodeResult:
         """Store a memory."""
         body = _compact({"text": text, "session": session, "occurred_at": occurred_at})
-        return EncodeResult.from_dict(
-            self._request("POST", "/v1/memories", body, idempotent=True)
-        )
+        return EncodeResult.from_dict(self._request("POST", "/v1/memories", body, idempotent=True))
 
     def recall(
         self,
@@ -167,9 +177,7 @@ class BrainHttpClient:
 
     def capabilities(self) -> Capabilities:
         """What the connected shard supports."""
-        return Capabilities.from_dict(
-            self._request("GET", "/v1/capabilities", idempotent=True)
-        )
+        return Capabilities.from_dict(self._request("GET", "/v1/capabilities", idempotent=True))
 
     # --- memories ---------------------------------------------------------
 
@@ -177,7 +185,7 @@ class BrainHttpClient:
         self,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
-        dir: Optional[str] = None,
+        dir: Optional[str] = None,  # noqa: A002 - the edge's query param is `dir`
         include_tombstoned: Optional[bool] = None,
     ) -> MemoryListPage:
         """A page of stored memories, newest first by default.
@@ -200,9 +208,7 @@ class BrainHttpClient:
     def inspect_memory(self, memory_id: str) -> MemoryInspect:
         """The full encode-pipeline artifact behind one memory."""
         return MemoryInspect.from_dict(
-            self._request(
-                "GET", f"/v1/memories/{_seg(memory_id)}/inspect", idempotent=True
-            )
+            self._request("GET", f"/v1/memories/{_seg(memory_id)}/inspect", idempotent=True)
         )
 
     # --- entities ---------------------------------------------------------
@@ -270,9 +276,7 @@ class BrainHttpClient:
                 "allow_create": allow_create,
             }
         )
-        return ResolveEntityResult.from_dict(
-            self._request("POST", "/v1/entities/resolve", body)
-        )
+        return ResolveEntityResult.from_dict(self._request("POST", "/v1/entities/resolve", body))
 
     def traverse(
         self,
@@ -287,9 +291,7 @@ class BrainHttpClient:
         body = _compact(
             {
                 "direction": direction,
-                "relation_types": (
-                    list(relation_types) if relation_types is not None else None
-                ),
+                "relation_types": (list(relation_types) if relation_types is not None else None),
                 "max_depth": max_depth,
                 "max_nodes": max_nodes,
                 "include_superseded": include_superseded,
@@ -342,9 +344,7 @@ class BrainHttpClient:
         """One relation by id."""
         query = _compact({"follow_supersession": follow_supersession})
         return RelationDetail.from_dict(
-            self._request(
-                "GET", f"/v1/relations/{_seg(relation_id)}", query=query, idempotent=True
-            )
+            self._request("GET", f"/v1/relations/{_seg(relation_id)}", query=query, idempotent=True)
         )
 
     # --- statements -------------------------------------------------------
@@ -413,9 +413,7 @@ class BrainHttpClient:
                 "include_tombstoned": include_tombstoned,
             }
         )
-        return GraphPage.from_dict(
-            self._request("GET", "/v1/graph", query=query, idempotent=True)
-        )
+        return GraphPage.from_dict(self._request("GET", "/v1/graph", query=query, idempotent=True))
 
     # --- schema -----------------------------------------------------------
 
@@ -426,9 +424,7 @@ class BrainHttpClient:
     ) -> Schema:
         """The active schema document, or a specific ``version`` of it."""
         query = _compact({"namespace": namespace, "version": version})
-        return Schema.from_dict(
-            self._request("GET", "/v1/schema", query=query, idempotent=True)
-        )
+        return Schema.from_dict(self._request("GET", "/v1/schema", query=query, idempotent=True))
 
     def upload_schema(
         self,
@@ -524,10 +520,12 @@ class BrainHttpClient:
         headers = {"authorization": f"Bearer {self._api_key}"}
         if data is not None:
             headers["content-type"] = "application/json"
-        req = urllib.request.Request(url, data=data, method=method, headers=headers)
+        # `__init__` rejects every scheme but http/https, which ruff cannot
+        # see from this call site — hence the two S310 suppressions.
+        req = urllib.request.Request(url, data=data, method=method, headers=headers)  # noqa: S310
 
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:  # noqa: S310
                 text = resp.read().decode()
         except urllib.error.HTTPError as e:
             raise self._error_from(e) from None
@@ -541,7 +539,7 @@ class BrainHttpClient:
         return json.loads(text) if text else {}
 
     @staticmethod
-    def _error_from(e: "urllib.error.HTTPError") -> BrainHttpError:
+    def _error_from(e: urllib.error.HTTPError) -> BrainHttpError:
         code, message = "http_error", f"HTTP {e.code}"
         try:
             payload = json.loads(e.read().decode())
@@ -590,7 +588,7 @@ def _query_string(query: Optional[Mapping[str, Any]]) -> str:
     return "?" + urllib.parse.urlencode(pairs) if pairs else ""
 
 
-def _parse_retry_after(e: "urllib.error.HTTPError") -> Optional[float]:
+def _parse_retry_after(e: urllib.error.HTTPError) -> Optional[float]:
     """A ``Retry-After`` header expressed as integer seconds, else ``None``
     (HTTP-date form is ignored, leaving the computed backoff in force)."""
     try:

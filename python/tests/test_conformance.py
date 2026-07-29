@@ -291,7 +291,9 @@ def test_payload_round_trip(name):
 
     mirror = _read_json(name)
     got = _to_mirror(value)
-    assert _json_equal(got, mirror), f"{name}: decoded value != .json mirror\n got: {got}\n exp: {mirror}"
+    assert _json_equal(got, mirror), (
+        f"{name}: decoded value != .json mirror\n got: {got}\n exp: {mirror}"
+    )
 
     reencoded = encode_payload(value)
     assert reencoded == bin_, (

@@ -33,8 +33,8 @@ import { decode as cborgDecode } from "cborg";
 
 /** Failures decoding a CBOR payload. */
 export class CborError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "CborError";
   }
 }
@@ -178,7 +178,7 @@ function writeBignum(w: Writer, n: bigint): void {
 const textEncoder = new TextEncoder();
 
 /** Name a value's shape for an error message, without `[object Object]`. */
-function describe(value: unknown): string {
+function describeValue(value: unknown): string {
   if (value === null) return "null";
   if (typeof value !== "object") return typeof value;
   const ctor = (value as { constructor?: { name?: string } }).constructor?.name;
@@ -246,7 +246,7 @@ function writeValue(w: Writer, value: unknown): void {
   // Object]`, which is exactly the case that reaches here most often (a caller
   // passing an object literal where the codec wants a Map). Name the shape
   // instead, so the message says what to fix.
-  throw new CborError(`cannot encode value of unexpected shape: ${describe(value)}`);
+  throw new CborError(`cannot encode value of unexpected shape: ${describeValue(value)}`);
 }
 
 // `ciborium` writes floats in shortest form: a value is emitted as half
@@ -376,7 +376,7 @@ export function fromCbor(bytes: Uint8Array): unknown {
     // strings as views into whatever buffer it reads; copying severs both ties.
     decoded = cborgDecode(bytes.slice(), makeDecodeOptions());
   } catch (err) {
-    throw new CborError(`CBOR decode failed: ${(err as Error).message}`);
+    throw new CborError(`CBOR decode failed: ${describeValue(err)}`, { cause: err });
   }
   // The reader returns byte strings as views into its internal buffers, which
   // it recycles across calls; a retained view can read another frame's bytes
