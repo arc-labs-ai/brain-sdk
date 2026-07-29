@@ -3273,14 +3273,18 @@ pub struct SchemaValidateResponse {
 
 /// BYE (`0x001F`) — end the session cleanly.
 ///
-/// `reason` is optional and omitted from the map when absent, so a plain
-/// goodbye is the single byte `0xA0` (an empty CBOR map) — **not** an empty
-/// payload. All three SDKs used to send zero bytes here, which the server
-/// cannot decode as a `ByeRequest`; it tolerates it today rather than
-/// rejecting, but the corpus `req_bye` vector pins the correct form.
+/// A goodbye is a CBOR map, **not** an empty payload. All three SDKs used to
+/// send zero bytes here, which the server cannot decode as a `ByeRequest`; it
+/// tolerates it today rather than rejecting, but the corpus `req_bye` vector
+/// pins the correct form.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ByeRequest {
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Serialized unconditionally, as `null` when absent — the server declares
+    /// this field with no serde attributes, and every other `Option` in this
+    /// SDK mirrors the server's declaration exactly so the manifest comparison
+    /// stays free of exceptions. A reason-less goodbye is therefore
+    /// `{"reason": null}`, not an empty map; the server accepts either, since
+    /// serde visits `none` for a missing `Option` field.
     pub reason: Option<String>,
 }
 

@@ -38,8 +38,18 @@ import { FRAME_CASE, codecs, corpusIndex, readBin, readJsonText } from "./_corpu
  */
 const MIRROR_OMITS = new Set(["vector"]);
 
-/** `camelCase` -> `snake_case`, matching the server's field naming. */
+/**
+ * `camelCase` -> `snake_case`, matching the server's field naming.
+ *
+ * A leading capital is left alone. Every field name in this protocol is
+ * `snake_case` on the server and `camelCase` here, so neither starts with one;
+ * a key that does is serde's external variant tag — `{Custom: 5}`,
+ * `{Other: "…"}` — which is a wire literal, not a name to be translated.
+ * Lowercasing those made the harness disagree with itself, reporting
+ * `kind.custom` missing from a mirror that says `kind.Custom`.
+ */
 function snake(s: string): string {
+  if (/^[A-Z]/.test(s)) return s;
   return s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 

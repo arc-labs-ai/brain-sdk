@@ -444,20 +444,21 @@ class AuthOkPayload:
 class ByeRequest:
     """BYE (``0x001F``) — end the session cleanly.
 
-    ``reason`` is omitted from the map when None, so a plain goodbye is the
-    single byte ``0xA0`` (an empty CBOR map) — **not** an empty payload. All
-    three SDKs used to send zero bytes here, which the server cannot decode as
-    a ByeRequest; it tolerates it today rather than rejecting, but the corpus
-    ``req_bye`` vector pins the correct form.
+    A goodbye is a CBOR map, **not** an empty payload. All three SDKs used to
+    send zero bytes here, which the server cannot decode as a ByeRequest; it
+    tolerates it today rather than rejecting, but the corpus ``req_bye`` vector
+    pins the correct form.
+
+    ``reason`` is written unconditionally, as ``null`` when absent, mirroring
+    the server's attribute-free ``Option<String>``. The server accepts an
+    omitted field too — serde visits ``none`` for a missing ``Option`` — but
+    mirroring keeps the manifest comparison free of exceptions.
     """
 
     reason: Optional[str] = None
 
     def to_map(self) -> dict:
-        m: dict = {}
-        if self.reason is not None:
-            m["reason"] = self.reason
-        return m
+        return {"reason": self.reason}
 
     @classmethod
     def from_map(cls, m: dict) -> "ByeRequest":

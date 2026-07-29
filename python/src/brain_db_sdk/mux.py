@@ -162,8 +162,8 @@ class MuxConnection:
 
     def send_bye(self) -> None:
         """Send BYE to end the session cleanly."""
-        # 0xA0 (empty CBOR map), not an empty payload: the server decodes this
-        # as a ByeRequest, and zero bytes is not valid CBOR.
+        # A CBOR map, not an empty payload: the server decodes this as a
+        # ByeRequest, and zero bytes is not valid CBOR.
         self._write(Opcode.BYE, HANDSHAKE_STREAM_ID, encode_payload(ByeRequest()))
 
     def close(self) -> None:

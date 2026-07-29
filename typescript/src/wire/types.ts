@@ -467,6 +467,35 @@ export function decodeAuthOk(bytes: Uint8Array): AuthOkPayload {
 // ===========================================================================
 
 /** PING (`0x0010`): a client liveness probe the server answers with PONG. */
+/**
+ * BYE (`0x001F`) — end the session cleanly.
+ *
+ * A goodbye is a CBOR map, **not** an empty payload. All three SDKs used to
+ * send zero bytes here, which the server cannot decode as a `ByeRequest`; it
+ * tolerates it today rather than rejecting, but the corpus `req_bye` vector
+ * pins the correct form.
+ *
+ * `reason` is written unconditionally, as `null` when absent, mirroring the
+ * server's attribute-free `Option<String>`. The server accepts an omitted
+ * field too — serde visits `none` for a missing `Option` — but mirroring keeps
+ * the manifest comparison free of exceptions.
+ */
+export interface ByeRequest {
+  reason: string | null;
+}
+
+/** Encode a BYE (`0x001F`) request. */
+export function encodeBye(p: ByeRequest): Uint8Array {
+  return toCbor(new Map<string, unknown>([["reason", p.reason]]));
+}
+
+/** Decode a BYE (`0x001F`) request payload. */
+export function decodeBye(bytes: Uint8Array): ByeRequest {
+  const m = asMap(fromCbor(bytes));
+  const reason = field(m, "reason");
+  return { reason: reason === null ? null : asStr(reason) };
+}
+
 export interface PingRequest {
   clientTimestampUnixNanos: bigint;
 }
@@ -476,6 +505,14 @@ export function encodePing(p: PingRequest): Uint8Array {
   return toCbor(
     new Map<string, unknown>([["client_timestamp_unix_nanos", p.clientTimestampUnixNanos]]),
   );
+}
+
+/** Decode a PING (`0x0010`) request payload. */
+export function decodePing(bytes: Uint8Array): PingRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    clientTimestampUnixNanos: asBig(field(m, "client_timestamp_unix_nanos")),
+  };
 }
 
 /** PONG (`0x0090`): the server's reply to a client PING, echoing the nonce. */
@@ -2817,14 +2854,9 @@ function statementCreateMap(p: StatementCreateRequest): Map<string, unknown> {
   );
 }
 
-/** Encode a STATEMENT_CREATE (`0x0140`) request. */
-export function encodeStatementCreate(p: StatementCreateRequest): Uint8Array {
-  return toCbor(statementCreateMap(p));
-}
-
-/** Decode a STATEMENT_CREATE (`0x0140`) request payload. */
-export function decodeStatementCreate(bytes: Uint8Array): StatementCreateRequest {
-  const m = asMap(fromCbor(bytes));
+/** Read a STATEMENT_CREATE map back into the typed request — shared by the
+ * top-level decoder and the STATEMENT_SUPERSEDE nested-field decoder. */
+function statementCreateFromMap(m: Map<string, unknown>): StatementCreateRequest {
   return {
     kind: decodeStatementKind(field(m, "kind")),
     subject: asBytes(field(m, "subject")),
@@ -2841,6 +2873,16 @@ export function decodeStatementCreate(bytes: Uint8Array): StatementCreateRequest
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
   };
+}
+
+/** Encode a STATEMENT_CREATE (`0x0140`) request. */
+export function encodeStatementCreate(p: StatementCreateRequest): Uint8Array {
+  return toCbor(statementCreateMap(p));
+}
+
+/** Decode a STATEMENT_CREATE (`0x0140`) request payload. */
+export function decodeStatementCreate(bytes: Uint8Array): StatementCreateRequest {
+  return statementCreateFromMap(asMap(fromCbor(bytes)));
 }
 
 /** STATEMENT_CREATE_RESP (`0x01C0`): the new statement id, any auto-superseded prior claim, and the chain root. */
@@ -7167,9 +7209,26 @@ export function encodeEntityUpdate(p: EntityUpdateRequest): Uint8Array {
   );
 }
 
+/** Decode an ENTITY_UPDATE (`0x0132`) request payload. */
+export function decodeEntityUpdate(bytes: Uint8Array): EntityUpdateRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    entityId: asBytes(field(m, "entity_id")),
+    canonicalName: asStr(field(m, "canonical_name")),
+    aliases: asArray(field(m, "aliases")).map(asStr),
+    attributesBlob: Uint8Array.from(asArray(field(m, "attributes_blob")).map(asNum)),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
 /** ENTITY_UPDATE_RESP (`0x01B2`) / ENTITY_RENAME_RESP (`0x01B3`). */
 export interface EntityViewResponse {
   entity: EntityView;
+}
+
+/** Encode an ENTITY_UPDATE_RESP / ENTITY_RENAME_RESP entity-view payload. */
+export function encodeEntityViewResponse(p: EntityViewResponse): Uint8Array {
+  return toCbor(new Map<string, unknown>([["entity", encodeEntityView(p.entity)]]));
 }
 
 /** Decode an ENTITY_UPDATE_RESP / ENTITY_RENAME_RESP entity-view payload. */
@@ -7177,6 +7236,19 @@ export function decodeEntityViewResponse(bytes: Uint8Array): EntityViewResponse 
   const m = asMap(fromCbor(bytes));
   return { entity: decodeEntityView(field(m, "entity")) };
 }
+
+// ENTITY_UPDATE_RESP and ENTITY_RENAME_RESP are field-identical, so both ride
+// the one `EntityViewResponse` codec above. These per-opcode aliases delegate
+// rather than restate the shape — one field list, so the two cannot drift.
+
+/** Encode an ENTITY_UPDATE_RESP (`0x01B2`) payload. */
+export const encodeEntityUpdateResponse = encodeEntityViewResponse;
+/** Decode an ENTITY_UPDATE_RESP (`0x01B2`) payload. */
+export const decodeEntityUpdateResponse = decodeEntityViewResponse;
+/** Encode an ENTITY_RENAME_RESP (`0x01B3`) payload. */
+export const encodeEntityRenameResponse = encodeEntityViewResponse;
+/** Decode an ENTITY_RENAME_RESP (`0x01B3`) payload. */
+export const decodeEntityRenameResponse = decodeEntityViewResponse;
 
 /** ENTITY_RENAME (`0x0133`). `moveToAlias` keeps the old name reachable. */
 export interface EntityRenameRequest {
@@ -7196,6 +7268,17 @@ export function encodeEntityRename(p: EntityRenameRequest): Uint8Array {
       ["request_id", p.requestId],
     ]),
   );
+}
+
+/** Decode an ENTITY_RENAME (`0x0133`) request payload. */
+export function decodeEntityRename(bytes: Uint8Array): EntityRenameRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    entityId: asBytes(field(m, "entity_id")),
+    newCanonicalName: asStr(field(m, "new_canonical_name")),
+    moveToAlias: asBool(field(m, "move_to_alias")),
+    requestId: asBytes(field(m, "request_id")),
+  };
 }
 
 /** ENTITY_MERGE (`0x0134`). Fold `merged` into `survivor`; reversible. */
@@ -7220,10 +7303,32 @@ export function encodeEntityMerge(p: EntityMergeRequest): Uint8Array {
   );
 }
 
+/** Decode an ENTITY_MERGE (`0x0134`) request payload. */
+export function decodeEntityMerge(bytes: Uint8Array): EntityMergeRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    survivor: asBytes(field(m, "survivor")),
+    merged: asBytes(field(m, "merged")),
+    confidence: asNum(field(m, "confidence")),
+    reason: asStr(field(m, "reason")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
 /** ENTITY_MERGE_RESP (`0x01B4`). Merge-audit id + reversible window. */
 export interface EntityMergeResponse {
   auditId: WireUuid;
   gracePeriodSeconds: bigint;
+}
+
+/** Encode an ENTITY_MERGE_RESP (`0x01B4`) payload. */
+export function encodeEntityMergeResponse(p: EntityMergeResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["audit_id", p.auditId],
+      ["grace_period_seconds", p.gracePeriodSeconds],
+    ]),
+  );
 }
 
 /** Decode an ENTITY_MERGE_RESP (`0x01B4`) payload. */
@@ -7251,9 +7356,23 @@ export function encodeEntityUnmerge(p: EntityUnmergeRequest): Uint8Array {
   );
 }
 
+/** Decode an ENTITY_UNMERGE (`0x0135`) request payload. */
+export function decodeEntityUnmerge(bytes: Uint8Array): EntityUnmergeRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    mergedEntity: asBytes(field(m, "merged_entity")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
 /** ENTITY_UNMERGE_RESP (`0x01B5`). The restored entity's id. */
 export interface EntityUnmergeResponse {
   restoredEntityId: WireUuid;
+}
+
+/** Encode an ENTITY_UNMERGE_RESP (`0x01B5`) payload. */
+export function encodeEntityUnmergeResponse(p: EntityUnmergeResponse): Uint8Array {
+  return toCbor(new Map<string, unknown>([["restored_entity_id", p.restoredEntityId]]));
 }
 
 /** Decode an ENTITY_UNMERGE_RESP (`0x01B5`) payload. */
@@ -7280,9 +7399,26 @@ export function encodeEntityTombstone(p: EntityTombstoneRequest): Uint8Array {
   );
 }
 
+/** Decode an ENTITY_TOMBSTONE (`0x0138`) request payload. */
+export function decodeEntityTombstone(bytes: Uint8Array): EntityTombstoneRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    entityId: asBytes(field(m, "entity_id")),
+    reason: asStr(field(m, "reason")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
 /** ENTITY_TOMBSTONE_RESP (`0x01B8`). When the retirement took effect. */
 export interface EntityTombstoneResponse {
   tombstonedAtUnixNanos: bigint;
+}
+
+/** Encode an ENTITY_TOMBSTONE_RESP (`0x01B8`) payload. */
+export function encodeEntityTombstoneResponse(p: EntityTombstoneResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]),
+  );
 }
 
 /** Decode an ENTITY_TOMBSTONE_RESP (`0x01B8`) payload. */
@@ -7315,11 +7451,32 @@ export function encodeStatementSupersede(p: StatementSupersedeRequest): Uint8Arr
   );
 }
 
+/** Decode a STATEMENT_SUPERSEDE (`0x0142`) request payload. */
+export function decodeStatementSupersede(bytes: Uint8Array): StatementSupersedeRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    oldStatementId: asBytes(field(m, "old_statement_id")),
+    newStatement: statementCreateFromMap(asMap(field(m, "new_statement"))),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
 /** STATEMENT_SUPERSEDE_RESP (`0x01C2`). New id + chain root + version. */
 export interface StatementSupersedeResponse {
   newStatementId: WireUuid;
   chainRoot: WireUuid;
   version: number;
+}
+
+/** Encode a STATEMENT_SUPERSEDE_RESP (`0x01C2`) payload. */
+export function encodeStatementSupersedeResponse(p: StatementSupersedeResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["new_statement_id", p.newStatementId],
+      ["chain_root", p.chainRoot],
+      ["version", p.version],
+    ]),
+  );
 }
 
 /** Decode a STATEMENT_SUPERSEDE_RESP (`0x01C2`) payload. */
@@ -7352,9 +7509,39 @@ export function encodeStatementReason(p: StatementReasonRequest): Uint8Array {
   );
 }
 
+/** Decode a STATEMENT_TOMBSTONE (`0x0143`) / STATEMENT_RETRACT (`0x0144`) request payload (shared reason shape). */
+export function decodeStatementReason(bytes: Uint8Array): StatementReasonRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    statementId: asBytes(field(m, "statement_id")),
+    reason: asNum(field(m, "reason")),
+    reasonMessage: asStr(field(m, "reason_message")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
+// STATEMENT_TOMBSTONE and STATEMENT_RETRACT carry the identical reason shape,
+// so both ride the one `StatementReasonRequest` codec above.
+
+/** Encode a STATEMENT_TOMBSTONE (`0x0143`) request. */
+export const encodeStatementTombstone = encodeStatementReason;
+/** Decode a STATEMENT_TOMBSTONE (`0x0143`) request payload. */
+export const decodeStatementTombstone = decodeStatementReason;
+/** Encode a STATEMENT_RETRACT (`0x0144`) request. */
+export const encodeStatementRetract = encodeStatementReason;
+/** Decode a STATEMENT_RETRACT (`0x0144`) request payload. */
+export const decodeStatementRetract = decodeStatementReason;
+
 /** STATEMENT_TOMBSTONE_RESP (`0x01C3`). */
 export interface StatementTombstoneResponse {
   tombstonedAtUnixNanos: bigint;
+}
+
+/** Encode a STATEMENT_TOMBSTONE_RESP (`0x01C3`) payload. */
+export function encodeStatementTombstoneResponse(p: StatementTombstoneResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([["tombstoned_at_unix_nanos", p.tombstonedAtUnixNanos]]),
+  );
 }
 
 /** Decode a STATEMENT_TOMBSTONE_RESP (`0x01C3`) payload. */
@@ -7367,6 +7554,16 @@ export function decodeStatementTombstoneResponse(bytes: Uint8Array): StatementTo
 export interface StatementRetractResponse {
   retractedAtUnixNanos: bigint;
   willZeroAtUnixNanos: bigint;
+}
+
+/** Encode a STATEMENT_RETRACT_RESP (`0x01C4`) payload. */
+export function encodeStatementRetractResponse(p: StatementRetractResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["retracted_at_unix_nanos", p.retractedAtUnixNanos],
+      ["will_zero_at_unix_nanos", p.willZeroAtUnixNanos],
+    ]),
+  );
 }
 
 /** Decode a STATEMENT_RETRACT_RESP (`0x01C4`) payload. */
@@ -7394,12 +7591,33 @@ export function encodeStatementHistory(p: StatementHistoryRequest): Uint8Array {
   );
 }
 
+/** Decode a STATEMENT_HISTORY (`0x0145`) request payload. */
+export function decodeStatementHistory(bytes: Uint8Array): StatementHistoryRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    anchorId: asBytes(field(m, "anchor_id")),
+    includeTombstoned: asBool(field(m, "include_tombstoned")),
+  };
+}
+
 /** STATEMENT_HISTORY_RESP (`0x01C5`), one streamed frame. */
 export interface StatementHistoryResponseFrame {
   items: StatementView[];
   chainRoot: WireUuid;
   totalVersions: number;
   isFinal: boolean;
+}
+
+/** Encode one STATEMENT_HISTORY_RESP (`0x01C5`) streamed frame. */
+export function encodeStatementHistoryResponseFrame(p: StatementHistoryResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["items", p.items.map(encodeStatementView)],
+      ["chain_root", p.chainRoot],
+      ["total_versions", p.totalVersions],
+      ["is_final", p.isFinal],
+    ]),
+  );
 }
 
 /** Decode one STATEMENT_HISTORY_RESP (`0x01C5`) streamed frame. */
@@ -7412,3 +7630,13 @@ export function decodeStatementHistoryResponseFrame(bytes: Uint8Array): Statemen
     isFinal: asBool(field(m, "is_final")),
   };
 }
+
+// Every other streamed frame in this file exposes its codec as `...Response`
+// (see `encodeStatementListResponse` / `encodeRecallResponse`). These aliases
+// give STATEMENT_HISTORY_RESP the same spelling; the `...Frame` names stay
+// because `client.ts` imports them.
+
+/** Encode one STATEMENT_HISTORY_RESP (`0x01C5`) streamed frame. */
+export const encodeStatementHistoryResponse = encodeStatementHistoryResponseFrame;
+/** Decode one STATEMENT_HISTORY_RESP (`0x01C5`) streamed frame. */
+export const decodeStatementHistoryResponse = decodeStatementHistoryResponseFrame;

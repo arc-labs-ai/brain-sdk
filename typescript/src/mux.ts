@@ -36,6 +36,7 @@ import {
   decodeAuthOk,
   decodeError,
   decodeServerPing,
+  encodeBye,
   decodeSubscriptionEvent,
   decodeUnsubscribeResponse,
   decodeWelcome,
@@ -219,7 +220,9 @@ export class MuxConnection {
 
   /** Send BYE to end the session cleanly. The server closes without a reply. */
   async sendBye(): Promise<void> {
-    await this.writeFrame(Opcode.Bye, HANDSHAKE_STREAM_ID, new Uint8Array(0));
+    // A CBOR map, not an empty payload: the server decodes this as a
+    // ByeRequest, and zero bytes is not valid CBOR.
+    await this.writeFrame(Opcode.Bye, HANDSHAKE_STREAM_ID, encodeBye({ reason: null }));
   }
 
   // ---- subscription support (consumed by `Subscription`, same module) ----

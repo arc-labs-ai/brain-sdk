@@ -306,8 +306,8 @@ where
 
     /// Send BYE to end the session cleanly.
     pub async fn send_bye(&self) -> Result<()> {
-        // `0xA0` (empty CBOR map), not an empty payload: the server decodes
-        // this as a `ByeRequest`, and zero bytes is not valid CBOR.
+        // A CBOR map, not an empty payload: the server decodes this as a
+        // `ByeRequest`, and zero bytes is not valid CBOR.
         let frame = Frame::new(
             Opcode::Bye.as_u16(),
             FLAG_EOS,
