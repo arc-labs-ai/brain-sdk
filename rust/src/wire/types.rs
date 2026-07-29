@@ -2034,6 +2034,71 @@ pub struct SchemaUploadResponse {
     pub migration_summary_blob: Vec<u8>,
 }
 
+/// `SCHEMA_REPLACE` (`0x0127`) — destructive namespace swap.
+///
+/// Unlike `SCHEMA_UPLOAD`, this DROPS every declared row in the namespace
+/// before the new document lands. Entities whose type disappears survive as
+/// orphans: still readable as plain memories, no longer enriched from the
+/// typed-graph tables.
+///
+/// `force_drop_existing` MUST be `true` — the server rejects `false` with
+/// `InvalidRequest`. It is a confirmation step for an irreversible operation,
+/// not a mode switch, which is why the SDK does not default it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaReplaceRequest {
+    /// Schema DSL source. Must declare the same namespace as the connection's,
+    /// or the server rejects with `InvalidRequest`.
+    pub schema_document: String,
+    /// MUST be `true`.
+    pub force_drop_existing: bool,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// `SCHEMA_REPLACE_RESP` (`0x01A7`).
+///
+/// `dropped_count` is how many declared rows were removed before the new
+/// schema took effect. `schema_version` is always greater than the
+/// pre-replace version.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaReplaceResponse {
+    pub namespace: String,
+    pub schema_version: u32,
+    pub dropped_count: u32,
+    pub validation_errors: Vec<SchemaValidationErrorWire>,
+}
+
+/// Why a stream was cancelled. Carried by [`CancelStreamRequest`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CancellationReason {
+    /// The caller no longer needs the results — the ordinary case when a
+    /// consumer breaks out of a `recall` loop early.
+    ClientUnneeded,
+    /// A client-side deadline elapsed.
+    Timeout,
+    /// Anything else, with a free-text explanation.
+    Other(String),
+}
+
+/// `CANCEL_STREAM` (`0x0050`) — stop an in-flight stream.
+///
+/// Sent on a NEW stream id, naming the stream to cancel in
+/// `target_stream_id`; the server answers `CANCEL_STREAM_ACK` and stops
+/// emitting frames for the target. Without this a consumer that abandons a
+/// streamed `recall` leaves the server producing frames nobody reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelStreamRequest {
+    pub target_stream_id: u32,
+    pub reason: CancellationReason,
+}
+
+/// `CANCEL_STREAM_ACK` (`0x00D0`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelStreamAck {
+    pub target_stream_id: u32,
+    pub cancelled_at_unix_nanos: u64,
+}
+
 /// Time window for a query. `None` bounds are open-ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeRangeWire {

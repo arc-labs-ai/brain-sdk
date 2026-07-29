@@ -20,26 +20,27 @@ use crate::mux::{MuxConnection, Subscription};
 use crate::wire::cbor::{f32_slice_to_le_bytes, from_cbor_bytes, to_cbor_bytes};
 use crate::wire::opcode::Opcode;
 use crate::wire::types::{
-    AnswerKindWire, AuthCredentials, AuthMethod, AuthPayload, EncodeRequest, EncodeResponse,
-    EncodeVectorDirectRequest, EntityCreateRequest, EntityCreateResponse, EntityGetRequest,
-    EntityGetResponse, EntityListItem, EntityListRequest, EntityListResponseFrame,
-    EntityMergeRequest, EntityMergeResponse, EntityRenameRequest, EntityRenameResponse,
-    EntityResolveRequest, EntityResolveResponse, EntityTombstoneRequest, EntityTombstoneResponse,
-    EntityUnmergeRequest, EntityUnmergeResponse, EntityUpdateRequest, EntityUpdateResponse,
-    ExtractorListRequest, ExtractorListResponseFrame, ForgetRequest, ForgetResponse,
-    GetCapabilitiesRequest, GetCapabilitiesResponse, GraphEdge, GraphFetchRequest,
-    GraphFetchResponseFrame, GraphNode, HelloCapabilities, HelloPayload, InferenceStep,
-    LinkRequest, LinkResponse, MaterializeProceduralRequest, MaterializeProceduralResponse,
-    MemoryInspectRequest, MemoryInspectResponse, MemoryListItem, MemoryListRequest,
-    MemoryListResponseFrame, MemoryResult, MtlsClaim, PlanRequest, PlanResponseFrame, PlanStep,
-    QueryExplainRequest, QueryExplainResponse, QueryTraceRequest, QueryTraceResponse,
-    ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame, RelationCreateRequest,
-    RelationCreateResponse, RelationGetRequest, RelationGetResponse, RelationListFromRequest,
-    RelationListFromResponseFrame, RelationListToRequest, RelationListToResponseFrame,
-    RelationSupersedeRequest, RelationSupersedeResponse, RelationTombstoneRequest,
-    RelationTombstoneResponse, RelationTraverseRequest, RelationTraverseResponseFrame,
-    RelationView, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
-    SchemaListResponseFrame, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
+    AnswerKindWire, AuthCredentials, AuthMethod, AuthPayload, CancelStreamAck, CancelStreamRequest,
+    CancellationReason, EncodeRequest, EncodeResponse, EncodeVectorDirectRequest,
+    EntityCreateRequest, EntityCreateResponse, EntityGetRequest, EntityGetResponse, EntityListItem,
+    EntityListRequest, EntityListResponseFrame, EntityMergeRequest, EntityMergeResponse,
+    EntityRenameRequest, EntityRenameResponse, EntityResolveRequest, EntityResolveResponse,
+    EntityTombstoneRequest, EntityTombstoneResponse, EntityUnmergeRequest, EntityUnmergeResponse,
+    EntityUpdateRequest, EntityUpdateResponse, ExtractorListRequest, ExtractorListResponseFrame,
+    ForgetRequest, ForgetResponse, GetCapabilitiesRequest, GetCapabilitiesResponse, GraphEdge,
+    GraphFetchRequest, GraphFetchResponseFrame, GraphNode, HelloCapabilities, HelloPayload,
+    InferenceStep, LinkRequest, LinkResponse, MaterializeProceduralRequest,
+    MaterializeProceduralResponse, MemoryInspectRequest, MemoryInspectResponse, MemoryListItem,
+    MemoryListRequest, MemoryListResponseFrame, MemoryResult, MtlsClaim, PlanRequest,
+    PlanResponseFrame, PlanStep, QueryExplainRequest, QueryExplainResponse, QueryTraceRequest,
+    QueryTraceResponse, ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame,
+    RelationCreateRequest, RelationCreateResponse, RelationGetRequest, RelationGetResponse,
+    RelationListFromRequest, RelationListFromResponseFrame, RelationListToRequest,
+    RelationListToResponseFrame, RelationSupersedeRequest, RelationSupersedeResponse,
+    RelationTombstoneRequest, RelationTombstoneResponse, RelationTraverseRequest,
+    RelationTraverseResponseFrame, RelationView, SchemaGetRequest, SchemaGetResponse,
+    SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame, SchemaReplaceRequest,
+    SchemaReplaceResponse, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
     SchemaValidateResponse, ServerFeatures, SessionCreateRequest, SessionCreateResponse,
     SessionDeleteRequest, SessionDeleteResponse, SessionListRequest, SessionListResponse,
     SpaceCreateRequest, SpaceCreateResponse, SpaceDeleteRequest, SpaceDeleteResponse,
@@ -757,6 +758,63 @@ impl BrainClient {
             Opcode::SchemaValidateResp,
             "SCHEMA_VALIDATE_RESP",
             request,
+        )
+        .await
+    }
+
+    /// Replace a namespace's schema wholesale (SCHEMA_REPLACE).
+    ///
+    /// DESTRUCTIVE. Every declared row in the namespace is dropped before the
+    /// new document lands; entities whose type disappears survive as orphans,
+    /// readable as plain memories but no longer enriched from the typed-graph
+    /// tables. Use [`Self::upload_schema`] for the additive, versioned path —
+    /// this is the one you reach for when the shape itself is wrong.
+    ///
+    /// `force_drop_existing` MUST be `true`; the server rejects `false` with
+    /// `InvalidRequest`. The SDK does not default it, so the destructive
+    /// intent is written at the call site.
+    pub async fn replace_schema(
+        &self,
+        request: &SchemaReplaceRequest,
+    ) -> Result<SchemaReplaceResponse> {
+        self.unary(
+            Opcode::SchemaReplaceReq,
+            Opcode::SchemaReplaceResp,
+            "SCHEMA_REPLACE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Cancel an in-flight stream (CANCEL_STREAM).
+    ///
+    /// `target_stream_id` is the id of the stream to stop — take it from the
+    /// frames a streaming call is yielding (`*_frames` methods expose
+    /// `stream_id`). The request travels on its OWN stream id, so it does not
+    /// queue behind the frames it is cancelling; the server replies
+    /// `CANCEL_STREAM_ACK` and stops emitting for the target.
+    ///
+    /// This is why it cannot use the `unary` helper's request/response pairing
+    /// on a single stream: the acknowledgement and the cancelled stream are
+    /// deliberately different streams.
+    ///
+    /// Cancelling a stream that already finished is not an error — the server
+    /// acknowledges it regardless, so a racing consumer does not have to
+    /// coordinate with the reader loop.
+    pub async fn cancel_stream(
+        &self,
+        target_stream_id: u32,
+        reason: CancellationReason,
+    ) -> Result<CancelStreamAck> {
+        let request = CancelStreamRequest {
+            target_stream_id,
+            reason,
+        };
+        self.unary(
+            Opcode::CancelStream,
+            Opcode::CancelStreamAck,
+            "CANCEL_STREAM_ACK",
+            &request,
         )
         .await
     }

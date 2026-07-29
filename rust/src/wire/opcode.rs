@@ -29,6 +29,10 @@ pub enum Opcode {
     Pong = 0x0090,
     ClientPong = 0x0011,
     ServerPing = 0x0091,
+    // Stream control. CANCEL_STREAM targets an in-flight stream by id; the
+    // server answers CANCEL_STREAM_ACK on the SAME stream and stops emitting.
+    CancelStream = 0x0050,
+    CancelStreamAck = 0x00D0,
 
     // v1 cognitive verbs.
     EncodeReq = 0x0020,
@@ -98,6 +102,11 @@ pub enum Opcode {
     SchemaListResp = 0x01A2,
     SchemaValidateReq = 0x0123,
     SchemaValidateResp = 0x01A3,
+    // Destructive namespace swap. Separate from SCHEMA_UPLOAD because it drops
+    // every declared row in the namespace before the new document lands; see
+    // Brain spec §03.05.
+    SchemaReplaceReq = 0x0127,
+    SchemaReplaceResp = 0x01A7,
     // Extractor introspection (read-only; extraction is always-on).
     ExtractorListReq = 0x0124,
     ExtractorListResp = 0x01A4,
