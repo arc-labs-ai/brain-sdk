@@ -1,0 +1,153 @@
+{
+  "_README": [
+    "Adversarial frame-decode vectors, shared by all three SDKs.",
+    "",
+    "Every SDK validates magic, version, reserved bytes, reserved flag bits,",
+    "both CRC32Cs and the payload-length bound. That code is written three",
+    "times and, until this file existed, exercised zero times -- it is the",
+    "layer that protects a client from a hostile or buggy peer, and a client",
+    "SDK reads bytes it did not produce by definition.",
+    "",
+    "Cases are declarative so all three build byte-identical input: start from",
+    "a valid frame, apply one mutation, expect one error. A runner that cannot",
+    "reproduce the bytes fails rather than skipping.",
+    "",
+    "Header layout (32 bytes, big-endian):",
+    "  0..4 magic 'BRN0' | 4 version | 5..7 opcode | 7 flags",
+    "  8..12 header_crc32c (over 0..8 ++ 12..32) | 12..16 stream_id",
+    "  16..19 payload_len (u24) | 19 reserved_a | 20..24 payload_crc32c",
+    "  24..32 reserved_b",
+    "",
+    "`expect` names the shared error taxonomy: BadMagic, BadVersion,",
+    "BadHeaderCrc, BadPayloadCrc, OversizePayload, ReservedNonZero, Truncated.",
+    "",
+    "Mutations are applied AFTER the frame is encoded, so header_crc is",
+    "already correct for the unmutated bytes. Any mutation inside the CRC's",
+    "coverage therefore also invalidates the header CRC -- which is why the",
+    "cases below expect BadHeaderCrc where that is what a decoder checks",
+    "first. `recrc: true` re-computes the header CRC after mutating, to reach",
+    "the check that the case is actually about."
+  ],
+  "base": {
+    "opcode": 32,
+    "flags": 128,
+    "stream_id": 1,
+    "payload_hex": "a1646b657901"
+  },
+  "cases": [
+    {
+      "name": "bad_magic",
+      "why": "First four bytes are the frame sentinel; a wrong one means the stream is not BRN0 at all.",
+      "mutate": [{ "op": "set", "offset": 0, "value": 88 }],
+      "recrc": true,
+      "expect": "BadMagic"
+    },
+    {
+      "name": "bad_version",
+      "why": "A future wire version must be refused, not guessed at.",
+      "mutate": [{ "op": "set", "offset": 4, "value": 2 }],
+      "recrc": true,
+      "expect": "BadVersion"
+    },
+    {
+      "name": "reserved_a_nonzero",
+      "why": "Reserved header byte 19 is a forward-compat slot; a non-zero value means the peer is speaking something this version cannot interpret.",
+      "mutate": [{ "op": "set", "offset": 19, "value": 1 }],
+      "recrc": true,
+      "expect": "ReservedNonZero"
+    },
+    {
+      "name": "reserved_b_nonzero",
+      "why": "Same, for the 8-byte reserved tail.",
+      "mutate": [{ "op": "set", "offset": 24, "value": 255 }],
+      "recrc": true,
+      "expect": "ReservedNonZero"
+    },
+    {
+      "name": "reserved_flag_bit",
+      "why": "Only EOS/MPL/CMP are defined; an undefined flag bit is not ignorable, because a later version may give it meaning that changes framing.",
+      "mutate": [{ "op": "set", "offset": 7, "value": 129 }],
+      "recrc": true,
+      "expect": "ReservedNonZero"
+    },
+    {
+      "name": "header_crc_flipped",
+      "why": "A single flipped bit anywhere in the header must be caught before any field is trusted.",
+      "mutate": [{ "op": "xor", "offset": 8, "value": 1 }],
+      "recrc": false,
+      "expect": "BadHeaderCrc"
+    },
+    {
+      "name": "stream_id_tampered",
+      "why": "stream_id sits inside the header CRC's coverage; tampering routes a reply to the wrong waiter, so it must not pass.",
+      "mutate": [{ "op": "set", "offset": 15, "value": 99 }],
+      "recrc": false,
+      "expect": "BadHeaderCrc"
+    },
+    {
+      "name": "payload_crc_flipped",
+      "why": "Payload corruption is invisible to the header CRC; the second checksum is the only thing that catches it.",
+      "mutate": [{ "op": "xor", "offset": 20, "value": 128 }],
+      "recrc": true,
+      "expect": "BadPayloadCrc"
+    },
+    {
+      "name": "payload_byte_corrupted",
+      "why": "The realistic corruption case: header intact, one payload byte flipped in transit.",
+      "mutate": [{ "op": "xor", "offset": 33, "value": 255 }],
+      "recrc": false,
+      "expect": "BadPayloadCrc"
+    },
+    {
+      "name": "truncated_header",
+      "why": "A short read must ask for more bytes, never index past the buffer.",
+      "mutate": [{ "op": "truncate", "len": 20 }],
+      "recrc": false,
+      "expect": "Truncated"
+    },
+    {
+      "name": "truncated_payload",
+      "why": "Header declares more payload than arrived -- the classic split-read. Must be Truncated (read more), not a CRC failure.",
+      "mutate": [{ "op": "truncate", "len": 34 }],
+      "recrc": false,
+      "expect": "Truncated"
+    },
+    {
+      "name": "oversize_payload_len",
+      "why": "A hostile length must be rejected BEFORE a buffer is reserved for it, or the length alone is an allocation attack. u24 max is 16 MiB; this claims all of it while sending none.",
+      "mutate": [
+        { "op": "set", "offset": 16, "value": 255 },
+        { "op": "set", "offset": 17, "value": 255 },
+        { "op": "set", "offset": 18, "value": 255 }
+      ],
+      "recrc": true,
+      "expect": "Truncated"
+    }
+  ],
+  "cbor_cases": [
+    {
+      "name": "deeply_nested_arrays",
+      "why": "CVE-2026-26209 in cbor2: uncontrolled recursion let a <100KB payload crash the process. Every SDK must bound this, by an explicit depth cap or by catching the overflow -- what it must not do is die.",
+      "payload": "repeat:81:20000",
+      "expect": "error_not_crash"
+    },
+    {
+      "name": "trailing_bytes_after_item",
+      "why": "A complete CBOR item followed by garbage means the framing and the payload disagree; the server rejects this too.",
+      "payload": "hex:00ff",
+      "expect": "error_not_crash"
+    },
+    {
+      "name": "truncated_cbor_item",
+      "why": "A map header promising two pairs with none following must not read past the buffer.",
+      "payload": "hex:a2",
+      "expect": "error_not_crash"
+    },
+    {
+      "name": "indefinite_length_map",
+      "why": "Brain's encoder is deterministic and never emits indefinite-length items; accepting one from a peer means accepting bytes the corpus can never pin.",
+      "payload": "hex:bf616101ff",
+      "expect": "any"
+    }
+  ]
+}

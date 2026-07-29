@@ -161,13 +161,27 @@ def from_cbor_prefix(data: bytes) -> tuple[object, int]:
     return value, consumed
 
 
+# Deepest CBOR nesting this SDK will walk. Brain's own payloads nest ~8 levels
+# at their worst (an encode trace's stage artifacts); 128 leaves generous
+# headroom while keeping a hostile payload from exhausting the Python stack.
+# Matches the order of magnitude of ciborium's built-in recursion limit, so the
+# three SDKs refuse the same inputs.
+_MAX_NESTING_DEPTH = 128
+
+
 def _cbor_item_end(data: bytes, start: int) -> int:
     """Return the offset one past the end of the CBOR item at ``start``.
 
     A structural scanner only — it walks lengths without materialising
-    values, so it never allocates the decoded tree and is immune to the
-    decoder bug above. Raises :class:`CborError` on a truncated or
-    malformed item.
+    values, so it never allocates the decoded tree. It is NOT automatically
+    immune to unbounded recursion, though: it runs *before* cbor2 sees the
+    bytes, so cbor2's own nesting cap never gets a chance, and a payload of
+    a few thousand nested arrays used to drive this into a ``RecursionError``
+    — an exception outside this module's taxonomy, escaping callers that
+    catch :class:`CborError`. That is CVE-2026-26209's shape, reintroduced
+    one layer up. Hence the explicit depth bound below.
+
+    Raises :class:`CborError` on a truncated, malformed, or over-nested item.
     """
     n = len(data)
 
@@ -177,7 +191,11 @@ def _cbor_item_end(data: bytes, start: int) -> int:
                 f"truncated CBOR: need {k} byte(s) at offset {i}, have {n - i}"
             )
 
-    def scan(i: int) -> int:
+    def scan(i: int, depth: int = 0) -> int:
+        if depth > _MAX_NESTING_DEPTH:
+            raise CborError(
+                f"CBOR nesting deeper than {_MAX_NESTING_DEPTH} at offset {i}"
+            )
         need(i, 1)
         ib = data[i]
         i += 1
@@ -219,7 +237,7 @@ def _cbor_item_end(data: bytes, start: int) -> int:
                     need(i, 1)
                     if data[i] == 0xFF:
                         return i + 1
-                    i = scan(i)
+                    i = scan(i, depth + 1)
             need(i, arg)
             return i + arg
         if major == 4:  # array
@@ -228,9 +246,9 @@ def _cbor_item_end(data: bytes, start: int) -> int:
                     need(i, 1)
                     if data[i] == 0xFF:
                         return i + 1
-                    i = scan(i)
+                    i = scan(i, depth + 1)
             for _ in range(arg):
-                i = scan(i)
+                i = scan(i, depth + 1)
             return i
         if major == 5:  # map
             if arg is None:
@@ -238,14 +256,14 @@ def _cbor_item_end(data: bytes, start: int) -> int:
                     need(i, 1)
                     if data[i] == 0xFF:
                         return i + 1
-                    i = scan(i)  # key
-                    i = scan(i)  # value
+                    i = scan(i, depth + 1)  # key
+                    i = scan(i, depth + 1)  # value
             for _ in range(arg):
-                i = scan(i)  # key
-                i = scan(i)  # value
+                i = scan(i, depth + 1)  # key
+                i = scan(i, depth + 1)  # value
             return i
         if major == 6:  # tag — one nested data item follows
-            return scan(i)
+            return scan(i, depth + 1)
         raise CborError(f"unreachable major type {major}")
 
     return scan(start)

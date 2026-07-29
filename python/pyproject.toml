@@ -24,7 +24,12 @@ dependencies = [
     # CBOR (RFC 8949) payload maps. cbor2 distinguishes byte strings from
     # arrays (required for id / [u8;N] fields) and exposes per-value
     # minimal-float encoding, which the wire format needs for f32 fields.
-    "cbor2>=5.6",
+    # >=5.9 is a security floor, not a feature floor: cbor2 5.6-5.8 are
+    # vulnerable to CVE-2026-26209 (CVSS 7.5) -- uncontrolled recursion in
+    # loads() lets a peer crash the client with a <100KB deeply-nested payload.
+    # 5.9 added the nesting-depth cap that turns that into a clean
+    # CBORDecodeError. See tests/test_malformed.py, which pins the behaviour.
+    "cbor2>=5.9",
     # CRC32C is implemented in pure Python (wire/crc32c.py) — no native or
     # network dependency for a core checksum.
 ]
