@@ -2141,6 +2141,10 @@ pub struct QueryRequest {
     pub entity_anchor: Option<WireUuid>,
     pub kind_filter: Vec<u8>,
     pub predicate_filter: Vec<String>,
+    /// Sessions to scope the query to. `None` or empty = no restriction
+    /// (every session in the caller's space). Mirrors
+    /// [`RecallRequest::session_filter`].
+    pub session_filter: Option<Vec<WireSessionId>>,
     pub time_filter: Option<TimeRangeWire>,
     pub as_of_record_time_unix_nanos: Option<u64>,
     pub confidence_min: Option<f32>,

@@ -3261,6 +3261,9 @@ export interface QueryRequest {
   entityAnchor: WireUuid | null;
   kindFilter: number[];
   predicateFilter: string[];
+  /** Sessions to scope the query to. `null` or empty = no restriction (every
+   * session in the caller's space). Mirrors `RecallRequest.sessionFilter`. */
+  sessionFilter: bigint[] | null;
   timeFilter: TimeRangeWire | null;
   asOfRecordTimeUnixNanos: bigint | null;
   confidenceMin: number | null;
@@ -3280,6 +3283,7 @@ function queryMap(p: QueryRequest): Map<string, unknown> {
       ["entity_anchor", p.entityAnchor],
       ["kind_filter", p.kindFilter],
       ["predicate_filter", p.predicateFilter],
+      ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
       [
         "time_filter",
         p.timeFilter === null
@@ -3318,6 +3322,7 @@ function queryFromMap(m: Map<string, unknown>): QueryRequest {
     entityAnchor: asOptBytes(field(m, "entity_anchor")),
     kindFilter: asArray(field(m, "kind_filter")).map(asNum),
     predicateFilter: asArray(field(m, "predicate_filter")).map(asStr),
+    sessionFilter: asOpt(field(m, "session_filter"), (v) => asArray(v).map(asBig)),
     timeFilter: asOpt(field(m, "time_filter"), (v) => {
       const ti = asMap(v);
       return {

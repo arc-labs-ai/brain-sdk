@@ -18,6 +18,7 @@ fn query(text: &str) -> QueryRequest {
         entity_anchor: None,
         kind_filter: vec![],
         predicate_filter: vec![],
+        session_filter: None,
         time_filter: None,
         as_of_record_time_unix_nanos: None,
         confidence_min: None,

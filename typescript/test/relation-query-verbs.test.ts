@@ -201,7 +201,12 @@ async function serve(sock: net.Socket): Promise<void> {
   // QUERY_EXPLAIN.
   f = await chan.read();
   expect(f.opcode).toBe(Opcode.QueryExplainReq);
-  expect(decodeQueryExplain(f.payload).query.text).toBe("who mentored whom");
+  const explainReq = decodeQueryExplain(f.payload);
+  expect(explainReq.query.text).toBe("who mentored whom");
+  expect(explainReq.query.sessionFilter, "session_filter must survive the round trip").toEqual([
+    7n,
+    9n,
+  ]);
   const explainResp: QueryExplainResponse = { planText: "semantic ∪ graph", estimatedCostMs: 1.25 };
   await chan.write({ opcode: Opcode.QueryExplainResp, flags: FLAG_EOS, streamId: f.streamId, payload: encodeQueryExplainResponse(explainResp) });
 
@@ -221,6 +226,11 @@ const QUERY_BASE = {
   entityAnchor: null,
   kindFilter: [],
   predicateFilter: [],
+  // Non-null on purpose: session_filter was missing from QueryRequest in all
+  // three SDKs, and the server defaults a missing Option to None rather than
+  // erroring — so the only way this stays fixed is a fixture that carries it
+  // and a server-side assertion that it survived the trip.
+  sessionFilter: [7n, 9n],
   timeFilter: null,
   asOfRecordTimeUnixNanos: null,
   confidenceMin: null,

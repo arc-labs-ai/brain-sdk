@@ -2825,6 +2825,9 @@ class QueryRequest:
     entity_anchor: Optional[bytes]
     kind_filter: list[int]  # Vec<u8> -> array of ints
     predicate_filter: list[str]
+    # Sessions to scope the query to; None or empty = no restriction (every
+    # session in the caller's space). Mirrors RecallRequest.session_filter.
+    session_filter: Optional[list[int]]
     time_filter: Optional[TimeRange]
     as_of_record_time_unix_nanos: Optional[int]
     confidence_min: Optional[float]  # f32 or None
@@ -2841,6 +2844,9 @@ class QueryRequest:
             "entity_anchor": self.entity_anchor,
             "kind_filter": list(self.kind_filter),
             "predicate_filter": list(self.predicate_filter),
+            "session_filter": (
+                None if self.session_filter is None else list(self.session_filter)
+            ),
             "time_filter": None if self.time_filter is None else self.time_filter.to_map(),
             "as_of_record_time_unix_nanos": self.as_of_record_time_unix_nanos,
             "confidence_min": (
@@ -2861,6 +2867,7 @@ class QueryRequest:
             m["entity_anchor"],
             list(m["kind_filter"]),
             list(m["predicate_filter"]),
+            None if m["session_filter"] is None else list(m["session_filter"]),
             None if m["time_filter"] is None else TimeRange.from_map(m["time_filter"]),
             m["as_of_record_time_unix_nanos"],
             m["confidence_min"],

@@ -112,6 +112,11 @@ def _query_request() -> QueryRequest:
         entity_anchor=None,
         kind_filter=[],
         predicate_filter=[],
+        # Non-None on purpose: session_filter was missing from QueryRequest in
+        # all three SDKs, and the server defaults a missing Option to None
+        # rather than erroring — so the only thing that keeps this fixed is a
+        # fixture that carries it and a server-side assertion that it arrived.
+        session_filter=[7, 9],
         time_filter=None,
         as_of_record_time_unix_nanos=None,
         confidence_min=None,
@@ -315,6 +320,10 @@ def _serve(sock: socket.socket) -> None:
     # QUERY_EXPLAIN (unary).
     f = read_frame(sock, buf)
     assert f.opcode == Opcode.QUERY_EXPLAIN_REQ
+    explain_req = decode_payload(QueryExplainRequest, f.payload)
+    assert explain_req.query.session_filter == [7, 9], (
+        "session_filter must survive the round trip"
+    )
     _write(
         sock,
         Opcode.QUERY_EXPLAIN_RESP,
