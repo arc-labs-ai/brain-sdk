@@ -44,7 +44,11 @@ async fn live_two_agents_get_distinct_sessions() {
     assert_ne!(a_id, b_id, "fresh agents differ");
     assert_eq!(a.connection().space_id, a_id);
     assert_eq!(b.connection().space_id, b_id);
-    assert_eq!(a.connection().namespace, b.connection().namespace, "same tenant");
+    assert_eq!(
+        a.connection().namespace,
+        b.connection().namespace,
+        "same tenant"
+    );
     a.close().await.expect("close a");
     b.close().await.expect("close b");
 }
