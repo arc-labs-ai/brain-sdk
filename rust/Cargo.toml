@@ -1,6 +1,6 @@
 [package]
 name = "brain-db-sdk"
-version = "0.1.0"
+version = "0.1.0" # x-release-please-version
 edition = "2021"
 rust-version = "1.75"
 description = "Rust client SDK for the Brain memory database. Speaks Brain's BRN0 wire protocol directly over TCP."

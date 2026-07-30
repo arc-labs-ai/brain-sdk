@@ -1,9 +1,17 @@
 name: Release
 
 # Publishes all three SDK packages to their public registries when a version
-# tag is pushed:
+# tag is pushed.
+#
+# The tag normally comes from `release-please.yml`, not from a shell: merging
+# the Release PR it maintains bumps the version in all three manifests, writes
+# the CHANGELOG, and creates the tag. Tagging by hand still works and is the
+# escape hatch:
 #
 #   git tag v0.1.0 && git push origin v0.1.0
+#
+# The version check below is what makes both paths safe — a tag that disagrees
+# with a package's manifest cannot publish it.
 #
 # Auth is OIDC **Trusted Publishing** everywhere — no long-lived registry
 # tokens live in this repo. Each job exchanges the workflow's short-lived
