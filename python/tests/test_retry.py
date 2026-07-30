@@ -195,3 +195,71 @@ def test_with_retry_gives_up_and_surfaces_server_error() -> None:
     finally:
         listener.close()
         thread.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
+# Retryability classification.
+#
+# The wire gates prove the three SDKs put identical bytes on the wire. Nothing
+# proved they make identical *decisions* about the failures that come back, and
+# until this table existed nothing in any of the three SDKs asserted the
+# classification at all — which is how TypeScript came to treat a socket-level
+# I/O failure as terminal while this SDK and Rust retried it.
+#
+# The rows below are mirrored by `rust/tests/retry/main.rs` and
+# `typescript/test/retryability-parity.test.ts`. Changing one SDK's answer now
+# fails that SDK's own suite instead of drifting quietly.
+# ---------------------------------------------------------------------------
+
+# Every ErrorCategoryWire value, with whether a repeat could plausibly differ.
+# Listed exhaustively so a new category cannot arrive without a decision here.
+_CATEGORIES = {
+    0: ("Protocol", False),
+    1: ("Authentication", False),
+    2: ("Authorization", False),
+    3: ("Validation", False),
+    4: ("NotFound", False),
+    5: ("Conflict", False),
+    6: ("ResourceExhausted", True),
+    7: ("Internal", False),
+    8: ("Unavailable", True),
+}
+
+
+def _server_error(category: int) -> ServerError:
+    return ServerError(
+        ErrorResponse(
+            code=0x0030,
+            category=category,
+            message="",
+            details=None,
+            retry_after_ms=None,
+        )
+    )
+
+
+def test_transient_conditions_are_retryable() -> None:
+    from brain_db_sdk.errors import BrainTimeout, ConnectionClosed, is_retryable
+
+    # `OSError` is this SDK's socket-level failure — the counterpart of Rust's
+    # `BrainError::Io` and TypeScript's `TransportError`.
+    assert is_retryable(OSError("ECONNRESET"))
+    assert is_retryable(ConnectionClosed())
+    assert is_retryable(BrainTimeout(1.0))
+
+
+@pytest.mark.parametrize(("value", "name_and_want"), sorted(_CATEGORIES.items()))
+def test_server_category_retryability(value: int, name_and_want: tuple[str, bool]) -> None:
+    from brain_db_sdk.errors import is_retryable
+
+    name, want = name_and_want
+    assert is_retryable(_server_error(value)) is want, f"{name} classified wrongly"
+
+
+def test_client_side_faults_are_not_retryable() -> None:
+    from brain_db_sdk.errors import ProtocolError, VersionMismatch, is_retryable
+
+    # A repeat sends the same wrong thing.
+    assert not is_retryable(ProtocolError("unexpected opcode"))
+    assert not is_retryable(VersionMismatch(99, [1]))
+    assert not is_retryable(ValueError("not one of ours"))

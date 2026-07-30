@@ -32,6 +32,7 @@ export {
   BrainError,
   BrainTimeout,
   ConnectionClosed,
+  TransportError,
   ProtocolError,
   ServerError,
   VersionMismatch,

@@ -3,6 +3,8 @@
 //! by `with_retry` wrapping a verb call — and the same `request_id` is resent
 //! both times (idempotent retry).
 
+use std::time::Duration;
+
 use tokio::net::{TcpListener, TcpStream};
 
 use brain_db_sdk::transport::{read_frame, write_frame};
@@ -13,7 +15,7 @@ use brain_db_sdk::wire::types::{
     AuthOkPayload, AuthPayload, ErrorCategoryWire, ErrorCodeWire, ErrorResponse, ForgetRequest,
     ForgetResponse, HelloPayload, ServerFeatures, SpacePermissions, WelcomePayload,
 };
-use brain_db_sdk::{with_retry, Auth, BrainClient, ForgetBuilder, RetryPolicy};
+use brain_db_sdk::{with_retry, Auth, BrainClient, BrainError, ForgetBuilder, RetryPolicy};
 
 /// The agent id the mock server assigns from the credential.
 const SERVER_AGENT: [u8; 16] = [0x22; 16];
@@ -212,4 +214,73 @@ async fn with_retry_gives_up_and_surfaces_the_server_error() {
     );
 
     client.close().await.expect("bye");
+}
+
+// ---------------------------------------------------------------------------
+// Retryability classification.
+//
+// The wire gates prove the three SDKs put identical bytes on the wire. Nothing
+// proved they make identical *decisions* about the failures that come back, and
+// until this table existed nothing in any of the three SDKs asserted the
+// classification at all — which is how TypeScript came to treat a socket-level
+// I/O failure as terminal while this SDK and Python retried it.
+//
+// The rows below are mirrored by `typescript/test/retryability-parity.test.ts`
+// and `python/tests/test_retry.py`. Changing one SDK's answer now fails that
+// SDK's own suite instead of drifting quietly.
+// ---------------------------------------------------------------------------
+
+fn server(category: ErrorCategoryWire) -> BrainError {
+    BrainError::from_server(ErrorResponse {
+        code: ErrorCodeWire::PermissionDenied,
+        category,
+        message: String::new(),
+        details: None,
+        retry_after_ms: None,
+    })
+}
+
+#[test]
+fn transient_conditions_are_retryable() {
+    // Matches TypeScript's `TransportError` and Python's `OSError` arm.
+    assert!(
+        BrainError::Io(std::io::Error::from(std::io::ErrorKind::ConnectionReset)).is_retryable()
+    );
+    assert!(BrainError::Closed.is_retryable());
+    assert!(BrainError::Timeout(Duration::from_millis(1)).is_retryable());
+}
+
+#[test]
+fn only_resource_exhausted_and_unavailable_retry_among_server_verdicts() {
+    // Every category is listed, so a new one cannot be added without a
+    // decision being made about it here.
+    let expected = [
+        (ErrorCategoryWire::Protocol, false),
+        (ErrorCategoryWire::Authentication, false),
+        (ErrorCategoryWire::Authorization, false),
+        (ErrorCategoryWire::Validation, false),
+        (ErrorCategoryWire::NotFound, false),
+        (ErrorCategoryWire::Conflict, false),
+        (ErrorCategoryWire::ResourceExhausted, true),
+        (ErrorCategoryWire::Internal, false),
+        (ErrorCategoryWire::Unavailable, true),
+    ];
+    for (category, want) in expected {
+        assert_eq!(
+            server(category).is_retryable(),
+            want,
+            "{category:?} classified wrongly"
+        );
+    }
+}
+
+#[test]
+fn client_side_faults_are_not_retryable() {
+    // A repeat sends the same wrong thing.
+    assert!(!BrainError::Protocol("unexpected opcode".into()).is_retryable());
+    assert!(!BrainError::VersionMismatch {
+        chosen: 99,
+        supported: vec![1],
+    }
+    .is_retryable());
 }

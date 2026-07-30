@@ -31,6 +31,23 @@ export class ProtocolError extends BrainError {
   }
 }
 
+/**
+ * A socket-level I/O failure — a reset, a broken pipe, a DNS or connect error.
+ *
+ * Distinct from {@link ConnectionClosed}, which is an orderly close. This is
+ * the counterpart of Rust's `BrainError::Io` and Python's `OSError`, both of
+ * which their `is_retryable` treats as transient. TypeScript had no such class:
+ * a socket `error` event became a bare {@link BrainError}, which
+ * {@link isRetryable} answers `false` for — so an ECONNRESET mid-request was
+ * retried by two SDKs and not by this one.
+ */
+export class TransportError extends BrainError {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransportError";
+  }
+}
+
 /** The peer closed the connection. */
 export class ConnectionClosed extends BrainError {
   constructor(message = "connection closed by peer") {
@@ -88,7 +105,14 @@ export class ServerError extends BrainError {
  * category signal the `withRetry` combinator consults.
  */
 export function isRetryable(err: unknown): boolean {
-  if (err instanceof ConnectionClosed || err instanceof BrainTimeout) return true;
+  if (
+    err instanceof ConnectionClosed ||
+    err instanceof BrainTimeout ||
+    // Matches Rust's `BrainError::Io` and Python's `OSError` arms.
+    err instanceof TransportError
+  ) {
+    return true;
+  }
   if (err instanceof ServerError) {
     return (
       err.category === ErrorCategoryWire.ResourceExhausted ||

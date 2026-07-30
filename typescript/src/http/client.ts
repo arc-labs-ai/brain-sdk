@@ -269,12 +269,12 @@ export class BrainHttpClient {
   }
 
   /** A page of memories, newest first. Idempotent GET — retried. */
-  listMemories(query?: MemoryListQuery): Promise<MemoryListPage> {
+  memoryList(query?: MemoryListQuery): Promise<MemoryListPage> {
     return this.requestWithRetry("GET", "/v1/memories", undefined, query);
   }
 
   /** Everything the extraction pipeline produced for one memory. Retried. */
-  inspectMemory(memoryId: string): Promise<MemoryInspect> {
+  memoryInspect(memoryId: string): Promise<MemoryInspect> {
     return this.requestWithRetry("GET", `/v1/memories/${pathId(memoryId)}/inspect`);
   }
 
@@ -302,7 +302,7 @@ export class BrainHttpClient {
   }
 
   /** Walk the relation graph out from one entity. Not retried. */
-  traverse(entityId: string, input: TraverseInput = {}): Promise<TraverseResult> {
+  traverseRelations(entityId: string, input: TraverseInput = {}): Promise<TraverseResult> {
     return this.requestOnce("POST", `/v1/entities/${pathId(entityId)}/traverse`, input);
   }
 
@@ -332,7 +332,7 @@ export class BrainHttpClient {
   }
 
   /** A page of the typed graph (nodes + edges). Idempotent GET — retried. */
-  fetchGraph(query?: GraphFetchQuery): Promise<GraphPage> {
+  graphFetch(query?: GraphFetchQuery): Promise<GraphPage> {
     return this.requestWithRetry("GET", "/v1/graph", undefined, query);
   }
 

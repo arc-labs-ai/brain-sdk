@@ -204,8 +204,8 @@ describe("read-side, entity, graph and schema routes", () => {
   // `/v1/schema` under GET/POST/PUT), which is exactly the case a path-only
   // check misses — so the method is asserted alongside the path.
   const routes: Array<[string, () => Promise<unknown>, string, string]> = [
-    ["listMemories", () => client.listMemories(), "GET", "/v1/memories"],
-    ["inspectMemory", () => client.inspectMemory("m1"), "GET", "/v1/memories/m1/inspect"],
+    ["memoryList", () => client.memoryList(), "GET", "/v1/memories"],
+    ["memoryInspect", () => client.memoryInspect("m1"), "GET", "/v1/memories/m1/inspect"],
     ["listEntities", () => client.listEntities(), "GET", "/v1/entities"],
     ["getEntity", () => client.getEntity("e1"), "GET", "/v1/entities/e1"],
     [
@@ -220,12 +220,12 @@ describe("read-side, entity, graph and schema routes", () => {
       "POST",
       "/v1/entities/resolve",
     ],
-    ["traverse", () => client.traverse("e1"), "POST", "/v1/entities/e1/traverse"],
+    ["traverse", () => client.traverseRelations("e1"), "POST", "/v1/entities/e1/traverse"],
     ["listRelations", () => client.listRelations("e1"), "GET", "/v1/entities/e1/relations"],
     ["getRelation", () => client.getRelation("r1"), "GET", "/v1/relations/r1"],
     ["listStatements", () => client.listStatements(), "GET", "/v1/statements"],
     ["getStatement", () => client.getStatement("s1"), "GET", "/v1/statements/s1"],
-    ["fetchGraph", () => client.fetchGraph(), "GET", "/v1/graph"],
+    ["graphFetch", () => client.graphFetch(), "GET", "/v1/graph"],
     ["getSchema", () => client.getSchema(), "GET", "/v1/schema"],
     ["uploadSchema", () => client.uploadSchema({ schemaDocument: "x" }), "POST", "/v1/schema"],
     [
@@ -297,7 +297,7 @@ describe("query parameters", () => {
   it("snake_cases query names on every query-bearing route", async () => {
     const cases: Array<[() => Promise<unknown>, string]> = [
       [
-        () => client.listMemories({ dir: "asc", includeTombstoned: true }),
+        () => client.memoryList({ dir: "asc", includeTombstoned: true }),
         "/v1/memories?dir=asc&include_tombstoned=true",
       ],
       [
@@ -313,7 +313,7 @@ describe("query parameters", () => {
         "/v1/statements?min_confidence=0.5&only_current=false",
       ],
       [
-        () => client.fetchGraph({ includeMemories: true, includeMemoryEdges: true }),
+        () => client.graphFetch({ includeMemories: true, includeMemoryEdges: true }),
         "/v1/graph?include_memories=true&include_memory_edges=true",
       ],
       [
@@ -440,9 +440,9 @@ describe("idempotency of the new routes", () => {
     ["listEntities", () => client.listEntities()],
     ["getEntity", () => client.getEntity("e1")],
     ["listRelations", () => client.listRelations("e1")],
-    ["fetchGraph", () => client.fetchGraph()],
-    ["inspectMemory", () => client.inspectMemory("m1")],
-    ["listMemories", () => client.listMemories()],
+    ["graphFetch", () => client.graphFetch()],
+    ["memoryInspect", () => client.memoryInspect("m1")],
+    ["memoryList", () => client.memoryList()],
     ["getRelation", () => client.getRelation("r1")],
     ["getSchema", () => client.getSchema()],
     ["listStatements", () => client.listStatements()],
@@ -467,7 +467,7 @@ describe("idempotency of the new routes", () => {
   const notRetried: Array<[string, () => Promise<unknown>]> = [
     ["createEntity", () => client.createEntity({ entityTypeId: 1, canonicalName: "Ada" })],
     ["resolveEntity", () => client.resolveEntity({ candidateName: "Ada", allowCreate: true })],
-    ["traverse", () => client.traverse("e1")],
+    ["traverse", () => client.traverseRelations("e1")],
     ["uploadSchema", () => client.uploadSchema({ schemaDocument: "x" })],
     // Destructive: a replay could drop against a schema the first attempt
     // already replaced.

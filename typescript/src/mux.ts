@@ -21,6 +21,7 @@ import {
   ConnectionClosed,
   ProtocolError,
   ServerError,
+  TransportError,
   VersionMismatch,
 } from "./errors.js";
 import { decodeFrame, encodeFrame, FLAG_EOS, type Frame, FrameError } from "./wire/frame.js";
@@ -101,7 +102,7 @@ export class MuxConnection {
     private readonly requestTimeoutMs: number | undefined,
   ) {
     socket.on("data", (chunk: Buffer) => this.onData(chunk));
-    socket.on("error", (err: Error) => this.failAll(new BrainError(err.message)));
+    socket.on("error", (err: Error) => this.failAll(new TransportError(err.message)));
     socket.on("close", () => this.failAll(new ConnectionClosed()));
   }
 
@@ -505,7 +506,7 @@ function connectTcp(host: string, port: number, timeoutMs: number | undefined): 
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      reject(new BrainError(err.message));
+      reject(new TransportError(err.message));
     });
   });
 }

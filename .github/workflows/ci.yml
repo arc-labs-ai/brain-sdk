@@ -31,6 +31,8 @@ jobs:
       # serves, or serves one it does not.
       - name: Check HTTP contract
         run: python3 tools/check_http_contract.py
+      - name: Check API surface parity
+        run: python3 tools/compare_api.py
 
   rust:
     name: Rust SDK

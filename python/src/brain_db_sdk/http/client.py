@@ -181,7 +181,7 @@ class BrainHttpClient:
 
     # --- memories ---------------------------------------------------------
 
-    def list_memories(
+    def memory_list(
         self,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
@@ -205,7 +205,7 @@ class BrainHttpClient:
             self._request("GET", "/v1/memories", query=query, idempotent=True)
         )
 
-    def inspect_memory(self, memory_id: str) -> MemoryInspect:
+    def memory_inspect(self, memory_id: str) -> MemoryInspect:
         """The full encode-pipeline artifact behind one memory."""
         return MemoryInspect.from_dict(
             self._request("GET", f"/v1/memories/{_seg(memory_id)}/inspect", idempotent=True)
@@ -278,7 +278,7 @@ class BrainHttpClient:
         )
         return ResolveEntityResult.from_dict(self._request("POST", "/v1/entities/resolve", body))
 
-    def traverse(
+    def traverse_relations(
         self,
         entity_id: str,
         direction: Optional[str] = None,
@@ -393,7 +393,7 @@ class BrainHttpClient:
 
     # --- graph ------------------------------------------------------------
 
-    def fetch_graph(
+    def graph_fetch(
         self,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,

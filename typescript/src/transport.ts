@@ -11,7 +11,7 @@
 
 import type { Socket } from "node:net";
 
-import { ConnectionClosed } from "./errors.js";
+import { ConnectionClosed, TransportError } from "./errors.js";
 import { decodeFrame, encodeFrame, type Frame, FrameError } from "./wire/frame.js";
 
 interface Waiter {
@@ -45,7 +45,9 @@ export class FrameChannel {
 
   constructor(private readonly socket: Socket) {
     socket.on("data", (chunk: Buffer) => this.onData(chunk));
-    socket.on("error", (err: Error) => this.fail(err));
+    // Wrapped rather than passed through: a raw Node `Error` is not a
+    // `BrainError`, so `isRetryable` would answer false for a reset.
+    socket.on("error", (err: Error) => this.fail(new TransportError(err.message)));
     socket.on("close", () => this.fail(new ConnectionClosed()));
   }
 

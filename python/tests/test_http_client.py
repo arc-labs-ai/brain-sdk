@@ -170,13 +170,13 @@ def test_every_verb_hits_its_documented_route(edge, call, method, path) -> None:
 # (`relation_type` -> `type`).
 READ_SIDE_ROUTES = [
     (
-        lambda c: c.list_memories(limit=2, cursor="c1", dir="desc", include_tombstoned=False),
+        lambda c: c.memory_list(limit=2, cursor="c1", dir="desc", include_tombstoned=False),
         "GET",
         "/v1/memories",
         "limit=2&cursor=c1&dir=desc&include_tombstoned=false",
     ),
     (
-        lambda c: c.inspect_memory("mem-1"),
+        lambda c: c.memory_inspect("mem-1"),
         "GET",
         "/v1/memories/mem-1/inspect",
         "",
@@ -214,7 +214,7 @@ READ_SIDE_ROUTES = [
         "",
     ),
     (
-        lambda c: c.traverse("ent-1", direction="out", max_depth=2),
+        lambda c: c.traverse_relations("ent-1", direction="out", max_depth=2),
         "POST",
         "/v1/entities/ent-1/traverse",
         "",
@@ -260,7 +260,7 @@ READ_SIDE_ROUTES = [
         "follow_supersession=false",
     ),
     (
-        lambda c: c.fetch_graph(
+        lambda c: c.graph_fetch(
             limit=50,
             cursor="c1",
             include_statements=True,
@@ -336,7 +336,7 @@ def test_unset_query_filters_are_omitted_entirely(edge) -> None:
 def test_a_query_with_no_filters_at_all_sends_no_question_mark(edge) -> None:
     client, rec = edge
     rec.responses = [(200, {"nodes": [], "edges": []}, {})]
-    client.fetch_graph()
+    client.graph_fetch()
     assert rec.requests[0]["path"] == "/v1/graph", "a bare `?` is not a valid default"
 
 
@@ -479,7 +479,7 @@ def test_traversal_step_carries_the_reserved_from_key(edge) -> None:
             {},
         )
     ]
-    out = client.traverse("ent-1")
+    out = client.traverse_relations("ent-1")
     step = out.paths[0].steps[0]
     assert (step.from_, step.to) == ("ent-1", "ent-2")
     assert out.total_paths == 1 and out.truncated is False
@@ -490,7 +490,7 @@ def test_an_absent_next_cursor_is_none_not_a_key_error(edge) -> None:
     omits the key rather than sending null."""
     client, rec = edge
     rec.responses = [(200, {"nodes": [], "edges": []}, {})]
-    assert client.fetch_graph().next_cursor is None
+    assert client.graph_fetch().next_cursor is None
 
 
 def test_memory_inspect_tolerates_a_stage_artifact_with_no_record_or_graph(edge) -> None:
@@ -515,7 +515,7 @@ def test_memory_inspect_tolerates_a_stage_artifact_with_no_record_or_graph(edge)
             {},
         )
     ]
-    out = client.inspect_memory("mem-1")
+    out = client.memory_inspect("mem-1")
     assert out.found is True
     assert out.artifact.record is None and out.artifact.graph is None
     assert out.artifact.keyword_fields[0].terms == ["sky", "teal"]
