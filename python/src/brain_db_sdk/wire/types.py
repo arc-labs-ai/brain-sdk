@@ -30,7 +30,7 @@ trailing-vector section that only ``EncodeVectorDirectRequest`` carries.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, TypeVar, Union
+from typing import Any, Optional, Protocol, TypeVar, Union, cast
 
 from .cbor import (
     f32_list_to_le_bytes,
@@ -180,7 +180,7 @@ class HelloCapabilities:
     compression_zstd: bool
     server_push: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "streaming": self.streaming,
             "compression_zstd": self.compression_zstd,
@@ -188,7 +188,7 @@ class HelloCapabilities:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> HelloCapabilities:
+    def from_map(cls, m: dict[str, Any]) -> HelloCapabilities:
         return cls(m["streaming"], m["compression_zstd"], m["server_push"])
 
 
@@ -202,7 +202,7 @@ class HelloPayload:
     # Reserved for connection resumption; None encodes as CBOR null.
     client_connection_token: Optional[bytes]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "client_id": self.client_id,
             "supported_versions": list(self.supported_versions),
@@ -211,7 +211,7 @@ class HelloPayload:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> HelloPayload:
+    def from_map(cls, m: dict[str, Any]) -> HelloPayload:
         return cls(
             m["client_id"],
             list(m["supported_versions"]),
@@ -227,14 +227,14 @@ class MtlsClaim:
     cert_fingerprint: bytes  # 32-byte byte string
     asserted_subject: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "cert_fingerprint": self.cert_fingerprint,
             "asserted_subject": self.asserted_subject,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> MtlsClaim:
+    def from_map(cls, m: dict[str, Any]) -> MtlsClaim:
         return cls(m["cert_fingerprint"], m["asserted_subject"])
 
 
@@ -247,7 +247,11 @@ class AuthCredentials:
     """
 
     variant: str
-    value: object = None
+    # `Token` carries the raw token as a list of byte values (the server's
+    # field is a `Vec<u8>`, which CBOR renders as an array); `Mtls` carries the
+    # claim. Spelled as a union rather than `object` so a caller reading
+    # `auth.credentials.value` gets a type instead of `object`.
+    value: Union[list[int], MtlsClaim, None] = None
 
     @classmethod
     def token(cls, raw: bytes) -> AuthCredentials:
@@ -257,17 +261,17 @@ class AuthCredentials:
     def mtls(cls, claim: MtlsClaim) -> AuthCredentials:
         return cls("Mtls", claim)
 
-    def to_cbor_value(self) -> object:
-        if self.variant == "Token":
+    def to_cbor_value(self) -> dict[str, Any]:
+        if self.variant == "Token" and isinstance(self.value, list):
             return {"Token": list(self.value)}
-        if self.variant == "Mtls":
+        if self.variant == "Mtls" and isinstance(self.value, MtlsClaim):
             return {"Mtls": self.value.to_map()}
         raise ValueError(f"unknown credential variant {self.variant!r}")
 
     @classmethod
     def from_cbor_value(cls, v: object) -> AuthCredentials:
         if isinstance(v, dict) and "Token" in v:
-            return cls("Token", list(v["Token"]))
+            return cls("Token", [int(b) for b in v["Token"]])
         if isinstance(v, dict) and "Mtls" in v:
             return cls("Mtls", MtlsClaim.from_map(v["Mtls"]))
         raise ValueError(f"unknown credential cbor {v!r}")
@@ -284,14 +288,14 @@ class AuthPayload:
     method: int
     credentials: AuthCredentials
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "method": self.method,
             "credentials": self.credentials.to_cbor_value(),
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> AuthPayload:
+    def from_map(cls, m: dict[str, Any]) -> AuthPayload:
         return cls(
             m["method"],
             AuthCredentials.from_cbor_value(m["credentials"]),
@@ -314,7 +318,7 @@ class SpacePermissions:
     # it does not widen what the connection's own agent may do.
     can_act_as: bool = False
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "can_encode": self.can_encode,
             "can_recall": self.can_recall,
@@ -326,7 +330,7 @@ class SpacePermissions:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SpacePermissions:
+    def from_map(cls, m: dict[str, Any]) -> SpacePermissions:
         return cls(
             m["can_encode"],
             m["can_recall"],
@@ -348,7 +352,7 @@ class ServerFeatures:
     idle_timeout_seconds: int
     auth_methods: list[int]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "max_payload_size": self.max_payload_size,
             "max_concurrent_streams": self.max_concurrent_streams,
@@ -357,7 +361,7 @@ class ServerFeatures:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ServerFeatures:
+    def from_map(cls, m: dict[str, Any]) -> ServerFeatures:
         return cls(
             m["max_payload_size"],
             m["max_concurrent_streams"],
@@ -376,7 +380,7 @@ class WelcomePayload:
     capabilities: HelloCapabilities
     server_features: ServerFeatures
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "server_id": self.server_id,
             "chosen_version": self.chosen_version,
@@ -386,7 +390,7 @@ class WelcomePayload:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> WelcomePayload:
+    def from_map(cls, m: dict[str, Any]) -> WelcomePayload:
         return cls(
             m["server_id"],
             m["chosen_version"],
@@ -409,7 +413,7 @@ class AuthOkPayload:
     namespace: str
     server_time_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "space_id": self.space_id,
             "bound_shard_id": self.bound_shard_id,
@@ -419,7 +423,7 @@ class AuthOkPayload:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> AuthOkPayload:
+    def from_map(cls, m: dict[str, Any]) -> AuthOkPayload:
         return cls(
             m["space_id"],
             m["bound_shard_id"],
@@ -456,11 +460,11 @@ class ByeRequest:
 
     reason: Optional[str] = None
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"reason": self.reason}
 
     @classmethod
-    def from_map(cls, m: dict) -> ByeRequest:
+    def from_map(cls, m: dict[str, Any]) -> ByeRequest:
         return cls(m.get("reason"))
 
 
@@ -470,11 +474,11 @@ class PingRequest:
 
     client_timestamp_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"client_timestamp_unix_nanos": self.client_timestamp_unix_nanos}
 
     @classmethod
-    def from_map(cls, m: dict) -> PingRequest:
+    def from_map(cls, m: dict[str, Any]) -> PingRequest:
         return cls(m.get("client_timestamp_unix_nanos", 0))
 
 
@@ -485,14 +489,14 @@ class PongResponse:
     client_timestamp_unix_nanos: int
     server_timestamp_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "client_timestamp_unix_nanos": self.client_timestamp_unix_nanos,
             "server_timestamp_unix_nanos": self.server_timestamp_unix_nanos,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> PongResponse:
+    def from_map(cls, m: dict[str, Any]) -> PongResponse:
         return cls(
             m.get("client_timestamp_unix_nanos", 0),
             m.get("server_timestamp_unix_nanos", 0),
@@ -505,11 +509,11 @@ class ServerPingResponse:
 
     server_timestamp_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"server_timestamp_unix_nanos": self.server_timestamp_unix_nanos}
 
     @classmethod
-    def from_map(cls, m: dict) -> ServerPingResponse:
+    def from_map(cls, m: dict[str, Any]) -> ServerPingResponse:
         return cls(m.get("server_timestamp_unix_nanos", 0))
 
 
@@ -520,14 +524,14 @@ class ClientPongRequest:
     server_timestamp_unix_nanos: int
     client_timestamp_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "server_timestamp_unix_nanos": self.server_timestamp_unix_nanos,
             "client_timestamp_unix_nanos": self.client_timestamp_unix_nanos,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ClientPongRequest:
+    def from_map(cls, m: dict[str, Any]) -> ClientPongRequest:
         return cls(
             m.get("server_timestamp_unix_nanos", 0),
             m.get("client_timestamp_unix_nanos", 0),
@@ -561,11 +565,11 @@ class ActAs:
     namespace: str
     space_id: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"namespace": self.namespace, "space_id": self.space_id}
 
     @classmethod
-    def from_map(cls, m: dict) -> ActAs:
+    def from_map(cls, m: dict[str, Any]) -> ActAs:
         return cls(m["namespace"], m["space_id"])
 
 
@@ -582,7 +586,7 @@ class EdgeRequest:
     kind: int
     weight: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "target": self.target,
             "kind": self.kind,
@@ -590,7 +594,7 @@ class EdgeRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EdgeRequest:
+    def from_map(cls, m: dict[str, Any]) -> EdgeRequest:
         return cls(m["target"], m["kind"], m["weight"])
 
 
@@ -621,8 +625,8 @@ class EncodeRequest:
     # byte-identical.
     allow_duplicates: bool = False
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "text": self.text,
             "session_id": self.session_id,
             "request_id": self.request_id,
@@ -638,7 +642,7 @@ class EncodeRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeRequest:
+    def from_map(cls, m: dict[str, Any]) -> EncodeRequest:
         act_as = m.get("act_as")
         return cls(
             m["text"],
@@ -670,7 +674,7 @@ class EncodeVectorDirectRequest:
     deduplicate: bool
     vector: list[float] = field(default_factory=list)
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "text": self.text,
             "model_fingerprint": self.model_fingerprint,
@@ -684,7 +688,7 @@ class EncodeVectorDirectRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeVectorDirectRequest:
+    def from_map(cls, m: dict[str, Any]) -> EncodeVectorDirectRequest:
         return cls(
             m["text"],
             m["model_fingerprint"],
@@ -719,8 +723,8 @@ class EncodeResponse:
     # ``trace = True``; omitted from the CBOR map otherwise.
     trace: Optional[EncodeTrace] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "memory_id": self.memory_id,
             "was_deduplicated": self.was_deduplicated,
             "salience": round_f32(self.salience),
@@ -740,7 +744,7 @@ class EncodeResponse:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeResponse:
+    def from_map(cls, m: dict[str, Any]) -> EncodeResponse:
         trace = m.get("trace")
         return cls(
             m["memory_id"],
@@ -788,8 +792,8 @@ class EncodeTraceStage:
     # the CBOR map otherwise so existing traces stay byte-identical.
     artifact: Optional[EncodeStageArtifact] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "name": self.name,
             "status": self.status,
             "latency_us": self.latency_us,
@@ -800,7 +804,7 @@ class EncodeTraceStage:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeTraceStage:
+    def from_map(cls, m: dict[str, Any]) -> EncodeTraceStage:
         artifact = m.get("artifact")
         return cls(
             m["name"],
@@ -819,11 +823,11 @@ class EncodeTraceEntity:
     name: str
     type_qname: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"id": self.id, "name": self.name, "type_qname": self.type_qname}
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeTraceEntity:
+    def from_map(cls, m: dict[str, Any]) -> EncodeTraceEntity:
         return cls(m["id"], m["name"], m["type_qname"])
 
 
@@ -840,8 +844,8 @@ class EncodeTraceStatement:
     # wire map for a statement with no event time.
     event_at_unix_nanos: Optional[int] = None
 
-    def to_map(self) -> dict:
-        m: dict = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "id": self.id,
             "subject_name": self.subject_name,
             "predicate": self.predicate,
@@ -853,7 +857,7 @@ class EncodeTraceStatement:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeTraceStatement:
+    def from_map(cls, m: dict[str, Any]) -> EncodeTraceStatement:
         return cls(
             m["id"],
             m["subject_name"],
@@ -872,7 +876,7 @@ class EncodeTraceRelation:
     predicate: str
     target_name: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "source_name": self.source_name,
             "predicate": self.predicate,
@@ -880,7 +884,7 @@ class EncodeTraceRelation:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeTraceRelation:
+    def from_map(cls, m: dict[str, Any]) -> EncodeTraceRelation:
         return cls(m["source_name"], m["predicate"], m["target_name"])
 
 
@@ -891,11 +895,11 @@ class EncodeTraceIndex:
     name: str
     status: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"name": self.name, "status": self.status}
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeTraceIndex:
+    def from_map(cls, m: dict[str, Any]) -> EncodeTraceIndex:
         return cls(m["name"], m["status"])
 
 
@@ -906,14 +910,14 @@ class EncodeTraceDedup:
     was_deduplicated: bool
     matched_memory_id: Optional[bytes]  # 16-byte byte string or None
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "was_deduplicated": self.was_deduplicated,
             "matched_memory_id": self.matched_memory_id,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeTraceDedup:
+    def from_map(cls, m: dict[str, Any]) -> EncodeTraceDedup:
         return cls(m["was_deduplicated"], m["matched_memory_id"])
 
 
@@ -927,7 +931,7 @@ class EncodeTraceArtifacts:
     indexes: list[EncodeTraceIndex]
     dedup: EncodeTraceDedup
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entities": [e.to_map() for e in self.entities],
             "statements": [s.to_map() for s in self.statements],
@@ -937,7 +941,7 @@ class EncodeTraceArtifacts:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeTraceArtifacts:
+    def from_map(cls, m: dict[str, Any]) -> EncodeTraceArtifacts:
         return cls(
             [EncodeTraceEntity.from_map(e) for e in m["entities"]],
             [EncodeTraceStatement.from_map(s) for s in m["statements"]],
@@ -955,7 +959,7 @@ class EncodeTrace:
     artifacts: EncodeTraceArtifacts
     total_latency_us: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "stages": [s.to_map() for s in self.stages],
             "artifacts": self.artifacts.to_map(),
@@ -963,7 +967,7 @@ class EncodeTrace:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeTrace:
+    def from_map(cls, m: dict[str, Any]) -> EncodeTrace:
         return cls(
             [EncodeTraceStage.from_map(s) for s in m["stages"]],
             EncodeTraceArtifacts.from_map(m["artifacts"]),
@@ -997,7 +1001,7 @@ class EncodeStageRecord:
     text_len: int  # u32
     lsn: int  # u64
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "kind": self.kind,
@@ -1010,7 +1014,7 @@ class EncodeStageRecord:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeStageRecord:
+    def from_map(cls, m: dict[str, Any]) -> EncodeStageRecord:
         return cls(
             m["memory_id"],
             m["kind"],
@@ -1030,11 +1034,11 @@ class EncodeStageKeywordField:
     field: str
     terms: list[str]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"field": self.field, "terms": list(self.terms)}
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeStageKeywordField:
+    def from_map(cls, m: dict[str, Any]) -> EncodeStageKeywordField:
         return cls(m["field"], list(m["terms"]))
 
 
@@ -1047,7 +1051,7 @@ class EncodeGraphNode:
     kind: str
     type_qname: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -1056,7 +1060,7 @@ class EncodeGraphNode:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeGraphNode:
+    def from_map(cls, m: dict[str, Any]) -> EncodeGraphNode:
         return cls(m["id"], m["name"], m["kind"], m["type_qname"])
 
 
@@ -1073,8 +1077,8 @@ class EncodeGraphEdge:
     # an undated statement and for every non-statement edge kind.
     event_at_unix_nanos: Optional[int] = None
 
-    def to_map(self) -> dict:
-        m: dict = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "source": self.source,
             "target": self.target,
             "predicate": self.predicate,
@@ -1086,7 +1090,7 @@ class EncodeGraphEdge:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeGraphEdge:
+    def from_map(cls, m: dict[str, Any]) -> EncodeGraphEdge:
         return cls(
             m["source"],
             m["target"],
@@ -1104,14 +1108,14 @@ class EncodeStageGraph:
     nodes: list[EncodeGraphNode]
     edges: list[EncodeGraphEdge]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "nodes": [n.to_map() for n in self.nodes],
             "edges": [e.to_map() for e in self.edges],
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeStageGraph:
+    def from_map(cls, m: dict[str, Any]) -> EncodeStageGraph:
         return cls(
             [EncodeGraphNode.from_map(n) for n in m["nodes"]],
             [EncodeGraphEdge.from_map(e) for e in m["edges"]],
@@ -1132,8 +1136,8 @@ class EncodeStageArtifact:
     keyword_fields: list[EncodeStageKeywordField] = field(default_factory=list)
     graph: Optional[EncodeStageGraph] = None
 
-    def to_map(self) -> dict:
-        m: dict = {}
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {}
         if self.vector:
             m["vector"] = [round_f32(x) for x in self.vector]
         if self.record is not None:
@@ -1147,7 +1151,7 @@ class EncodeStageArtifact:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EncodeStageArtifact:
+    def from_map(cls, m: dict[str, Any]) -> EncodeStageArtifact:
         record = m.get("record")
         graph = m.get("graph")
         return cls(
@@ -1174,14 +1178,14 @@ class MemoryInspectRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {"memory_id": self.memory_id}
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"memory_id": self.memory_id}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> MemoryInspectRequest:
+    def from_map(cls, m: dict[str, Any]) -> MemoryInspectRequest:
         act_as = m.get("act_as")
         return cls(
             m["memory_id"],
@@ -1200,7 +1204,7 @@ class MemoryInspectResponse:
     text: str
     artifact: EncodeStageArtifact
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "found": self.found,
             "memory_id": self.memory_id,
@@ -1209,7 +1213,7 @@ class MemoryInspectResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> MemoryInspectResponse:
+    def from_map(cls, m: dict[str, Any]) -> MemoryInspectResponse:
         return cls(
             m["found"],
             m["memory_id"],
@@ -1263,8 +1267,8 @@ class RecallRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "cue_text": self.cue_text,
             "subject_name": self.subject_name,
             "max_results": self.max_results,
@@ -1286,7 +1290,7 @@ class RecallRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallRequest:
+    def from_map(cls, m: dict[str, Any]) -> RecallRequest:
         act_as = m.get("act_as")
         return cls(
             m["cue_text"],
@@ -1316,11 +1320,11 @@ class EdgeView:
     kind: int
     weight: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"target": self.target, "kind": self.kind, "weight": round_f32(self.weight)}
 
     @classmethod
-    def from_map(cls, m: dict) -> EdgeView:
+    def from_map(cls, m: dict[str, Any]) -> EdgeView:
         return cls(m["target"], m["kind"], m["weight"])
 
 
@@ -1332,11 +1336,11 @@ class EnrichedEntity:
     name: str
     type_qname: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"id": self.id, "name": self.name, "type_qname": self.type_qname}
 
     @classmethod
-    def from_map(cls, m: dict) -> EnrichedEntity:
+    def from_map(cls, m: dict[str, Any]) -> EnrichedEntity:
         return cls(m["id"], m["name"], m["type_qname"])
 
 
@@ -1353,8 +1357,8 @@ class EnrichedStatement:
     # wire map for a statement with no event time.
     event_at_unix_nanos: Optional[int] = None
 
-    def to_map(self) -> dict:
-        m: dict = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "id": self.id,
             "subject_name": self.subject_name,
             "predicate": self.predicate,
@@ -1366,7 +1370,7 @@ class EnrichedStatement:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EnrichedStatement:
+    def from_map(cls, m: dict[str, Any]) -> EnrichedStatement:
         return cls(
             m["id"],
             m["subject_name"],
@@ -1385,11 +1389,11 @@ class EnrichedRelation:
     predicate: str
     to_name: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"from_name": self.from_name, "predicate": self.predicate, "to_name": self.to_name}
 
     @classmethod
-    def from_map(cls, m: dict) -> EnrichedRelation:
+    def from_map(cls, m: dict[str, Any]) -> EnrichedRelation:
         return cls(m["from_name"], m["predicate"], m["to_name"])
 
 
@@ -1401,7 +1405,7 @@ class GraphEnrichment:
     statements: list[EnrichedStatement]
     relations: list[EnrichedRelation]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entities": [e.to_map() for e in self.entities],
             "statements": [s.to_map() for s in self.statements],
@@ -1409,7 +1413,7 @@ class GraphEnrichment:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> GraphEnrichment:
+    def from_map(cls, m: dict[str, Any]) -> GraphEnrichment:
         return cls(
             [EnrichedEntity.from_map(e) for e in m["entities"]],
             [EnrichedStatement.from_map(s) for s in m["statements"]],
@@ -1445,7 +1449,7 @@ class MemoryResult:
     edges_in_count: int
     graph: Optional[GraphEnrichment]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "text": self.text,
@@ -1473,7 +1477,7 @@ class MemoryResult:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> MemoryResult:
+    def from_map(cls, m: dict[str, Any]) -> MemoryResult:
         return cls(
             m["memory_id"],
             m["text"],
@@ -1514,8 +1518,8 @@ class RecallResponseFrame:
     # when the request set ``trace = True``; omitted from the CBOR map otherwise.
     trace: Optional[RecallTrace] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "answer_kind": self.answer_kind,
             "memories": [r.to_map() for r in self.memories],
             "is_final": self.is_final,
@@ -1527,7 +1531,7 @@ class RecallResponseFrame:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> RecallResponseFrame:
         trace = m.get("trace")
         return cls(
             m["answer_kind"],
@@ -1567,7 +1571,7 @@ class RecallTraceRetriever:
     # rank order. Empty when the connected server predates this field.
     candidates: list[RecallTraceCandidate] = field(default_factory=list)
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "status": self.status,
@@ -1578,7 +1582,7 @@ class RecallTraceRetriever:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallTraceRetriever:
+    def from_map(cls, m: dict[str, Any]) -> RecallTraceRetriever:
         return cls(
             m["name"],
             m["status"],
@@ -1602,7 +1606,7 @@ class RecallTraceCandidate:
     text: str
     score: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "item_id": self.item_id,
             "kind": self.kind,
@@ -1611,7 +1615,7 @@ class RecallTraceCandidate:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallTraceCandidate:
+    def from_map(cls, m: dict[str, Any]) -> RecallTraceCandidate:
         return cls(m["item_id"], m["kind"], m["text"], m["score"])
 
 
@@ -1639,11 +1643,11 @@ class RecallTraceDroppedId:
     kind: int  # RankedItemKindWire
     id: int  # u128
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"kind": self.kind, "id": self.id}
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallTraceDroppedId:
+    def from_map(cls, m: dict[str, Any]) -> RecallTraceDroppedId:
         return cls(m["kind"], m["id"])
 
 
@@ -1676,7 +1680,7 @@ class RecallTraceFilterChain:
     dropped_by_as_of: list[RecallTraceDroppedId] = field(default_factory=list)
     dropped_by_limit: list[RecallTraceDroppedId] = field(default_factory=list)
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "before": self.before,
             "after_type": self.after_type,
@@ -1696,7 +1700,7 @@ class RecallTraceFilterChain:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallTraceFilterChain:
+    def from_map(cls, m: dict[str, Any]) -> RecallTraceFilterChain:
         return cls(
             m["before"],
             m["after_type"],
@@ -1729,7 +1733,7 @@ class RecallTraceRerank:
     before_order: list[int] = field(default_factory=list)
     after_order: list[int] = field(default_factory=list)
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "applied": self.applied,
             "candidates": self.candidates,
@@ -1739,7 +1743,7 @@ class RecallTraceRerank:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallTraceRerank:
+    def from_map(cls, m: dict[str, Any]) -> RecallTraceRerank:
         return cls(
             m["applied"],
             m["candidates"],
@@ -1757,7 +1761,7 @@ class RecallTraceFusionItem:
     rrf_score: float  # f32
     lane_scores: list[tuple[int, float]]  # (RetrieverName, f32) pairs
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "rrf_score": round_f32(self.rrf_score),
@@ -1765,7 +1769,7 @@ class RecallTraceFusionItem:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallTraceFusionItem:
+    def from_map(cls, m: dict[str, Any]) -> RecallTraceFusionItem:
         return cls(
             m["memory_id"],
             m["rrf_score"],
@@ -1779,11 +1783,11 @@ class RecallTraceFusion:
 
     items: list[RecallTraceFusionItem]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"items": [i.to_map() for i in self.items]}
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallTraceFusion:
+    def from_map(cls, m: dict[str, Any]) -> RecallTraceFusion:
         return cls([RecallTraceFusionItem.from_map(i) for i in m["items"]])
 
 
@@ -1800,7 +1804,7 @@ class RecallTrace:
     # nothing, or the connected server predates this field.
     fusion: Optional[RecallTraceFusion] = None
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "retrievers": [r.to_map() for r in self.retrievers],
             "filter_chain": self.filter_chain.to_map(),
@@ -1810,7 +1814,7 @@ class RecallTrace:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RecallTrace:
+    def from_map(cls, m: dict[str, Any]) -> RecallTrace:
         rerank = m["rerank"]
         fusion = m.get("fusion")
         return cls(
@@ -1858,8 +1862,8 @@ class ForgetRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "memory_id": self.memory_id,
             "mode": self.mode,
             "request_id": self.request_id,
@@ -1870,7 +1874,7 @@ class ForgetRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> ForgetRequest:
+    def from_map(cls, m: dict[str, Any]) -> ForgetRequest:
         act_as = m.get("act_as")
         return cls(
             m["memory_id"],
@@ -1889,7 +1893,7 @@ class ForgetResponse:
     was_already_forgotten: bool
     edges_removed: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "was_already_forgotten": self.was_already_forgotten,
@@ -1897,7 +1901,7 @@ class ForgetResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ForgetResponse:
+    def from_map(cls, m: dict[str, Any]) -> ForgetResponse:
         return cls(m["memory_id"], m["was_already_forgotten"], m["edges_removed"])
 
 
@@ -1955,8 +1959,8 @@ class MemoryListRequest:
     # so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "sort": self.sort,
             "dir": self.dir,
             "limit": self.limit,
@@ -1975,7 +1979,7 @@ class MemoryListRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> MemoryListRequest:
+    def from_map(cls, m: dict[str, Any]) -> MemoryListRequest:
         act_as = m.get("act_as")
         return cls(
             m["sort"],
@@ -2015,7 +2019,7 @@ class MemoryListItem:
     entity_count: int
     relation_count: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "space_id": self.space_id,
@@ -2035,7 +2039,7 @@ class MemoryListItem:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> MemoryListItem:
+    def from_map(cls, m: dict[str, Any]) -> MemoryListItem:
         return cls(
             m["memory_id"],
             m["space_id"],
@@ -2066,7 +2070,7 @@ class MemoryListResponseFrame:
     cumulative_count: int
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "items": [i.to_map() for i in self.items],
             "next_cursor": list(self.next_cursor),
@@ -2075,7 +2079,7 @@ class MemoryListResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> MemoryListResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> MemoryListResponseFrame:
         return cls(
             [MemoryListItem.from_map(i) for i in m["items"]],
             bytes(m["next_cursor"]),
@@ -2101,7 +2105,7 @@ class GraphNode:
     label: str
     type_qname: str  # empty for non-entity nodes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "kind": self.kind,
@@ -2110,7 +2114,7 @@ class GraphNode:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> GraphNode:
+    def from_map(cls, m: dict[str, Any]) -> GraphNode:
         return cls(m["id"], m["kind"], m["label"], m["type_qname"])
 
 
@@ -2126,7 +2130,7 @@ class GraphEdge:
     kind: int  # 0 = Relation, 1 = Fact, 2 = HasStatement, 3 = Mentions
     label: str  # empty for Mentions
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "from_id": self.from_id,
             "to_id": self.to_id,
@@ -2135,7 +2139,7 @@ class GraphEdge:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> GraphEdge:
+    def from_map(cls, m: dict[str, Any]) -> GraphEdge:
         return cls(m["from_id"], m["to_id"], m["kind"], m["label"])
 
 
@@ -2162,8 +2166,8 @@ class GraphFetchRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "limit": self.limit,
             "cursor": list(self.cursor),
             "include_statements": self.include_statements,
@@ -2176,7 +2180,7 @@ class GraphFetchRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> GraphFetchRequest:
+    def from_map(cls, m: dict[str, Any]) -> GraphFetchRequest:
         act_as = m.get("act_as")
         return cls(
             m["limit"],
@@ -2200,7 +2204,7 @@ class GraphFetchResponseFrame:
     next_cursor: bytes  # opaque continuation token (CBOR array of ints)
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "nodes": [n.to_map() for n in self.nodes],
             "edges": [e.to_map() for e in self.edges],
@@ -2209,7 +2213,7 @@ class GraphFetchResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> GraphFetchResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> GraphFetchResponseFrame:
         return cls(
             [GraphNode.from_map(n) for n in m["nodes"]],
             [GraphEdge.from_map(e) for e in m["edges"]],
@@ -2231,11 +2235,11 @@ class ErrorDetails:
     expected: Optional[str]
     actual: Optional[str]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"field": self.field, "expected": self.expected, "actual": self.actual}
 
     @classmethod
-    def from_map(cls, m: dict) -> ErrorDetails:
+    def from_map(cls, m: dict[str, Any]) -> ErrorDetails:
         return cls(m["field"], m["expected"], m["actual"])
 
 
@@ -2249,7 +2253,7 @@ class ErrorResponse:
     details: Optional[ErrorDetails]
     retry_after_ms: Optional[int]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "code": self.code,
             "category": self.category,
@@ -2259,7 +2263,7 @@ class ErrorResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ErrorResponse:
+    def from_map(cls, m: dict[str, Any]) -> ErrorResponse:
         return cls(
             m["code"],
             m["category"],
@@ -2308,21 +2312,23 @@ class StatementKind:
     _TO_BYTE = {name: b for b, name in _BY_BYTE.items()}
 
     @staticmethod
-    def custom(byte: int) -> dict:
+    def custom(byte: int) -> dict[str, Any]:
         """The wire value for a ``Custom`` statement kind."""
         return {"Custom": byte}
 
     @classmethod
-    def from_storage_byte(cls, byte: int) -> Union[str, dict]:
+    def from_storage_byte(cls, byte: int) -> Union[str, dict[str, Any]]:
         """Map a storage-byte discriminant to a wire ``kind`` value."""
         name = cls._BY_BYTE.get(byte)
         return name if name is not None else cls.custom(byte)
 
     @classmethod
-    def to_storage_byte(cls, kind: Union[str, dict]) -> int:
+    def to_storage_byte(cls, kind: Union[str, dict[str, Any]]) -> int:
         """Map a wire ``kind`` value back to its storage-byte discriminant."""
-        if isinstance(kind, dict) and "Custom" in kind:
-            return kind["Custom"]
+        if isinstance(kind, dict):
+            if "Custom" in kind:
+                return int(kind["Custom"])
+            raise ValueError(f"unknown statement kind {kind!r}")
         return cls._TO_BYTE[kind]
 
 
@@ -2334,12 +2340,18 @@ class StatementValue:
     """
 
     variant: str
-    value: object
+    # The scalar the variant carries. `Blob` is a list of byte values (the
+    # server's `Vec<u8>`), the rest are plain scalars.
+    value: Union[str, int, float, bool, bytes, list[int]]
 
-    def to_cbor_value(self) -> object:
+    def to_cbor_value(self) -> dict[str, Any]:
         if self.variant == "Blob":
+            if not isinstance(self.value, (bytes, list)):
+                raise TypeError(f"Blob value must be bytes or a list, got {type(self.value)}")
             return {"Blob": list(self.value)}
         if self.variant == "Float":
+            if isinstance(self.value, (bytes, list)):
+                raise TypeError(f"Float value must be a number, got {type(self.value)}")
             return {"Float": float(self.value)}  # f64
         return {self.variant: self.value}
 
@@ -2359,10 +2371,11 @@ class StatementObject:
     """
 
     variant: str
-    value: object
+    # `Value` nests a StatementValue; the *Ref variants carry a raw id.
+    value: Union[StatementValue, bytes]
 
-    def to_cbor_value(self) -> object:
-        if self.variant == "Value":
+    def to_cbor_value(self) -> dict[str, Any]:
+        if self.variant == "Value" and isinstance(self.value, StatementValue):
             return {"Value": self.value.to_cbor_value()}
         # EntityRef / MemoryRef / StatementRef -> byte string id.
         return {self.variant: self.value}
@@ -2392,8 +2405,10 @@ class EvidenceRef:
     def overflow(cls, id_: bytes) -> EvidenceRef:
         return cls("Overflow", id_)
 
-    def to_cbor_value(self) -> object:
+    def to_cbor_value(self) -> dict[str, Any]:
         if self.variant == "Inline":
+            if not isinstance(self.value, (bytes, list)):
+                raise TypeError(f"Inline evidence must be bytes or a list, got {type(self.value)}")
             return {"Inline": list(self.value)}
         return {"Overflow": self.value}
 
@@ -2419,8 +2434,8 @@ class EntityCreateRequest:
     # when None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "entity_type_id": self.entity_type_id,
             "canonical_name": self.canonical_name,
             "aliases": list(self.aliases),
@@ -2433,7 +2448,7 @@ class EntityCreateRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityCreateRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityCreateRequest:
         act_as = m.get("act_as")
         return cls(
             m["entity_type_id"],
@@ -2452,11 +2467,11 @@ class EntityCreateResponse:
 
     entity_id: bytes  # 16-byte byte string
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"entity_id": self.entity_id}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityCreateResponse:
+    def from_map(cls, m: dict[str, Any]) -> EntityCreateResponse:
         return cls(m["entity_id"])
 
 
@@ -2482,8 +2497,8 @@ class StatementCreateRequest:
     # map when None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "kind": self.kind,
             "subject": self.subject,
             "predicate": self.predicate,
@@ -2503,7 +2518,7 @@ class StatementCreateRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementCreateRequest:
+    def from_map(cls, m: dict[str, Any]) -> StatementCreateRequest:
         act_as = m.get("act_as")
         return cls(
             m["kind"],
@@ -2531,7 +2546,7 @@ class StatementCreateResponse:
     auto_superseded: bytes
     chain_root: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "statement_id": self.statement_id,
             "auto_superseded": self.auto_superseded,
@@ -2539,7 +2554,7 @@ class StatementCreateResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementCreateResponse:
+    def from_map(cls, m: dict[str, Any]) -> StatementCreateResponse:
         return cls(m["statement_id"], m["auto_superseded"], m["chain_root"])
 
 
@@ -2562,8 +2577,8 @@ class RelationCreateRequest:
     # map when None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "relation_type": self.relation_type,
             "from_entity": self.from_entity,
             "to_entity": self.to_entity,
@@ -2581,7 +2596,7 @@ class RelationCreateRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationCreateRequest:
+    def from_map(cls, m: dict[str, Any]) -> RelationCreateRequest:
         act_as = m.get("act_as")
         return cls(
             m["relation_type"],
@@ -2605,11 +2620,11 @@ class RelationCreateResponse:
 
     relation_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"relation_id": self.relation_id}
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationCreateResponse:
+    def from_map(cls, m: dict[str, Any]) -> RelationCreateResponse:
         return cls(m["relation_id"])
 
 
@@ -2622,7 +2637,7 @@ class SchemaUploadRequest:
     allow_breaking: bool
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "schema_document": self.schema_document,
             "dry_run": self.dry_run,
@@ -2631,7 +2646,7 @@ class SchemaUploadRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaUploadRequest:
+    def from_map(cls, m: dict[str, Any]) -> SchemaUploadRequest:
         return cls(m["schema_document"], m["dry_run"], m["allow_breaking"], m["request_id"])
 
 
@@ -2646,7 +2661,7 @@ class SchemaValidationError:
     length: int
     severity: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "code": self.code,
             "message": self.message,
@@ -2657,7 +2672,7 @@ class SchemaValidationError:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaValidationError:
+    def from_map(cls, m: dict[str, Any]) -> SchemaValidationError:
         return cls(m["code"], m["message"], m["line"], m["column"], m["length"], m["severity"])
 
 
@@ -2679,7 +2694,7 @@ class SchemaReplaceRequest:
     force_drop_existing: bool
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "schema_document": self.schema_document,
             "force_drop_existing": self.force_drop_existing,
@@ -2687,7 +2702,7 @@ class SchemaReplaceRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaReplaceRequest:
+    def from_map(cls, m: dict[str, Any]) -> SchemaReplaceRequest:
         return cls(m["schema_document"], m["force_drop_existing"], m["request_id"])
 
 
@@ -2705,7 +2720,7 @@ class SchemaReplaceResponse:
     dropped_count: int
     validation_errors: list[SchemaValidationError]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "namespace": self.namespace,
             "schema_version": self.schema_version,
@@ -2714,7 +2729,7 @@ class SchemaReplaceResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaReplaceResponse:
+    def from_map(cls, m: dict[str, Any]) -> SchemaReplaceResponse:
         return cls(
             m["namespace"],
             m["schema_version"],
@@ -2738,11 +2753,11 @@ class CancelStreamRequest:
     target_stream_id: int
     reason: object = "ClientUnneeded"
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"target_stream_id": self.target_stream_id, "reason": self.reason}
 
     @classmethod
-    def from_map(cls, m: dict) -> CancelStreamRequest:
+    def from_map(cls, m: dict[str, Any]) -> CancelStreamRequest:
         return cls(m["target_stream_id"], m.get("reason", "ClientUnneeded"))
 
 
@@ -2753,14 +2768,14 @@ class CancelStreamAck:
     target_stream_id: int
     cancelled_at_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "target_stream_id": self.target_stream_id,
             "cancelled_at_unix_nanos": self.cancelled_at_unix_nanos,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> CancelStreamAck:
+    def from_map(cls, m: dict[str, Any]) -> CancelStreamAck:
         return cls(m["target_stream_id"], m["cancelled_at_unix_nanos"])
 
 
@@ -2774,7 +2789,7 @@ class SchemaUploadResponse:
     backward_compatible: bool
     migration_summary_blob: list[int]  # Vec<u8> -> CBOR array of ints
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "namespace": self.namespace,
             "schema_version": self.schema_version,
@@ -2784,7 +2799,7 @@ class SchemaUploadResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaUploadResponse:
+    def from_map(cls, m: dict[str, Any]) -> SchemaUploadResponse:
         return cls(
             m["namespace"],
             m["schema_version"],
@@ -2801,11 +2816,11 @@ class TimeRange:
     from_unix_ms: Optional[int]
     to_unix_ms: Optional[int]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"from_unix_ms": self.from_unix_ms, "to_unix_ms": self.to_unix_ms}
 
     @classmethod
-    def from_map(cls, m: dict) -> TimeRange:
+    def from_map(cls, m: dict[str, Any]) -> TimeRange:
         return cls(m["from_unix_ms"], m["to_unix_ms"])
 
 
@@ -2818,7 +2833,7 @@ class FusionConfig:
     lexical_weight: float  # f32
     graph_weight: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "k": self.k,
             "semantic_weight": round_f32(self.semantic_weight),
@@ -2827,7 +2842,7 @@ class FusionConfig:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> FusionConfig:
+    def from_map(cls, m: dict[str, Any]) -> FusionConfig:
         return cls(m["k"], m["semantic_weight"], m["lexical_weight"], m["graph_weight"])
 
 
@@ -2848,7 +2863,8 @@ class RetrieverSelection:
     """
 
     variant: str
-    value: object = None
+    # Variant-name strings, per the note above -- NOT integers.
+    value: Optional[list[str]] = None
 
     @classmethod
     def auto(cls) -> RetrieverSelection:
@@ -2859,16 +2875,21 @@ class RetrieverSelection:
         """``retrievers`` are :class:`Retriever` name strings."""
         return cls("Explicit", list(retrievers))
 
-    def to_cbor_value(self) -> object:
+    def to_cbor_value(self) -> Union[str, dict[str, Any]]:
         if self.variant == "Auto":
             return "Auto"
-        return {"Explicit": list(self.value)}
+        return {"Explicit": list(self.value) if isinstance(self.value, list) else []}
 
     @classmethod
     def from_cbor_value(cls, v: object) -> RetrieverSelection:
         if v == "Auto":
             return cls("Auto")
-        return cls("Explicit", list(v["Explicit"]))
+        if isinstance(v, dict):
+            # `str`, not `int`: see the class docstring. Coercing these to
+            # integers is the exact bug that note exists to prevent, and the
+            # `req_query_explain` / `req_query_trace` corpus vectors catch it.
+            return cls("Explicit", [str(x) for x in v["Explicit"]])
+        raise ValueError(f"unknown retriever selection {v!r}")
 
 
 @dataclass
@@ -2892,7 +2913,7 @@ class QueryRequest:
     fusion_config: Optional[FusionConfig]
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "text": self.text,
             "entity_anchor": self.entity_anchor,
@@ -2913,7 +2934,7 @@ class QueryRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> QueryRequest:
+    def from_map(cls, m: dict[str, Any]) -> QueryRequest:
         return cls(
             m["text"],
             m["entity_anchor"],
@@ -2943,7 +2964,7 @@ class MaterializeProceduralRequest:
     categories: list[str]
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "space_id": self.space_id,
             "session_filter": (None if self.session_filter is None else list(self.session_filter)),
@@ -2954,7 +2975,7 @@ class MaterializeProceduralRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> MaterializeProceduralRequest:
+    def from_map(cls, m: dict[str, Any]) -> MaterializeProceduralRequest:
         return cls(
             m["space_id"],
             None if m["session_filter"] is None else list(m["session_filter"]),
@@ -2974,7 +2995,7 @@ class MaterializeProceduralResponse:
     total_candidates: int
     trimmed_by_budget: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "system_block": self.system_block,
             "statement_ids": list(self.statement_ids),
@@ -2983,7 +3004,7 @@ class MaterializeProceduralResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> MaterializeProceduralResponse:
+    def from_map(cls, m: dict[str, Any]) -> MaterializeProceduralResponse:
         return cls(
             m["system_block"],
             list(m["statement_ids"]),
@@ -3011,8 +3032,8 @@ class LinkRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "source": self.source,
             "target": self.target,
             "kind": self.kind,
@@ -3025,7 +3046,7 @@ class LinkRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> LinkRequest:
+    def from_map(cls, m: dict[str, Any]) -> LinkRequest:
         act_as = m.get("act_as")
         return cls(
             m["source"],
@@ -3049,7 +3070,7 @@ class LinkResponse:
     created_at_unix_nanos: int
     already_existed: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "target": self.target,
@@ -3060,7 +3081,7 @@ class LinkResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> LinkResponse:
+    def from_map(cls, m: dict[str, Any]) -> LinkResponse:
         return cls(
             m["source"],
             m["target"],
@@ -3084,8 +3105,8 @@ class UnlinkRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "source": self.source,
             "target": self.target,
             "kind": self.kind,
@@ -3097,7 +3118,7 @@ class UnlinkRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> UnlinkRequest:
+    def from_map(cls, m: dict[str, Any]) -> UnlinkRequest:
         act_as = m.get("act_as")
         return cls(
             m["source"],
@@ -3118,7 +3139,7 @@ class UnlinkResponse:
     kind: int
     removed: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "target": self.target,
@@ -3127,7 +3148,7 @@ class UnlinkResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> UnlinkResponse:
+    def from_map(cls, m: dict[str, Any]) -> UnlinkResponse:
         return cls(m["source"], m["target"], m["kind"], m["removed"])
 
 
@@ -3209,8 +3230,10 @@ class TransitionKind:
     def from_cbor_value(cls, v: object) -> TransitionKind:
         if isinstance(v, dict):
             ((variant, value),) = v.items()
-            return cls(variant, value)
-        return cls(v)
+            return cls(str(variant), value)
+        if isinstance(v, str):
+            return cls(v)
+        raise ValueError(f"unknown TransitionKind cbor {v!r}")
 
 
 @dataclass
@@ -3221,7 +3244,7 @@ class PlanBudget:
     max_wall_time_ms: int
     max_branches_explored: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "max_steps": self.max_steps,
             "max_wall_time_ms": self.max_wall_time_ms,
@@ -3229,7 +3252,7 @@ class PlanBudget:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> PlanBudget:
+    def from_map(cls, m: dict[str, Any]) -> PlanBudget:
         return cls(m["max_steps"], m["max_wall_time_ms"], m["max_branches_explored"])
 
 
@@ -3254,8 +3277,8 @@ class PlanRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "start": self.start.to_cbor_value(),
             "goal": self.goal.to_cbor_value(),
             "budget": self.budget.to_map(),
@@ -3270,7 +3293,7 @@ class PlanRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> PlanRequest:
+    def from_map(cls, m: dict[str, Any]) -> PlanRequest:
         act_as = m.get("act_as")
         return cls(
             PlanState.from_cbor_value(m["start"]),
@@ -3296,7 +3319,7 @@ class PlanStep:
     confidence: float  # f32
     estimated_distance_to_goal: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "step_index": self.step_index,
             "memory_id": self.memory_id,
@@ -3307,7 +3330,7 @@ class PlanStep:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> PlanStep:
+    def from_map(cls, m: dict[str, Any]) -> PlanStep:
         return cls(
             m["step_index"],
             m["memory_id"],
@@ -3330,8 +3353,8 @@ class PlanResponseFrame:
     # map otherwise. Mirrors ``RecallResponseFrame.trace``.
     trace: Optional[PlanTrace] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "steps": [s.to_map() for s in self.steps],
             "is_final": self.is_final,
             "plan_status": self.plan_status,
@@ -3341,7 +3364,7 @@ class PlanResponseFrame:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> PlanResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> PlanResponseFrame:
         trace = m.get("trace")
         return cls(
             [PlanStep.from_map(s) for s in m["steps"]],
@@ -3376,7 +3399,7 @@ class PlanTraceNode:
     parent_edge: Optional[int]  # WireMemoryId or None
     alignment_score: Optional[float]  # f32 or None
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "text": self.text,
@@ -3389,7 +3412,7 @@ class PlanTraceNode:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> PlanTraceNode:
+    def from_map(cls, m: dict[str, Any]) -> PlanTraceNode:
         return cls(
             m["memory_id"],
             m["text"],
@@ -3410,7 +3433,7 @@ class PlanTraceMeetingPoint:
     text: str
     included_in_result: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "text": self.text,
@@ -3418,7 +3441,7 @@ class PlanTraceMeetingPoint:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> PlanTraceMeetingPoint:
+    def from_map(cls, m: dict[str, Any]) -> PlanTraceMeetingPoint:
         return cls(m["memory_id"], m["text"], m["included_in_result"])
 
 
@@ -3432,14 +3455,14 @@ class PlanTrace:
     explored: list[PlanTraceNode]
     meeting_points: list[PlanTraceMeetingPoint]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "explored": [n.to_map() for n in self.explored],
             "meeting_points": [p.to_map() for p in self.meeting_points],
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> PlanTrace:
+    def from_map(cls, m: dict[str, Any]) -> PlanTrace:
         return cls(
             [PlanTraceNode.from_map(n) for n in m["explored"]],
             [PlanTraceMeetingPoint.from_map(p) for p in m["meeting_points"]],
@@ -3507,8 +3530,10 @@ class InferenceKind:
     def from_cbor_value(cls, v: object) -> InferenceKind:
         if isinstance(v, dict):
             ((variant, value),) = v.items()
-            return cls(variant, value)
-        return cls(v)
+            return cls(str(variant), value)
+        if isinstance(v, str):
+            return cls(v)
+        raise ValueError(f"unknown InferenceKind cbor {v!r}")
 
 
 @dataclass
@@ -3534,8 +3559,8 @@ class ReasonRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "observation": self.observation.to_cbor_value(),
             "depth": self.depth,
             "confidence_threshold": round_f32(self.confidence_threshold),
@@ -3551,7 +3576,7 @@ class ReasonRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonRequest:
+    def from_map(cls, m: dict[str, Any]) -> ReasonRequest:
         act_as = m.get("act_as")
         return cls(
             ObservationInput.from_cbor_value(m["observation"]),
@@ -3578,7 +3603,7 @@ class InferenceStep:
     confidence: float  # f32
     inference_kind: InferenceKind
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "step_index": self.step_index,
             "claim": self.claim,
@@ -3589,7 +3614,7 @@ class InferenceStep:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> InferenceStep:
+    def from_map(cls, m: dict[str, Any]) -> InferenceStep:
         return cls(
             m["step_index"],
             m["claim"],
@@ -3612,8 +3637,8 @@ class ReasonResponseFrame:
     # otherwise. Mirrors ``RecallResponseFrame.trace``.
     trace: Optional[ReasonTrace] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "inferences": [i.to_map() for i in self.inferences],
             "is_final": self.is_final,
             "reason_status": self.reason_status,
@@ -3623,7 +3648,7 @@ class ReasonResponseFrame:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> ReasonResponseFrame:
         trace = m.get("trace")
         return cls(
             [InferenceStep.from_map(i) for i in m["inferences"]],
@@ -3646,7 +3671,7 @@ class ReasonTraceCandidate:
     text: str
     score: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "text": self.text,
@@ -3654,7 +3679,7 @@ class ReasonTraceCandidate:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTraceCandidate:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTraceCandidate:
         return cls(m["memory_id"], m["text"], m["score"])
 
 
@@ -3664,11 +3689,11 @@ class ReasonTraceBase:
 
     candidates: list[ReasonTraceCandidate]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"candidates": [c.to_map() for c in self.candidates]}
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTraceBase:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTraceBase:
         return cls([ReasonTraceCandidate.from_map(c) for c in m["candidates"]])
 
 
@@ -3683,7 +3708,7 @@ class ReasonTraceEdgeCandidate:
     from_memory_id: int  # u128
     raw_score: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "text": self.text,
@@ -3694,7 +3719,7 @@ class ReasonTraceEdgeCandidate:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTraceEdgeCandidate:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTraceEdgeCandidate:
         return cls(
             m["memory_id"],
             m["text"],
@@ -3715,11 +3740,11 @@ class ReasonTraceIdWithText:
     memory_id: int  # u128
     text: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"memory_id": self.memory_id, "text": self.text}
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTraceIdWithText:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTraceIdWithText:
         return cls(m["memory_id"], m["text"])
 
 
@@ -3731,7 +3756,7 @@ class ReasonTraceScoredId:
     text: str
     score: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "text": self.text,
@@ -3739,7 +3764,7 @@ class ReasonTraceScoredId:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTraceScoredId:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTraceScoredId:
         return cls(m["memory_id"], m["text"], m["score"])
 
 
@@ -3756,7 +3781,7 @@ class ReasonTraceWalk:
     dropped_by_max_supporting: list[ReasonTraceIdWithText]
     dropped_by_max_contradicting: list[ReasonTraceIdWithText]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "considered": [c.to_map() for c in self.considered],
             "dropped_by_edge_kind": [c.to_map() for c in self.dropped_by_edge_kind],
@@ -3768,7 +3793,7 @@ class ReasonTraceWalk:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTraceWalk:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTraceWalk:
         return cls(
             [ReasonTraceEdgeCandidate.from_map(c) for c in m["considered"]],
             [ReasonTraceEdgeCandidate.from_map(c) for c in m["dropped_by_edge_kind"]],
@@ -3798,7 +3823,7 @@ class ReasonTraceScoreBreakdown:
     analogical_fit: float  # f32
     final_score: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "memory_id": self.memory_id,
             "text": self.text,
@@ -3811,7 +3836,7 @@ class ReasonTraceScoreBreakdown:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTraceScoreBreakdown:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTraceScoreBreakdown:
         return cls(
             m["memory_id"],
             m["text"],
@@ -3834,11 +3859,11 @@ class ReasonTraceCentroid:
     computed: bool
     skipped_reason: Optional[str]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"computed": self.computed, "skipped_reason": self.skipped_reason}
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTraceCentroid:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTraceCentroid:
         return cls(m["computed"], m["skipped_reason"])
 
 
@@ -3854,7 +3879,7 @@ class ReasonTrace:
     scoring: list[ReasonTraceScoreBreakdown]
     centroid: ReasonTraceCentroid
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "base": self.base.to_map(),
             "walk": self.walk.to_map(),
@@ -3863,7 +3888,7 @@ class ReasonTrace:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ReasonTrace:
+    def from_map(cls, m: dict[str, Any]) -> ReasonTrace:
         return cls(
             ReasonTraceBase.from_map(m["base"]),
             ReasonTraceWalk.from_map(m["walk"]),
@@ -3884,11 +3909,11 @@ class TxnBeginRequest:
     txn_id: bytes
     timeout_seconds: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"txn_id": self.txn_id, "timeout_seconds": self.timeout_seconds}
 
     @classmethod
-    def from_map(cls, m: dict) -> TxnBeginRequest:
+    def from_map(cls, m: dict[str, Any]) -> TxnBeginRequest:
         return cls(m["txn_id"], m["timeout_seconds"])
 
 
@@ -3900,7 +3925,7 @@ class TxnBeginResponse:
     timeout_seconds: int
     started_at_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "txn_id": self.txn_id,
             "timeout_seconds": self.timeout_seconds,
@@ -3908,7 +3933,7 @@ class TxnBeginResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> TxnBeginResponse:
+    def from_map(cls, m: dict[str, Any]) -> TxnBeginResponse:
         return cls(m["txn_id"], m["timeout_seconds"], m["started_at_unix_nanos"])
 
 
@@ -3918,11 +3943,11 @@ class TxnCommitRequest:
 
     txn_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"txn_id": self.txn_id}
 
     @classmethod
-    def from_map(cls, m: dict) -> TxnCommitRequest:
+    def from_map(cls, m: dict[str, Any]) -> TxnCommitRequest:
         return cls(m["txn_id"])
 
 
@@ -3934,7 +3959,7 @@ class TxnCommitResponse:
     committed_at_unix_nanos: int
     operations_applied: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "txn_id": self.txn_id,
             "committed_at_unix_nanos": self.committed_at_unix_nanos,
@@ -3942,7 +3967,7 @@ class TxnCommitResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> TxnCommitResponse:
+    def from_map(cls, m: dict[str, Any]) -> TxnCommitResponse:
         return cls(m["txn_id"], m["committed_at_unix_nanos"], m["operations_applied"])
 
 
@@ -3952,11 +3977,11 @@ class TxnAbortRequest:
 
     txn_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"txn_id": self.txn_id}
 
     @classmethod
-    def from_map(cls, m: dict) -> TxnAbortRequest:
+    def from_map(cls, m: dict[str, Any]) -> TxnAbortRequest:
         return cls(m["txn_id"])
 
 
@@ -3967,11 +3992,11 @@ class TxnAbortResponse:
     txn_id: bytes
     operations_discarded: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"txn_id": self.txn_id, "operations_discarded": self.operations_discarded}
 
     @classmethod
-    def from_map(cls, m: dict) -> TxnAbortResponse:
+    def from_map(cls, m: dict[str, Any]) -> TxnAbortResponse:
         return cls(m["txn_id"], m["operations_discarded"])
 
 
@@ -4032,11 +4057,11 @@ class StageAutoEdgePayload:
 
     edges_written: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"edges_written": self.edges_written}
 
     @classmethod
-    def from_map(cls, m: dict) -> StageAutoEdgePayload:
+    def from_map(cls, m: dict[str, Any]) -> StageAutoEdgePayload:
         return cls(m["edges_written"])
 
 
@@ -4046,11 +4071,11 @@ class StageTemporalEdgePayload:
 
     edges_written: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"edges_written": self.edges_written}
 
     @classmethod
-    def from_map(cls, m: dict) -> StageTemporalEdgePayload:
+    def from_map(cls, m: dict[str, Any]) -> StageTemporalEdgePayload:
         return cls(m["edges_written"])
 
 
@@ -4063,14 +4088,14 @@ class StageHypePayload:
     questions_written: int
     cost_micro_usd: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "questions_written": self.questions_written,
             "cost_micro_usd": self.cost_micro_usd,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StageHypePayload:
+    def from_map(cls, m: dict[str, Any]) -> StageHypePayload:
         return cls(m["questions_written"], m["cost_micro_usd"])
 
 
@@ -4084,7 +4109,7 @@ class StageExtractorPayload:
     audit_status: int
     error_message: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entity_count": self.entity_count,
             "statement_count": self.statement_count,
@@ -4094,7 +4119,7 @@ class StageExtractorPayload:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StageExtractorPayload:
+    def from_map(cls, m: dict[str, Any]) -> StageExtractorPayload:
         return cls(
             m["entity_count"],
             m["statement_count"],
@@ -4111,9 +4136,10 @@ class StagePayload:
     """
 
     variant: str
-    value: object
+    # The nested event/stage dataclass; every one of them renders via `to_map`.
+    value: _WirePayload
 
-    def to_cbor_value(self) -> object:
+    def to_cbor_value(self) -> dict[str, Any]:
         return {self.variant: self.value.to_map()}
 
     @classmethod
@@ -4137,14 +4163,14 @@ class SimilarityFilter:
     reference_memory_id: int  # u128
     threshold: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "reference_memory_id": self.reference_memory_id,
             "threshold": round_f32(self.threshold),
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SimilarityFilter:
+    def from_map(cls, m: dict[str, Any]) -> SimilarityFilter:
         return cls(m["reference_memory_id"], m["threshold"])
 
 
@@ -4158,7 +4184,7 @@ class SubscriptionFilter:
     spaces: Optional[list[bytes]]  # subset of space ids (16-byte), or None for all
     memory_ids: Optional[list[int]] = None  # subset of memory ids (u128), or None for all
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "session_filter": None if self.session_filter is None else list(self.session_filter),
             "kinds": None if self.kinds is None else list(self.kinds),
@@ -4168,7 +4194,7 @@ class SubscriptionFilter:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SubscriptionFilter:
+    def from_map(cls, m: dict[str, Any]) -> SubscriptionFilter:
         return cls(
             None if m["session_filter"] is None else list(m["session_filter"]),
             None if m["kinds"] is None else list(m["kinds"]),
@@ -4191,8 +4217,8 @@ class SubscribeRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "filter": self.filter.to_map(),
             "include_history": self.include_history,
             "from_lsn": self.from_lsn,
@@ -4203,7 +4229,7 @@ class SubscribeRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> SubscribeRequest:
+    def from_map(cls, m: dict[str, Any]) -> SubscribeRequest:
         act_as = m.get("act_as")
         return cls(
             SubscriptionFilter.from_map(m["filter"]),
@@ -4230,7 +4256,7 @@ class EdgeEventPayload:
     superseded_relation_id: Optional[bytes]
     origin: int  # 0 = EXPLICIT, 1 = AUTO_DERIVED
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "from_kind": self.from_kind,
             "from_id": self.from_id,
@@ -4246,7 +4272,7 @@ class EdgeEventPayload:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EdgeEventPayload:
+    def from_map(cls, m: dict[str, Any]) -> EdgeEventPayload:
         return cls(
             m["from_kind"],
             m["from_id"],
@@ -4270,7 +4296,7 @@ class EntityCreatedEvent:
     entity_type_id: int
     canonical_name: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entity_id": self.entity_id,
             "entity_type_id": self.entity_type_id,
@@ -4278,7 +4304,7 @@ class EntityCreatedEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityCreatedEvent:
+    def from_map(cls, m: dict[str, Any]) -> EntityCreatedEvent:
         return cls(m["entity_id"], m["entity_type_id"], m["canonical_name"])
 
 
@@ -4291,7 +4317,7 @@ class EntityUpdatedEvent:
     canonical_name: str
     embedding_version_changed: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entity_id": self.entity_id,
             "entity_type_id": self.entity_type_id,
@@ -4300,7 +4326,7 @@ class EntityUpdatedEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityUpdatedEvent:
+    def from_map(cls, m: dict[str, Any]) -> EntityUpdatedEvent:
         return cls(
             m["entity_id"],
             m["entity_type_id"],
@@ -4318,7 +4344,7 @@ class EntityRenamedEvent:
     new_canonical_name: str
     old_moved_to_alias: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entity_id": self.entity_id,
             "old_canonical_name": self.old_canonical_name,
@@ -4327,7 +4353,7 @@ class EntityRenamedEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityRenamedEvent:
+    def from_map(cls, m: dict[str, Any]) -> EntityRenamedEvent:
         return cls(
             m["entity_id"],
             m["old_canonical_name"],
@@ -4347,7 +4373,7 @@ class EntityMergedEvent:
     statements_rerouted: int
     relations_rerouted: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "survivor": self.survivor,
             "merged": self.merged,
@@ -4358,7 +4384,7 @@ class EntityMergedEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityMergedEvent:
+    def from_map(cls, m: dict[str, Any]) -> EntityMergedEvent:
         return cls(
             m["survivor"],
             m["merged"],
@@ -4377,7 +4403,7 @@ class EntityUnmergedEvent:
     from_survivor: bytes
     audit_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "restored_entity_id": self.restored_entity_id,
             "from_survivor": self.from_survivor,
@@ -4385,7 +4411,7 @@ class EntityUnmergedEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityUnmergedEvent:
+    def from_map(cls, m: dict[str, Any]) -> EntityUnmergedEvent:
         return cls(m["restored_entity_id"], m["from_survivor"], m["audit_id"])
 
 
@@ -4396,11 +4422,11 @@ class EntityTombstonedEvent:
     entity_id: bytes
     reason: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"entity_id": self.entity_id, "reason": self.reason}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityTombstonedEvent:
+    def from_map(cls, m: dict[str, Any]) -> EntityTombstonedEvent:
         return cls(m["entity_id"], m["reason"])
 
 
@@ -4414,7 +4440,7 @@ class StatementCreatedEvent:
     predicate: str
     confidence: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "statement_id": self.statement_id,
             "kind": self.kind,
@@ -4424,7 +4450,7 @@ class StatementCreatedEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementCreatedEvent:
+    def from_map(cls, m: dict[str, Any]) -> StatementCreatedEvent:
         return cls(m["statement_id"], m["kind"], m["subject"], m["predicate"], m["confidence"])
 
 
@@ -4436,7 +4462,7 @@ class StatementSupersededEvent:
     new_statement_id: bytes
     chain_root: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "old_statement_id": self.old_statement_id,
             "new_statement_id": self.new_statement_id,
@@ -4444,7 +4470,7 @@ class StatementSupersededEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementSupersededEvent:
+    def from_map(cls, m: dict[str, Any]) -> StatementSupersededEvent:
         return cls(m["old_statement_id"], m["new_statement_id"], m["chain_root"])
 
 
@@ -4455,11 +4481,11 @@ class StatementTombstonedEvent:
     statement_id: bytes
     reason: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"statement_id": self.statement_id, "reason": self.reason}
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementTombstonedEvent:
+    def from_map(cls, m: dict[str, Any]) -> StatementTombstonedEvent:
         return cls(m["statement_id"], m["reason"])
 
 
@@ -4472,7 +4498,7 @@ class RelationCreatedEvent:
     from_: bytes
     to: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "relation_id": self.relation_id,
             "relation_type": self.relation_type,
@@ -4481,7 +4507,7 @@ class RelationCreatedEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationCreatedEvent:
+    def from_map(cls, m: dict[str, Any]) -> RelationCreatedEvent:
         return cls(m["relation_id"], m["relation_type"], m["from"], m["to"])
 
 
@@ -4492,14 +4518,14 @@ class RelationSupersededEvent:
     old_relation_id: bytes
     new_relation_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "old_relation_id": self.old_relation_id,
             "new_relation_id": self.new_relation_id,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationSupersededEvent:
+    def from_map(cls, m: dict[str, Any]) -> RelationSupersededEvent:
         return cls(m["old_relation_id"], m["new_relation_id"])
 
 
@@ -4510,11 +4536,11 @@ class RelationTombstonedEvent:
     relation_id: bytes
     reason: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"relation_id": self.relation_id, "reason": self.reason}
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationTombstonedEvent:
+    def from_map(cls, m: dict[str, Any]) -> RelationTombstonedEvent:
         return cls(m["relation_id"], m["reason"])
 
 
@@ -4527,7 +4553,7 @@ class SchemaUpdatedEvent:
     to_version: int
     backward_compatible: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "namespace": self.namespace,
             "from_version": self.from_version,
@@ -4536,7 +4562,7 @@ class SchemaUpdatedEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaUpdatedEvent:
+    def from_map(cls, m: dict[str, Any]) -> SchemaUpdatedEvent:
         return cls(m["namespace"], m["from_version"], m["to_version"], m["backward_compatible"])
 
 
@@ -4565,9 +4591,10 @@ class GraphEventPayload:
     """
 
     variant: str
-    value: object
+    # The nested event/stage dataclass; every one of them renders via `to_map`.
+    value: _WirePayload
 
-    def to_cbor_value(self) -> object:
+    def to_cbor_value(self) -> dict[str, Any]:
         return {self.variant: self.value.to_map()}
 
     @classmethod
@@ -4597,7 +4624,7 @@ class SubscriptionEvent:
     stage_outcome: Optional[int]
     stage_payload: Optional[StagePayload]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "event_type": self.event_type,
             "memory_id": self.memory_id,
@@ -4619,7 +4646,7 @@ class SubscriptionEvent:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SubscriptionEvent:
+    def from_map(cls, m: dict[str, Any]) -> SubscriptionEvent:
         return cls(
             m["event_type"],
             m["memory_id"],
@@ -4647,11 +4674,11 @@ class UnsubscribeRequest:
 
     target_stream_id: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"target_stream_id": self.target_stream_id}
 
     @classmethod
-    def from_map(cls, m: dict) -> UnsubscribeRequest:
+    def from_map(cls, m: dict[str, Any]) -> UnsubscribeRequest:
         return cls(m["target_stream_id"])
 
 
@@ -4662,11 +4689,11 @@ class UnsubscribeResponse:
     target_stream_id: int
     final_lsn: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"target_stream_id": self.target_stream_id, "final_lsn": self.final_lsn}
 
     @classmethod
-    def from_map(cls, m: dict) -> UnsubscribeResponse:
+    def from_map(cls, m: dict[str, Any]) -> UnsubscribeResponse:
         return cls(m["target_stream_id"], m["final_lsn"])
 
 
@@ -4680,11 +4707,11 @@ class GetCapabilitiesRequest:
     """Empty request — capabilities are server-side state. Encodes as an empty
     CBOR map, matching every other request body."""
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {}
 
     @classmethod
-    def from_map(cls, m: dict) -> GetCapabilitiesRequest:  # noqa: ARG003
+    def from_map(cls, m: dict[str, Any]) -> GetCapabilitiesRequest:  # noqa: ARG003
         # Empty body; the parameter exists so every payload's `from_map` has
         # one signature.
         return cls()
@@ -4701,7 +4728,7 @@ class Capabilities:
     schema_namespaces: list[str]
     vector_dim: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "rerank": self.rerank,
             "llm_extractor": self.llm_extractor,
@@ -4712,7 +4739,7 @@ class Capabilities:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> Capabilities:
+    def from_map(cls, m: dict[str, Any]) -> Capabilities:
         return cls(
             m["rerank"],
             m["llm_extractor"],
@@ -4729,11 +4756,11 @@ class GetCapabilitiesResponse:
 
     capabilities: Capabilities
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"capabilities": self.capabilities.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict) -> GetCapabilitiesResponse:
+    def from_map(cls, m: dict[str, Any]) -> GetCapabilitiesResponse:
         return cls(Capabilities.from_map(m["capabilities"]))
 
 
@@ -4749,11 +4776,11 @@ class ExtractorListRequest:
     introspection with no runtime enable/disable. Encodes as an empty CBOR
     map, matching every other request body."""
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {}
 
     @classmethod
-    def from_map(cls, m: dict) -> ExtractorListRequest:  # noqa: ARG003
+    def from_map(cls, m: dict[str, Any]) -> ExtractorListRequest:  # noqa: ARG003
         # Empty body; the parameter exists so every payload's `from_map` has
         # one signature.
         return cls()
@@ -4772,7 +4799,7 @@ class ExtractorListItem:
     schema_version: int
     created_at_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "extractor_id": self.extractor_id,
             "namespace": self.namespace,
@@ -4783,7 +4810,7 @@ class ExtractorListItem:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ExtractorListItem:
+    def from_map(cls, m: dict[str, Any]) -> ExtractorListItem:
         return cls(
             m["extractor_id"],
             m["namespace"],
@@ -4804,7 +4831,7 @@ class ExtractorListResponseFrame:
     total: int
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "items": [i.to_map() for i in self.items],
             "total": self.total,
@@ -4812,7 +4839,7 @@ class ExtractorListResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> ExtractorListResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> ExtractorListResponseFrame:
         return cls(
             [ExtractorListItem.from_map(i) for i in m["items"]],
             m["total"],
@@ -4842,7 +4869,7 @@ class EntityView:
     embedding_version: int
     flags: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entity_id": self.entity_id,
             "entity_type_id": self.entity_type_id,
@@ -4859,7 +4886,7 @@ class EntityView:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityView:
+    def from_map(cls, m: dict[str, Any]) -> EntityView:
         return cls(
             m["entity_id"],
             m["entity_type_id"],
@@ -4885,14 +4912,14 @@ class EntityGetRequest:
     # the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {"entity_id": self.entity_id}
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"entity_id": self.entity_id}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityGetRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityGetRequest:
         act_as = m.get("act_as")
         return cls(
             m["entity_id"],
@@ -4906,11 +4933,11 @@ class EntityGetResponse:
 
     entity: EntityView
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"entity": self.entity.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityGetResponse:
+    def from_map(cls, m: dict[str, Any]) -> EntityGetResponse:
         return cls(EntityView.from_map(m["entity"]))
 
 
@@ -4929,8 +4956,8 @@ class EntityListRequest:
     # so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "entity_type_id": self.entity_type_id,
             "name_prefix": self.name_prefix,
             "mention_count_min": self.mention_count_min,
@@ -4944,7 +4971,7 @@ class EntityListRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityListRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityListRequest:
         act_as = m.get("act_as")
         return cls(
             m["entity_type_id"],
@@ -4964,11 +4991,11 @@ class EntityListItem:
 
     entity: EntityView
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"entity": self.entity.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityListItem:
+    def from_map(cls, m: dict[str, Any]) -> EntityListItem:
         return cls(EntityView.from_map(m["entity"]))
 
 
@@ -4981,7 +5008,7 @@ class EntityListResponseFrame:
     cumulative_count: int
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "items": [i.to_map() for i in self.items],
             "next_cursor": list(self.next_cursor),
@@ -4990,7 +5017,7 @@ class EntityListResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityListResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> EntityListResponseFrame:
         return cls(
             [EntityListItem.from_map(i) for i in m["items"]],
             list(m["next_cursor"]),
@@ -5026,8 +5053,8 @@ class EntityResolveRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "candidate_name": self.candidate_name,
             "resolution_context": self.resolution_context,
             "entity_type_hint": self.entity_type_hint,
@@ -5039,7 +5066,7 @@ class EntityResolveRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityResolveRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityResolveRequest:
         act_as = m.get("act_as")
         return cls(
             m["candidate_name"],
@@ -5062,7 +5089,7 @@ class EntityResolveResponse:
     candidate_ids: list[bytes]  # list of 16-byte byte strings; populated for Ambiguous
     audit_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "outcome": self.outcome,
             "tier": self.tier,
@@ -5073,7 +5100,7 @@ class EntityResolveResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityResolveResponse:
+    def from_map(cls, m: dict[str, Any]) -> EntityResolveResponse:
         return cls(
             m["outcome"],
             m["tier"],
@@ -5118,7 +5145,7 @@ class StatementView:
     flags: int
     is_stateful: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "statement_id": self.statement_id,
             "kind": self.kind,
@@ -5146,7 +5173,7 @@ class StatementView:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementView:
+    def from_map(cls, m: dict[str, Any]) -> StatementView:
         return cls(
             m["statement_id"],
             m["kind"],
@@ -5184,8 +5211,8 @@ class StatementGetRequest:
     # the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "statement_id": self.statement_id,
             "follow_supersession": self.follow_supersession,
         }
@@ -5194,7 +5221,7 @@ class StatementGetRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementGetRequest:
+    def from_map(cls, m: dict[str, Any]) -> StatementGetRequest:
         act_as = m.get("act_as")
         return cls(
             m["statement_id"],
@@ -5210,14 +5237,14 @@ class StatementGetResponse:
     statement: StatementView
     returned_via_supersession: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "statement": self.statement.to_map(),
             "returned_via_supersession": self.returned_via_supersession,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementGetResponse:
+    def from_map(cls, m: dict[str, Any]) -> StatementGetResponse:
         return cls(StatementView.from_map(m["statement"]), m["returned_via_supersession"])
 
 
@@ -5239,8 +5266,8 @@ class StatementListRequest:
     # so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "subject": self.subject,
             "predicate": self.predicate,
             "kind": self.kind,
@@ -5257,7 +5284,7 @@ class StatementListRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementListRequest:
+    def from_map(cls, m: dict[str, Any]) -> StatementListRequest:
         act_as = m.get("act_as")
         return cls(
             m["subject"],
@@ -5283,7 +5310,7 @@ class StatementListResponseFrame:
     cumulative_count: int
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "items": [i.to_map() for i in self.items],
             "next_cursor": list(self.next_cursor),
@@ -5292,7 +5319,7 @@ class StatementListResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementListResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> StatementListResponseFrame:
         return cls(
             [StatementView.from_map(i) for i in m["items"]],
             list(m["next_cursor"]),
@@ -5329,7 +5356,7 @@ class RelationView:
     tombstoned_at_unix_nanos: int
     flags: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "relation_id": self.relation_id,
             "chain_root": self.chain_root,
@@ -5352,7 +5379,7 @@ class RelationView:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationView:
+    def from_map(cls, m: dict[str, Any]) -> RelationView:
         return cls(
             m["relation_id"],
             m["chain_root"],
@@ -5391,8 +5418,8 @@ class RelationListFromRequest:
     # so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "from_entity": self.from_entity,
             "relation_type_filter": self.relation_type_filter,
             "time_range_start_unix_nanos": self.time_range_start_unix_nanos,
@@ -5407,7 +5434,7 @@ class RelationListFromRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationListFromRequest:
+    def from_map(cls, m: dict[str, Any]) -> RelationListFromRequest:
         act_as = m.get("act_as")
         return cls(
             m["from_entity"],
@@ -5431,7 +5458,7 @@ class RelationListFromResponseFrame:
     cumulative_count: int
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "items": [i.to_map() for i in self.items],
             "next_cursor": list(self.next_cursor),
@@ -5440,7 +5467,7 @@ class RelationListFromResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationListFromResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> RelationListFromResponseFrame:
         return cls(
             [RelationView.from_map(i) for i in m["items"]],
             list(m["next_cursor"]),
@@ -5465,8 +5492,8 @@ class RelationListToRequest:
     # so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "to_entity": self.to_entity,
             "relation_type_filter": self.relation_type_filter,
             "time_range_start_unix_nanos": self.time_range_start_unix_nanos,
@@ -5481,7 +5508,7 @@ class RelationListToRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationListToRequest:
+    def from_map(cls, m: dict[str, Any]) -> RelationListToRequest:
         act_as = m.get("act_as")
         return cls(
             m["to_entity"],
@@ -5505,7 +5532,7 @@ class RelationListToResponseFrame:
     cumulative_count: int
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "items": [i.to_map() for i in self.items],
             "next_cursor": list(self.next_cursor),
@@ -5514,7 +5541,7 @@ class RelationListToResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationListToResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> RelationListToResponseFrame:
         return cls(
             [RelationView.from_map(i) for i in m["items"]],
             list(m["next_cursor"]),
@@ -5535,11 +5562,11 @@ class SchemaGetRequest:
     namespace: str
     version: int  # 0 = active version
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"namespace": self.namespace, "version": self.version}
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaGetRequest:
+    def from_map(cls, m: dict[str, Any]) -> SchemaGetRequest:
         return cls(m["namespace"], m["version"])
 
 
@@ -5554,7 +5581,7 @@ class SchemaGetResponse:
     uploaded_at_unix_nanos: int
     validator_version: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "namespace": self.namespace,
             "schema_version": self.schema_version,
@@ -5565,7 +5592,7 @@ class SchemaGetResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaGetResponse:
+    def from_map(cls, m: dict[str, Any]) -> SchemaGetResponse:
         return cls(
             m["namespace"],
             m["schema_version"],
@@ -5584,7 +5611,7 @@ class SchemaListRequest:
     limit: int  # 0 = unlimited (server-capped)
     cursor: list[int]  # Vec<u8> -> array of ints
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "namespace": self.namespace,
             "limit": self.limit,
@@ -5592,7 +5619,7 @@ class SchemaListRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaListRequest:
+    def from_map(cls, m: dict[str, Any]) -> SchemaListRequest:
         return cls(m["namespace"], m["limit"], list(m["cursor"]))
 
 
@@ -5605,7 +5632,7 @@ class SchemaListItem:
     validator_version: int
     has_source_text: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
             "uploaded_at_unix_nanos": self.uploaded_at_unix_nanos,
@@ -5614,7 +5641,7 @@ class SchemaListItem:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaListItem:
+    def from_map(cls, m: dict[str, Any]) -> SchemaListItem:
         return cls(
             m["schema_version"],
             m["uploaded_at_unix_nanos"],
@@ -5633,7 +5660,7 @@ class SchemaListResponseFrame:
     next_cursor: list[int]  # Vec<u8> -> array of ints
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "namespace": self.namespace,
             "items": [i.to_map() for i in self.items],
@@ -5643,7 +5670,7 @@ class SchemaListResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaListResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> SchemaListResponseFrame:
         return cls(
             m["namespace"],
             [SchemaListItem.from_map(i) for i in m["items"]],
@@ -5659,11 +5686,11 @@ class SchemaValidateRequest:
 
     schema_document: str
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"schema_document": self.schema_document}
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaValidateRequest:
+    def from_map(cls, m: dict[str, Any]) -> SchemaValidateRequest:
         return cls(m["schema_document"])
 
 
@@ -5675,7 +5702,7 @@ class SchemaValidateResponse:
     would_be_version: int
     validation_errors: list[SchemaValidationError]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "namespace": self.namespace,
             "would_be_version": self.would_be_version,
@@ -5683,7 +5710,7 @@ class SchemaValidateResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SchemaValidateResponse:
+    def from_map(cls, m: dict[str, Any]) -> SchemaValidateResponse:
         return cls(
             m["namespace"],
             m["would_be_version"],
@@ -5695,11 +5722,39 @@ class SchemaValidateResponse:
 # Payload codec seam: value <-> wire bytes, handling the vector trailer.
 # ===========================================================================
 
+
+# What every wire payload can do: render itself as a CBOR map, and be rebuilt
+# from one. Declaring the shape is what lets a type checker verify the two
+# calls below rather than seeing `object` and giving up.
+class _WirePayload(Protocol):
+    def to_map(self) -> dict[str, Any]: ...
+
+
+class _WirePayloadType(Protocol):
+    # `-> Any` is the point: this protocol stands in for *every* payload class,
+    # and each one's `from_map` returns its own type. `decode_payload` casts
+    # the result back to the caller's requested `_P`.
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> Any: ...  # noqa: ANN401
+
+
+def _as_map(value: object) -> dict[str, Any]:
+    """Require a decoded payload to be a CBOR map.
+
+    Every wire payload is a map; anything else means a malformed frame reached
+    the codec. Checking here turns that into one clear error instead of an
+    `AttributeError` from whichever field `from_map` happened to read first.
+    """
+    if not isinstance(value, dict):
+        raise TypeError(f"payload must be a CBOR map, got {type(value).__name__}")
+    return value
+
+
 # The payload type a caller asks for is the type they get back.
 _P = TypeVar("_P")
 
 
-def encode_payload(value: object) -> bytes:
+def encode_payload(value: _WirePayload) -> bytes:
     """Serialize a typed payload to wire bytes.
 
     For most payloads this is just the CBOR map. For
@@ -5719,11 +5774,15 @@ def decode_payload(payload_type: type[_P], data: bytes) -> _P:
     trailing raw f32 section; every other type consumes the whole buffer.
     """
     if payload_type is EncodeVectorDirectRequest:
-        m, consumed = from_cbor_prefix(data)
-        value = EncodeVectorDirectRequest.from_map(m)
-        value.vector = le_bytes_to_f32_list(data[consumed:])
-        return value
-    return payload_type.from_map(from_cbor(data))
+        raw, consumed = from_cbor_prefix(data)
+        vec = EncodeVectorDirectRequest.from_map(_as_map(raw))
+        vec.vector = le_bytes_to_f32_list(data[consumed:])
+        return cast("_P", vec)
+    # `type[_P]` cannot express "and it has a `from_map` classmethod"; the cast
+    # records the contract every call site already relies on -- the type you
+    # ask for is the type you get.
+    builder = cast("_WirePayloadType", payload_type)
+    return cast("_P", builder.from_map(_as_map(from_cbor(data))))
 
 
 # ---------------------------------------------------------------------------
@@ -5742,7 +5801,7 @@ class EntityUpdateRequest:
     attributes_blob: list[int]
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entity_id": self.entity_id,
             "canonical_name": self.canonical_name,
@@ -5752,7 +5811,7 @@ class EntityUpdateRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityUpdateRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityUpdateRequest:
         return cls(
             m["entity_id"],
             m["canonical_name"],
@@ -5768,11 +5827,11 @@ class EntityUpdateResponse:
 
     entity: EntityView
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"entity": self.entity.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityUpdateResponse:
+    def from_map(cls, m: dict[str, Any]) -> EntityUpdateResponse:
         return cls(EntityView.from_map(m["entity"]))
 
 
@@ -5785,7 +5844,7 @@ class EntityRenameRequest:
     move_to_alias: bool
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entity_id": self.entity_id,
             "new_canonical_name": self.new_canonical_name,
@@ -5794,7 +5853,7 @@ class EntityRenameRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityRenameRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityRenameRequest:
         return cls(m["entity_id"], m["new_canonical_name"], m["move_to_alias"], m["request_id"])
 
 
@@ -5804,11 +5863,11 @@ class EntityRenameResponse:
 
     entity: EntityView
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"entity": self.entity.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityRenameResponse:
+    def from_map(cls, m: dict[str, Any]) -> EntityRenameResponse:
         return cls(EntityView.from_map(m["entity"]))
 
 
@@ -5822,7 +5881,7 @@ class EntityMergeRequest:
     reason: str
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "survivor": self.survivor,
             "merged": self.merged,
@@ -5832,7 +5891,7 @@ class EntityMergeRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityMergeRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityMergeRequest:
         return cls(m["survivor"], m["merged"], m["confidence"], m["reason"], m["request_id"])
 
 
@@ -5843,11 +5902,11 @@ class EntityMergeResponse:
     audit_id: bytes
     grace_period_seconds: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"audit_id": self.audit_id, "grace_period_seconds": self.grace_period_seconds}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityMergeResponse:
+    def from_map(cls, m: dict[str, Any]) -> EntityMergeResponse:
         return cls(m["audit_id"], m["grace_period_seconds"])
 
 
@@ -5858,11 +5917,11 @@ class EntityUnmergeRequest:
     merged_entity: bytes
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"merged_entity": self.merged_entity, "request_id": self.request_id}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityUnmergeRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityUnmergeRequest:
         return cls(m["merged_entity"], m["request_id"])
 
 
@@ -5872,11 +5931,11 @@ class EntityUnmergeResponse:
 
     restored_entity_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"restored_entity_id": self.restored_entity_id}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityUnmergeResponse:
+    def from_map(cls, m: dict[str, Any]) -> EntityUnmergeResponse:
         return cls(m["restored_entity_id"])
 
 
@@ -5888,7 +5947,7 @@ class EntityTombstoneRequest:
     reason: str
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "entity_id": self.entity_id,
             "reason": self.reason,
@@ -5896,7 +5955,7 @@ class EntityTombstoneRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityTombstoneRequest:
+    def from_map(cls, m: dict[str, Any]) -> EntityTombstoneRequest:
         return cls(m["entity_id"], m["reason"], m["request_id"])
 
 
@@ -5906,11 +5965,11 @@ class EntityTombstoneResponse:
 
     tombstoned_at_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"tombstoned_at_unix_nanos": self.tombstoned_at_unix_nanos}
 
     @classmethod
-    def from_map(cls, m: dict) -> EntityTombstoneResponse:
+    def from_map(cls, m: dict[str, Any]) -> EntityTombstoneResponse:
         return cls(m["tombstoned_at_unix_nanos"])
 
 
@@ -5928,7 +5987,7 @@ class StatementSupersedeRequest:
     new_statement: StatementCreateRequest
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "old_statement_id": self.old_statement_id,
             "new_statement": self.new_statement.to_map(),
@@ -5936,7 +5995,7 @@ class StatementSupersedeRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementSupersedeRequest:
+    def from_map(cls, m: dict[str, Any]) -> StatementSupersedeRequest:
         return cls(
             m["old_statement_id"],
             StatementCreateRequest.from_map(m["new_statement"]),
@@ -5952,7 +6011,7 @@ class StatementSupersedeResponse:
     chain_root: bytes
     version: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "new_statement_id": self.new_statement_id,
             "chain_root": self.chain_root,
@@ -5960,7 +6019,7 @@ class StatementSupersedeResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementSupersedeResponse:
+    def from_map(cls, m: dict[str, Any]) -> StatementSupersedeResponse:
         return cls(m["new_statement_id"], m["chain_root"], m["version"])
 
 
@@ -5973,7 +6032,7 @@ class StatementTombstoneRequest:
     reason_message: str
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "statement_id": self.statement_id,
             "reason": self.reason,
@@ -5982,7 +6041,7 @@ class StatementTombstoneRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementTombstoneRequest:
+    def from_map(cls, m: dict[str, Any]) -> StatementTombstoneRequest:
         return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"])
 
 
@@ -5992,11 +6051,11 @@ class StatementTombstoneResponse:
 
     tombstoned_at_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"tombstoned_at_unix_nanos": self.tombstoned_at_unix_nanos}
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementTombstoneResponse:
+    def from_map(cls, m: dict[str, Any]) -> StatementTombstoneResponse:
         return cls(m["tombstoned_at_unix_nanos"])
 
 
@@ -6009,7 +6068,7 @@ class StatementRetractRequest:
     reason_message: str
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "statement_id": self.statement_id,
             "reason": self.reason,
@@ -6018,7 +6077,7 @@ class StatementRetractRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementRetractRequest:
+    def from_map(cls, m: dict[str, Any]) -> StatementRetractRequest:
         return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"])
 
 
@@ -6029,14 +6088,14 @@ class StatementRetractResponse:
     retracted_at_unix_nanos: int
     will_zero_at_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "retracted_at_unix_nanos": self.retracted_at_unix_nanos,
             "will_zero_at_unix_nanos": self.will_zero_at_unix_nanos,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementRetractResponse:
+    def from_map(cls, m: dict[str, Any]) -> StatementRetractResponse:
         return cls(m["retracted_at_unix_nanos"], m["will_zero_at_unix_nanos"])
 
 
@@ -6047,11 +6106,11 @@ class StatementHistoryRequest:
     anchor_id: bytes
     include_tombstoned: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"anchor_id": self.anchor_id, "include_tombstoned": self.include_tombstoned}
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementHistoryRequest:
+    def from_map(cls, m: dict[str, Any]) -> StatementHistoryRequest:
         return cls(m["anchor_id"], m["include_tombstoned"])
 
 
@@ -6064,7 +6123,7 @@ class StatementHistoryResponseFrame:
     total_versions: int
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "items": [i.to_map() for i in self.items],
             "chain_root": self.chain_root,
@@ -6073,7 +6132,7 @@ class StatementHistoryResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> StatementHistoryResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> StatementHistoryResponseFrame:
         return cls(
             [StatementView.from_map(x) for x in m["items"]],
             m["chain_root"],
@@ -6100,8 +6159,8 @@ class RelationGetRequest:
     # the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "relation_id": self.relation_id,
             "follow_supersession": self.follow_supersession,
         }
@@ -6110,7 +6169,7 @@ class RelationGetRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationGetRequest:
+    def from_map(cls, m: dict[str, Any]) -> RelationGetRequest:
         act_as = m.get("act_as")
         return cls(
             m["relation_id"],
@@ -6128,14 +6187,14 @@ class RelationGetResponse:
     relation: RelationView
     returned_via_supersession: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "relation": self.relation.to_map(),
             "returned_via_supersession": self.returned_via_supersession,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationGetResponse:
+    def from_map(cls, m: dict[str, Any]) -> RelationGetResponse:
         return cls(RelationView.from_map(m["relation"]), m["returned_via_supersession"])
 
 
@@ -6148,7 +6207,7 @@ class RelationSupersedeRequest:
     new_relation: RelationCreateRequest
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "old_relation_id": self.old_relation_id,
             "new_relation": self.new_relation.to_map(),
@@ -6156,7 +6215,7 @@ class RelationSupersedeRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationSupersedeRequest:
+    def from_map(cls, m: dict[str, Any]) -> RelationSupersedeRequest:
         return cls(
             m["old_relation_id"],
             RelationCreateRequest.from_map(m["new_relation"]),
@@ -6172,11 +6231,11 @@ class RelationSupersedeResponse:
     new_relation_id: bytes
     version: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"new_relation_id": self.new_relation_id, "version": self.version}
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationSupersedeResponse:
+    def from_map(cls, m: dict[str, Any]) -> RelationSupersedeResponse:
         return cls(m["new_relation_id"], m["version"])
 
 
@@ -6188,7 +6247,7 @@ class RelationTombstoneRequest:
     reason: str
     request_id: bytes
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "relation_id": self.relation_id,
             "reason": self.reason,
@@ -6196,7 +6255,7 @@ class RelationTombstoneRequest:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationTombstoneRequest:
+    def from_map(cls, m: dict[str, Any]) -> RelationTombstoneRequest:
         return cls(m["relation_id"], m["reason"], m["request_id"])
 
 
@@ -6206,11 +6265,11 @@ class RelationTombstoneResponse:
 
     tombstoned_at_unix_nanos: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"tombstoned_at_unix_nanos": self.tombstoned_at_unix_nanos}
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationTombstoneResponse:
+    def from_map(cls, m: dict[str, Any]) -> RelationTombstoneResponse:
         return cls(m["tombstoned_at_unix_nanos"])
 
 
@@ -6226,7 +6285,7 @@ class TraversalStepWire:
     relation_type: str
     depth: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "relation_id": self.relation_id,
             "from": self.from_,
@@ -6236,7 +6295,7 @@ class TraversalStepWire:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> TraversalStepWire:
+    def from_map(cls, m: dict[str, Any]) -> TraversalStepWire:
         return cls(m["relation_id"], m["from"], m["to"], m["relation_type"], m["depth"])
 
 
@@ -6246,11 +6305,11 @@ class TraversalPathWire:
 
     steps: list[TraversalStepWire]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"steps": [s.to_map() for s in self.steps]}
 
     @classmethod
-    def from_map(cls, m: dict) -> TraversalPathWire:
+    def from_map(cls, m: dict[str, Any]) -> TraversalPathWire:
         return cls([TraversalStepWire.from_map(s) for s in m["steps"]])
 
 
@@ -6273,8 +6332,8 @@ class RelationTraverseRequest:
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "start_entity": self.start_entity,
             "relation_types": list(self.relation_types),
             "direction": self.direction,
@@ -6289,7 +6348,7 @@ class RelationTraverseRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationTraverseRequest:
+    def from_map(cls, m: dict[str, Any]) -> RelationTraverseRequest:
         act_as = m.get("act_as")
         return cls(
             m["start_entity"],
@@ -6315,7 +6374,7 @@ class RelationTraverseResponseFrame:
     truncated: bool
     is_final: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "paths": [p.to_map() for p in self.paths],
             "total_paths": self.total_paths,
@@ -6324,7 +6383,7 @@ class RelationTraverseResponseFrame:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> RelationTraverseResponseFrame:
+    def from_map(cls, m: dict[str, Any]) -> RelationTraverseResponseFrame:
         return cls(
             [TraversalPathWire.from_map(p) for p in m["paths"]],
             m["total_paths"],
@@ -6346,11 +6405,11 @@ class QueryExplainRequest:
 
     query: QueryRequest
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"query": self.query.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict) -> QueryExplainRequest:
+    def from_map(cls, m: dict[str, Any]) -> QueryExplainRequest:
         return cls(QueryRequest.from_map(m["query"]))
 
 
@@ -6361,14 +6420,14 @@ class QueryExplainResponse:
     plan_text: str
     estimated_cost_ms: float  # f32
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "plan_text": self.plan_text,
             "estimated_cost_ms": round_f32(self.estimated_cost_ms),
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> QueryExplainResponse:
+    def from_map(cls, m: dict[str, Any]) -> QueryExplainResponse:
         return cls(m["plan_text"], m["estimated_cost_ms"])
 
 
@@ -6379,11 +6438,11 @@ class QueryTraceRequest:
 
     query: QueryRequest
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {"query": self.query.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict) -> QueryTraceRequest:
+    def from_map(cls, m: dict[str, Any]) -> QueryTraceRequest:
         return cls(QueryRequest.from_map(m["query"]))
 
 
@@ -6394,14 +6453,14 @@ class QueryTraceResponse:
     trace_text: str
     total_latency_ms: float  # f64
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "trace_text": self.trace_text,
             "total_latency_ms": mark_f64(self.total_latency_ms),
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> QueryTraceResponse:
+    def from_map(cls, m: dict[str, Any]) -> QueryTraceResponse:
         return cls(m["trace_text"], m["total_latency_ms"])
 
 
@@ -6425,7 +6484,7 @@ class SpaceView:
     memory_count: int
     session_count: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "space_id": self.space_id,
             "created_at_unix_nanos": self.created_at_unix_nanos,
@@ -6435,7 +6494,7 @@ class SpaceView:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SpaceView:
+    def from_map(cls, m: dict[str, Any]) -> SpaceView:
         return cls(
             m["space_id"],
             m["created_at_unix_nanos"],
@@ -6455,8 +6514,8 @@ class SpaceCreateRequest:
     metadata: Optional[list[int]] = None  # Vec<u8> -> CBOR array of ints
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m: dict = {}
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {}
         if self.metadata is not None:
             m["metadata"] = list(self.metadata)
         m["request_id"] = self.request_id
@@ -6465,7 +6524,7 @@ class SpaceCreateRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> SpaceCreateRequest:
+    def from_map(cls, m: dict[str, Any]) -> SpaceCreateRequest:
         metadata = m.get("metadata")
         act_as = m.get("act_as")
         return cls(
@@ -6487,7 +6546,7 @@ class SpaceCreateResponse:
     memory_count: int
     session_count: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "space_id": self.space_id,
             "created": self.created,
@@ -6498,7 +6557,7 @@ class SpaceCreateResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SpaceCreateResponse:
+    def from_map(cls, m: dict[str, Any]) -> SpaceCreateResponse:
         return cls(
             m["space_id"],
             m["created"],
@@ -6517,14 +6576,14 @@ class SpaceListRequest:
     limit: int
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m: dict = {"limit": self.limit}
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"limit": self.limit}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> SpaceListRequest:
+    def from_map(cls, m: dict[str, Any]) -> SpaceListRequest:
         act_as = m.get("act_as")
         return cls(
             m["limit"],
@@ -6540,14 +6599,14 @@ class SpaceListResponse:
     spaces: list[SpaceView]
     cross_shard_complete: bool
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "spaces": [s.to_map() for s in self.spaces],
             "cross_shard_complete": self.cross_shard_complete,
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SpaceListResponse:
+    def from_map(cls, m: dict[str, Any]) -> SpaceListResponse:
         return cls(
             [SpaceView.from_map(s) for s in m["spaces"]],
             m["cross_shard_complete"],
@@ -6562,14 +6621,14 @@ class SpaceDeleteRequest:
     request_id: bytes  # 16-byte byte string
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m: dict = {"request_id": self.request_id}
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"request_id": self.request_id}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> SpaceDeleteRequest:
+    def from_map(cls, m: dict[str, Any]) -> SpaceDeleteRequest:
         act_as = m.get("act_as")
         return cls(
             m["request_id"],
@@ -6586,7 +6645,7 @@ class SpaceDeleteResponse:
     existed: bool
     memories_forgotten: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "space_id": self.space_id,
             "existed": self.existed,
@@ -6594,7 +6653,7 @@ class SpaceDeleteResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SpaceDeleteResponse:
+    def from_map(cls, m: dict[str, Any]) -> SpaceDeleteResponse:
         return cls(m["space_id"], m["existed"], m["memories_forgotten"])
 
 
@@ -6620,8 +6679,8 @@ class SessionView:
     memory_count: int
     title: Optional[str] = None
 
-    def to_map(self) -> dict:
-        m: dict = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "session_id": self.session_id,
             "created_at_unix_nanos": self.created_at_unix_nanos,
             "last_active_unix_nanos": self.last_active_unix_nanos,
@@ -6632,7 +6691,7 @@ class SessionView:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> SessionView:
+    def from_map(cls, m: dict[str, Any]) -> SessionView:
         return cls(
             m["session_id"],
             m["created_at_unix_nanos"],
@@ -6652,8 +6711,8 @@ class SessionCreateRequest:
     title: Optional[str] = None
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m: dict = {"session_id": self.session_id}
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"session_id": self.session_id}
         if self.title is not None:
             m["title"] = self.title
         m["request_id"] = self.request_id
@@ -6662,7 +6721,7 @@ class SessionCreateRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> SessionCreateRequest:
+    def from_map(cls, m: dict[str, Any]) -> SessionCreateRequest:
         act_as = m.get("act_as")
         return cls(
             m["session_id"],
@@ -6684,7 +6743,7 @@ class SessionCreateResponse:
     last_active_unix_nanos: int
     memory_count: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "space_id": self.space_id,
             "session_id": self.session_id,
@@ -6695,7 +6754,7 @@ class SessionCreateResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SessionCreateResponse:
+    def from_map(cls, m: dict[str, Any]) -> SessionCreateResponse:
         return cls(
             m["space_id"],
             m["session_id"],
@@ -6714,14 +6773,14 @@ class SessionListRequest:
     limit: int
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m: dict = {"limit": self.limit}
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"limit": self.limit}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> SessionListRequest:
+    def from_map(cls, m: dict[str, Any]) -> SessionListRequest:
         act_as = m.get("act_as")
         return cls(
             m["limit"],
@@ -6737,14 +6796,14 @@ class SessionListResponse:
     space_id: bytes  # 16-byte byte string (derived storage id)
     sessions: list[SessionView]
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "space_id": self.space_id,
             "sessions": [s.to_map() for s in self.sessions],
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SessionListResponse:
+    def from_map(cls, m: dict[str, Any]) -> SessionListResponse:
         return cls(
             m["space_id"],
             [SessionView.from_map(s) for s in m["sessions"]],
@@ -6762,8 +6821,8 @@ class SessionDeleteRequest:
     hard: bool = False
     act_as: Optional[ActAs] = None
 
-    def to_map(self) -> dict:
-        m: dict = {
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
             "session_id": self.session_id,
             "hard": self.hard,
             "request_id": self.request_id,
@@ -6773,7 +6832,7 @@ class SessionDeleteRequest:
         return m
 
     @classmethod
-    def from_map(cls, m: dict) -> SessionDeleteRequest:
+    def from_map(cls, m: dict[str, Any]) -> SessionDeleteRequest:
         act_as = m.get("act_as")
         return cls(
             m["session_id"],
@@ -6794,7 +6853,7 @@ class SessionDeleteResponse:
     existed: bool
     memories_forgotten: int
 
-    def to_map(self) -> dict:
+    def to_map(self) -> dict[str, Any]:
         return {
             "space_id": self.space_id,
             "session_id": self.session_id,
@@ -6803,7 +6862,7 @@ class SessionDeleteResponse:
         }
 
     @classmethod
-    def from_map(cls, m: dict) -> SessionDeleteResponse:
+    def from_map(cls, m: dict[str, Any]) -> SessionDeleteResponse:
         return cls(
             m["space_id"],
             m["session_id"],

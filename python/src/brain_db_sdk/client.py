@@ -149,6 +149,7 @@ from .wire.types import (
     TxnCommitResponse,
     UnlinkRequest,
     UnlinkResponse,
+    _WirePayload,
     decode_payload,
     encode_payload,
 )
@@ -209,7 +210,12 @@ class Auth:
     server resolves ``(namespace, space, permissions)`` from it and refuses any
     connection it cannot resolve."""
 
-    method: AuthMethod
+    # The on-wire discriminant. `AuthMethod` is a constant namespace, not
+    # a type — annotating this as `AuthMethod` claimed the field holds an
+    # instance of that class while every value assigned is an int, which
+    # a type checker rejects at both the construction and the handoff to
+    # `AuthPayload`. See `AuthMethod.TOKEN` / `AuthMethod.MTLS`.
+    method: int
     credentials: AuthCredentials
 
     @staticmethod
@@ -988,7 +994,7 @@ class BrainClient:
         req_opcode: Opcode,
         resp_opcode: Opcode,
         resp_type: type[_T],
-        request: object,
+        request: _WirePayload,
     ) -> list[_T]:
         """Send one request and decode every streamed response frame up to and
         including EOS, asserting each frame's opcode. The shape every LIST/streamed
@@ -1009,7 +1015,7 @@ class BrainClient:
         req_opcode: Opcode,
         resp_opcode: Opcode,
         resp_type: type[_T],
-        request: object,
+        request: _WirePayload,
     ) -> _T:
         """Send one request and decode a single typed response frame, asserting
         the response opcode. The shape every single-shot typed-graph verb shares.

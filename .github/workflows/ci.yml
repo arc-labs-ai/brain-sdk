@@ -77,6 +77,8 @@ jobs:
         run: python -m ruff check src tests
       - name: Format check
         run: python -m ruff format --check src tests
+      - name: Type check
+        run: python -m pyright
       - name: Test (incl. conformance corpus)
         run: python -m pytest -q
 

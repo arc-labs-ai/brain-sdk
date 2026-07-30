@@ -502,7 +502,7 @@ class BrainHttpClient:
                 return self._request_once(method, path, body, query)
             except BrainHttpError as err:
                 if idempotent and self._retry.should_retry(attempt, err):
-                    delay = self._retry.backoff(attempt, getattr(err, "retry_after", None))
+                    delay = self._retry.backoff(attempt, err.retry_after)
                     time.sleep(delay)
                     attempt += 1
                     continue

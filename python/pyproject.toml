@@ -39,7 +39,7 @@ Homepage = "https://github.com/arc-labs-ai/brain-sdk"
 Repository = "https://github.com/arc-labs-ai/brain-sdk"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.16"]
+dev = ["pytest>=8", "ruff>=0.16", "pyright>=1.1.400"]
 
 [tool.ruff]
 target-version = "py39"
@@ -176,6 +176,36 @@ ignore = [
 # flat offline suites (e.g. tests/test_handshake.py vs tests/handshake/…).
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
+markers = ["slow: builds a wheel; excluded from the default run with -m 'not slow'"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/brain_db_sdk"]
+# PEP 561: without this marker in the built wheel, a downstream type checker
+# MUST ignore every annotation in the installed package — so all of the typing
+# above would reach exactly nobody. `tests/test_py_typed.py` asserts it is
+# present and listed here.
+artifacts = ["src/brain_db_sdk/py.typed"]
+
+[tool.pyright]
+# The type checker the other two SDKs always had: Rust has the compiler,
+# TypeScript has `tsc`, and Python had annotations that nothing verified.
+#
+# pyright rather than mypy because this package advertises
+# `requires-python = ">=3.9"` and mypy 2.x refuses to target anything below
+# 3.10 — a checker that cannot check the floor we ship is not checking the
+# thing that matters. pyright is also what Pylance runs, so what CI enforces is
+# what a user sees in their editor.
+include = ["src/brain_db_sdk"]
+pythonVersion = "3.9"
+# `standard`, not `strict`, and the difference is recorded rather than hidden:
+# strict additionally reports 112 `reportUnknown*` diagnostics, essentially all
+# of them in `wire/types.py`'s externally-tagged union helpers, where a
+# `variant: str` selects which of several shapes `value` holds. Typing those
+# fully means writing out every union arm; four of the eleven are done (see
+# AuthCredentials, StatementValue, StatementObject, RetrieverSelection) and the
+# rest are the same mechanical work. `standard` gates on every diagnostic that
+# indicates an actual type error, which is what this is for; the count above is
+# the honest size of what it does not yet cover.
+typeCheckingMode = "standard"
+# Reported as errors rather than warnings so CI actually gates on them.
+reportMissingTypeStubs = "error"

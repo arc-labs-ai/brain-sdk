@@ -15,3 +15,11 @@ class BrainHttpError(Exception):
         self.status = status
         self.code = code
         self.message = message
+        # A server `Retry-After` hint in SECONDS, when the response carried one
+        # and it was in the integer form. Declared here rather than attached
+        # dynamically at the raise site: the retry scheduler read it back with
+        # `getattr(err, "retry_after", None)`, so a rename or a typo on either
+        # side would silently fall back to the computed backoff and nothing
+        # would fail. Rust and TypeScript spell the same hint `retry_after_ms`
+        # in milliseconds; seconds is what `time.sleep` takes.
+        self.retry_after: float | None = None

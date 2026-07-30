@@ -22,7 +22,7 @@ import socket
 import threading
 import time
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import TypeVar, Union
 
 from .errors import BrainTimeout, ConnectionClosed, ProtocolError, ServerError, VersionMismatch
 from .transport import read_frame, write_frame
@@ -63,13 +63,21 @@ class _Closed:
         self.error = error
 
 
+# What a per-stream route queue carries: response frames, or the `_Closed`
+# sentinel once the reader thread has failed the connection. Naming the union
+# is what lets a type checker see through `_register` / `_next` instead of
+# treating every frame they hand back as unknown. `queue.Queue` has supported
+# subscripting at runtime since 3.9, which is this package's floor.
+_RouteQueue = queue.Queue[Union[Frame, "_Closed"]]
+
+
 class MuxConnection:
     """A connection that serves many concurrent requests over one socket."""
 
     def __init__(self, sock: socket.socket, request_timeout: float | None = None) -> None:
         self._sock = sock
         self._request_timeout = request_timeout
-        self._routes: dict[int, queue.Queue] = {}
+        self._routes: dict[int, _RouteQueue] = {}
         self._routes_lock = threading.Lock()
         self._write_lock = threading.Lock()
         self._next_stream_id = 1
@@ -213,8 +221,8 @@ class MuxConnection:
             if q is not None:
                 q.put(frame)
 
-    def _register(self, stream_id: int) -> queue.Queue:
-        q: queue.Queue = queue.Queue()
+    def _register(self, stream_id: int) -> _RouteQueue:
+        q: _RouteQueue = queue.Queue()
         with self._routes_lock:
             if self._closed_error is not None:
                 raise self._closed_error
@@ -234,7 +242,7 @@ class MuxConnection:
                 q.put(_Closed(error))
             self._routes.clear()
 
-    def _next(self, q: queue.Queue) -> Frame:
+    def _next(self, q: _RouteQueue) -> Frame:
         try:
             item = q.get(timeout=self._request_timeout)
         except queue.Empty:
@@ -245,7 +253,7 @@ class MuxConnection:
             raise item.error
         return item
 
-    def _expect(self, q: queue.Queue, expected: Opcode) -> Frame:
+    def _expect(self, q: _RouteQueue, expected: Opcode) -> Frame:
         frame = self._next(q)
         if frame.opcode == Opcode.ERROR:
             raise ServerError.from_response(decode_payload(ErrorResponse, frame.payload))
@@ -288,7 +296,7 @@ class Subscription:
     Prefer :meth:`unsubscribe` before closing so the server stops pushing.
     """
 
-    def __init__(self, conn: MuxConnection, stream_id: int, q: queue.Queue) -> None:
+    def __init__(self, conn: MuxConnection, stream_id: int, q: _RouteQueue) -> None:
         self._conn = conn
         self._stream_id = stream_id
         self._q = q
