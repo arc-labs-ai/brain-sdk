@@ -131,17 +131,33 @@ impl Frame {
     /// Serialize the frame to a wire-ready byte vector: the 32-byte
     /// header with both CRC32C fields computed, followed by the payload.
     ///
+    /// # Errors
+    ///
+    /// [`FrameError::OversizePayload`] if `payload.len()` exceeds
+    /// [`MAX_PAYLOAD_BYTES`] — the u24 length field physically cannot
+    /// represent more.
+    ///
+    /// This returns rather than panics because the length is *caller data*: a
+    /// caller encoding a large document would otherwise take down the process
+    /// (or abort the task) instead of getting an error they can handle. Python
+    /// raises `OversizePayload` and TypeScript throws `FrameError` for the same
+    /// input; this SDK used to be the only one that panicked.
+    ///
     /// # Panics
     ///
-    /// Panics if `payload.len()` exceeds [`MAX_PAYLOAD_BYTES`]; the u24
-    /// length field physically cannot represent more.
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        assert!(
-            self.payload.len() <= MAX_PAYLOAD_BYTES,
-            "payload length {} exceeds 24-bit max",
-            self.payload.len()
-        );
+    /// Never. The one `expect` below slices the first `HEADER_SIZE` bytes of a
+    /// buffer this function just allocated as `HEADER_SIZE + payload.len()`, so
+    /// the conversion cannot fail; it documents an invariant rather than
+    /// guarding a reachable case.
+    pub fn encode(&self) -> Result<Vec<u8>, FrameError> {
+        if self.payload.len() > MAX_PAYLOAD_BYTES {
+            return Err(FrameError::OversizePayload {
+                #[allow(clippy::cast_possible_truncation)]
+                len: self.payload.len() as u32,
+                #[allow(clippy::cast_possible_truncation)]
+                max: MAX_PAYLOAD_BYTES as u32,
+            });
+        }
 
         let mut out = vec![0u8; HEADER_SIZE + self.payload.len()];
         {
@@ -170,7 +186,7 @@ impl Frame {
         out[OFF_HEADER_CRC..OFF_HEADER_CRC + 4].copy_from_slice(&header_crc.to_be_bytes());
 
         out[HEADER_SIZE..].copy_from_slice(&self.payload);
-        out
+        Ok(out)
     }
 
     /// Decode a single frame off the front of `bytes`, returning the
@@ -285,7 +301,7 @@ mod tests {
     #[test]
     fn encode_decode_round_trip() {
         let original = sample();
-        let bytes = original.encode();
+        let bytes = original.encode().expect("frame fits");
         assert_eq!(bytes.len(), HEADER_SIZE + original.payload.len());
         let (decoded, rest) = Frame::decode(&bytes).expect("decode");
         assert!(rest.is_empty());
@@ -295,7 +311,7 @@ mod tests {
     #[test]
     fn empty_payload_has_zero_payload_crc() {
         let frame = Frame::new(0x0010, 0, 0, Vec::new());
-        let bytes = frame.encode();
+        let bytes = frame.encode().expect("frame fits");
         assert_eq!(bytes.len(), HEADER_SIZE);
         assert_eq!(&bytes[OFF_PAYLOAD_CRC..OFF_PAYLOAD_CRC + 4], &[0u8; 4]);
         let (decoded, rest) = Frame::decode(&bytes).expect("decode empty");
@@ -305,7 +321,7 @@ mod tests {
 
     #[test]
     fn decode_returns_unconsumed_tail() {
-        let mut bytes = sample().encode();
+        let mut bytes = sample().encode().expect("frame fits");
         bytes.extend_from_slice(b"TAIL");
         let (_frame, rest) = Frame::decode(&bytes).expect("decode");
         assert_eq!(rest, b"TAIL");
@@ -313,14 +329,14 @@ mod tests {
 
     #[test]
     fn rejects_bad_magic() {
-        let mut bytes = sample().encode();
+        let mut bytes = sample().encode().expect("frame fits");
         bytes[0] = b'X';
         assert_eq!(Frame::decode(&bytes), Err(FrameError::BadMagic));
     }
 
     #[test]
     fn rejects_bad_version() {
-        let mut bytes = sample().encode();
+        let mut bytes = sample().encode().expect("frame fits");
         bytes[OFF_VERSION] = 99;
         assert_eq!(
             Frame::decode(&bytes),
@@ -333,21 +349,21 @@ mod tests {
 
     #[test]
     fn rejects_bad_header_crc() {
-        let mut bytes = sample().encode();
+        let mut bytes = sample().encode().expect("frame fits");
         bytes[OFF_HEADER_CRC] ^= 0xFF;
         assert_eq!(Frame::decode(&bytes), Err(FrameError::BadHeaderCrc));
     }
 
     #[test]
     fn rejects_bad_payload_crc() {
-        let mut bytes = sample().encode();
+        let mut bytes = sample().encode().expect("frame fits");
         bytes[HEADER_SIZE] ^= 0xFF;
         assert_eq!(Frame::decode(&bytes), Err(FrameError::BadPayloadCrc));
     }
 
     #[test]
     fn rejects_reserved_a_nonzero() {
-        let mut bytes = sample().encode();
+        let mut bytes = sample().encode().expect("frame fits");
         bytes[OFF_RESERVED_A] = 1;
         // Re-seal the header CRC so the reserved check (not the CRC
         // check) is the one that fires.
@@ -367,13 +383,13 @@ mod tests {
         // 0x01 is a reserved flag bit. Build the frame raw so the header
         // CRC covers the bad flag, isolating the reserved-flag check.
         let frame = Frame::new(0x0010, 0x01, 0, Vec::new());
-        let bytes = frame.encode();
+        let bytes = frame.encode().expect("frame fits");
         assert_eq!(Frame::decode(&bytes), Err(FrameError::ReservedNonZero));
     }
 
     #[test]
     fn rejects_truncated_header() {
-        let bytes = sample().encode();
+        let bytes = sample().encode().expect("frame fits");
         let truncated = &bytes[..10];
         assert_eq!(
             Frame::decode(truncated),
@@ -386,7 +402,7 @@ mod tests {
 
     #[test]
     fn rejects_truncated_payload() {
-        let bytes = sample().encode();
+        let bytes = sample().encode().expect("frame fits");
         let truncated = &bytes[..bytes.len() - 3];
         assert!(matches!(
             Frame::decode(truncated),

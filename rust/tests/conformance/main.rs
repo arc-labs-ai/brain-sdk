@@ -125,7 +125,9 @@ fn check_frame(name: &str) {
         "{name}: frame payload bytes"
     );
 
-    let reencoded = frame.encode();
+    let reencoded = frame
+        .encode()
+        .expect("corpus frames fit the 24-bit length field");
     assert_eq!(reencoded, bin, "{name}: re-encoded frame != .bin");
 }
 
@@ -174,7 +176,9 @@ fn check_vector_frame(name: &str) {
     payload.extend_from_slice(&f32_slice_to_le_bytes(&req.vector));
     assert_eq!(payload, frame.payload, "re-encoded payload != original");
 
-    let rebuilt = Frame::new(frame.opcode, frame.flags, frame.stream_id, payload).encode();
+    let rebuilt = Frame::new(frame.opcode, frame.flags, frame.stream_id, payload)
+        .encode()
+        .expect("corpus frames fit the 24-bit length field");
     assert_eq!(rebuilt, bin, "re-encoded frame != .bin");
 }
 

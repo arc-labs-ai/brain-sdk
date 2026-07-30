@@ -6,10 +6,13 @@ just a single round-trip.
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 
-from brain_db_sdk import MuxConnection, new_id
+import pytest
+
+from brain_db_sdk import MuxConnection, ProtocolError, new_id
 from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
@@ -456,3 +459,110 @@ def test_server_ping_is_answered_with_client_pong() -> None:
         conn.close()
     finally:
         listener.close()
+
+
+# ---------------------------------------------------------------------------
+# The negotiated payload limit.
+#
+# WELCOME carries `max_payload_size`, a *server policy* limit distinct from the
+# frame format's structural 24-bit ceiling. All three SDKs decoded this field
+# and then discarded it, so a request over the server's limit went out on the
+# wire and came back as a server error — or killed the connection — instead of
+# failing locally with the number the server had just supplied.
+#
+# `rust/tests/mux/main.rs` and `typescript/test/mux.test.ts` assert the same
+# property, so the three cannot drift apart on it again.
+# ---------------------------------------------------------------------------
+
+_ADVERTISED_MAX = 1 << 20  # what the mock servers above send in WELCOME
+
+
+def _serve_handshake_only(sock: socket.socket) -> None:
+    """Complete the handshake, then read until the peer goes away.
+
+    Deliberately answers nothing after AUTH_OK: an oversize request must be
+    rejected before it reaches the socket, so this server must never see it.
+    """
+    buf = bytearray()
+    hello_frame = read_frame(sock, buf)
+    hello = decode_payload(HelloPayload, hello_frame.payload)
+    _write(
+        sock,
+        Opcode.WELCOME,
+        0,
+        encode_payload(
+            WelcomePayload(
+                server_id="mock-brain",
+                chosen_version=1,
+                connection_id=b"\xab" * 16,
+                capabilities=hello.capabilities,
+                server_features=ServerFeatures(
+                    max_payload_size=_ADVERTISED_MAX,
+                    max_concurrent_streams=256,
+                    idle_timeout_seconds=300,
+                    auth_methods=[],
+                ),
+            )
+        ),
+    )
+    read_frame(sock, buf)
+    _write(
+        sock,
+        Opcode.AUTH_OK,
+        0,
+        encode_payload(
+            AuthOkPayload(
+                space_id=SERVER_AGENT_ID,
+                bound_shard_id=0,
+                permissions=SpacePermissions(
+                    can_encode=True,
+                    can_recall=True,
+                    can_plan=True,
+                    can_reason=True,
+                    can_forget=True,
+                    can_admin=False,
+                ),
+                namespace="",
+                server_time_unix_nanos=1,
+            )
+        ),
+    )
+    with contextlib.suppress(Exception):
+        while read_frame(sock, buf):
+            pass
+
+
+def test_a_payload_over_the_negotiated_limit_is_refused_locally() -> None:
+    host, port, thread, listener = _spawn(_serve_handshake_only)
+    try:
+        hello = HelloPayload(
+            client_id="limit-test",
+            supported_versions=[1],
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=False
+            ),
+            client_connection_token=None,
+        )
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
+        conn, outcome = MuxConnection.connect(host, port, hello, auth)
+        assert outcome.welcome.server_features.max_payload_size == _ADVERTISED_MAX
+
+        oversize = b"x" * (_ADVERTISED_MAX + 1)
+        with pytest.raises(ProtocolError) as excinfo:
+            conn.request(Opcode.ENCODE_REQ, oversize)
+
+        # The message must name the SERVER's number, not a local constant --
+        # that is the whole point of enforcing the negotiated value.
+        assert str(_ADVERTISED_MAX) in str(excinfo.value)
+        assert "WELCOME" in str(excinfo.value)
+
+        # A payload at exactly the limit is NOT refused here; it goes to the
+        # socket (and this server never answers, so it times out on read).
+        # Asserting the boundary keeps the check from being off by one.
+        assert len(oversize) - 1 == _ADVERTISED_MAX
+        conn.close()
+    finally:
+        listener.close()
+        thread.join(timeout=5)

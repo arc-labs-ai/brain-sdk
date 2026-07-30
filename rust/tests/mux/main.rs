@@ -528,3 +528,108 @@ async fn server_ping_is_answered_with_client_pong() {
         .expect("handshake");
     server.await.expect("server task: SERVER_PING answered");
 }
+
+// ---------------------------------------------------------------------------
+// The negotiated payload limit.
+//
+// WELCOME carries `max_payload_size`, a *server policy* limit distinct from the
+// frame format's structural 24-bit ceiling. All three SDKs decoded this field
+// and then discarded it, so a request over the server's limit went out on the
+// wire and came back as a server error — or killed the connection — instead of
+// failing locally with the number the server had just supplied.
+//
+// `python/tests/test_mux.py` and `typescript/test/mux.test.ts` assert the same
+// property, so the three cannot drift apart on it again.
+// ---------------------------------------------------------------------------
+
+/// What the mock servers above advertise in WELCOME.
+const ADVERTISED_MAX: u32 = 1 << 20;
+
+/// Completes the handshake, then reads until the peer goes away. Answers
+/// nothing after AUTH_OK: an oversize request must be refused before it reaches
+/// the socket, so this server must never see one.
+async fn serve_handshake_only(mut sock: TcpStream) {
+    let mut buf = Vec::new();
+    let hello_frame = read_frame(&mut sock, &mut buf).await.expect("hello");
+    let hello: HelloPayload = from_cbor_bytes(&hello_frame.payload).expect("decode hello");
+    let welcome = WelcomePayload {
+        server_id: "mock-brain".to_string(),
+        chosen_version: 1,
+        connection_id: [0xAB; 16],
+        capabilities: hello.capabilities,
+        server_features: ServerFeatures {
+            max_payload_size: ADVERTISED_MAX,
+            max_concurrent_streams: 256,
+            idle_timeout_seconds: 300,
+            auth_methods: vec![],
+        },
+    };
+    write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
+
+    let _ = read_frame(&mut sock, &mut buf).await.expect("auth");
+    let auth_ok = AuthOkPayload {
+        space_id: SERVER_AGENT,
+        bound_shard_id: 0,
+        permissions: SpacePermissions {
+            can_act_as: false,
+            can_encode: true,
+            can_recall: true,
+            can_plan: true,
+            can_reason: true,
+            can_forget: true,
+            can_admin: false,
+        },
+        namespace: String::new(),
+        server_time_unix_nanos: 1,
+    };
+    write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
+
+    while read_frame(&mut sock, &mut buf).await.is_ok() {}
+}
+
+#[tokio::test]
+async fn a_payload_over_the_negotiated_limit_is_refused_locally() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        let (sock, _peer) = listener.accept().await.expect("accept");
+        serve_handshake_only(sock).await;
+    });
+
+    let hello = HelloPayload {
+        client_id: "limit-test".to_string(),
+        supported_versions: vec![1],
+        capabilities: HelloCapabilities {
+            streaming: true,
+            compression_zstd: false,
+            server_push: false,
+        },
+        client_connection_token: None,
+    };
+    let auth = AuthPayload {
+        method: brain_db_sdk::wire::types::AuthMethod::Token,
+        credentials: brain_db_sdk::wire::types::AuthCredentials::Token(b"opaque-token".to_vec()),
+    };
+    let stream = TcpStream::connect(addr).await.expect("connect");
+    let (conn, outcome) = MuxConnection::handshake(stream, hello, auth, None)
+        .await
+        .expect("handshake");
+    assert_eq!(
+        outcome.welcome.server_features.max_payload_size,
+        ADVERTISED_MAX
+    );
+
+    let oversize = vec![b'x'; ADVERTISED_MAX as usize + 1];
+    let err = conn
+        .request(Opcode::EncodeReq, oversize)
+        .await
+        .expect_err("a payload over the advertised limit must be refused");
+
+    // The message must name the SERVER's number, not a local constant — that
+    // is the whole point of enforcing the negotiated value.
+    let text = err.to_string();
+    assert!(
+        text.contains(&ADVERTISED_MAX.to_string()) && text.contains("WELCOME"),
+        "expected the server's advertised limit in the message, got: {text}"
+    );
+}

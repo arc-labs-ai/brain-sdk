@@ -49,6 +49,7 @@ fn valid_frame(base: &serde_json::Value) -> Vec<u8> {
         payload: hex_decode(base["payload_hex"].as_str().expect("payload_hex")),
     }
     .encode()
+    .expect("corpus frames fit the 24-bit length field")
 }
 
 fn hex_decode(s: &str) -> Vec<u8> {

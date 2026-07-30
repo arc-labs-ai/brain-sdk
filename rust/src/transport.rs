@@ -25,7 +25,7 @@ pub async fn write_frame<W>(stream: &mut W, frame: &Frame) -> Result<()>
 where
     W: AsyncWrite + Unpin,
 {
-    let bytes = frame.encode();
+    let bytes = frame.encode()?;
     stream.write_all(&bytes).await?;
     Ok(())
 }
@@ -90,7 +90,7 @@ mod tests {
     async fn reads_a_frame_split_across_two_writes() {
         let (mut client, mut server) = tokio::io::duplex(1024);
         let frame = Frame::new(0x0021, FLAG_EOS, 1, b"hello brain".to_vec());
-        let bytes = frame.encode();
+        let bytes = frame.encode().expect("frame fits");
         let (head, tail) = bytes.split_at(20);
 
         let reader = tokio::spawn(async move {
@@ -113,8 +113,8 @@ mod tests {
         let (mut client, mut server) = tokio::io::duplex(4096);
         let first = Frame::new(0x0020, FLAG_EOS, 1, b"first".to_vec());
         let second = Frame::new(0x0021, FLAG_EOS, 2, b"second".to_vec());
-        let mut both = first.encode();
-        both.extend_from_slice(&second.encode());
+        let mut both = first.encode().expect("frame fits");
+        both.extend_from_slice(&second.encode().expect("frame fits"));
         client.write_all(&both).await.expect("write both");
 
         let mut buf = Vec::new();

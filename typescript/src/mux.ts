@@ -24,7 +24,14 @@ import {
   TransportError,
   VersionMismatch,
 } from "./errors.js";
-import { decodeFrame, encodeFrame, FLAG_EOS, type Frame, FrameError } from "./wire/frame.js";
+import {
+  decodeFrame,
+  encodeFrame,
+  FLAG_EOS,
+  type Frame,
+  FrameError,
+  MAX_PAYLOAD_LEN,
+} from "./wire/frame.js";
 import { describeThrown } from "./transport.js";
 import { Opcode } from "./wire/opcode.js";
 import {
@@ -96,6 +103,19 @@ export class MuxConnection {
   private readonly routes = new Map<number, StreamSink>();
   private nextStreamId = 1;
   private closedError: Error | null = null;
+  /**
+   * The server's WELCOME `maxPayloadSize`, enforced before every write.
+   *
+   * A *policy* limit, not the frame format's structural 24-bit ceiling: a
+   * server may advertise less than 16 MiB, and nothing checked it — all three
+   * SDKs decoded this field and discarded it, so an oversize request went out
+   * and came back as a server error, or killed the connection, instead of
+   * failing locally with the number the server just supplied.
+   *
+   * Starts at the structural maximum; the handshake narrows it. Only handshake
+   * frames are written before that, and those are small.
+   */
+  private maxPayloadSize = MAX_PAYLOAD_LEN;
 
   private constructor(
     private readonly socket: Socket,
@@ -149,6 +169,11 @@ export class MuxConnection {
       await this.writeFrame(Opcode.Auth, HANDSHAKE_STREAM_ID, encodeAuth(auth));
       const authOkFrame = await this.expectReply(sink, Opcode.AuthOk);
       const authOk = decodeAuthOk(authOkFrame.payload);
+      // A server that leaves this field at its default advertises 0. Zero is
+      // not a meaningful payload cap — read literally it refuses every request
+      // — so it means "unset", and the structural 24-bit ceiling stands in.
+      // Reading it literally bricked the client against any such server.
+      this.maxPayloadSize = welcome.serverFeatures.maxPayloadSize || MAX_PAYLOAD_LEN;
       return { welcome, authOk };
     } finally {
       this.routes.delete(HANDSHAKE_STREAM_ID);
@@ -282,6 +307,14 @@ export class MuxConnection {
   }
 
   private writeFrame(opcode: number, streamId: number, payload: Uint8Array): Promise<void> {
+    if (payload.length > this.maxPayloadSize) {
+      return Promise.reject(
+        new ProtocolError(
+          `payload is ${payload.length} bytes, over the ${this.maxPayloadSize} ` +
+            "the server advertised at WELCOME",
+        ),
+      );
+    }
     // Every client request is a single EOS-terminated frame.
     const bytes = encodeFrame(opcode, streamId, FLAG_EOS, payload);
     return new Promise<void>((resolve, reject) => {

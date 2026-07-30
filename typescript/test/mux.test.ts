@@ -306,3 +306,108 @@ describe("mux keepalive", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The negotiated payload limit.
+//
+// WELCOME carries `maxPayloadSize`, a *server policy* limit distinct from the
+// frame format's structural 24-bit ceiling. All three SDKs decoded this field
+// and then discarded it, so a request over the server's limit went out on the
+// wire and came back as a server error — or killed the connection — instead of
+// failing locally with the number the server had just supplied.
+//
+// `rust/tests/mux/main.rs` and `python/tests/test_mux.py` assert the same
+// property, so the three cannot drift apart on it again.
+// ---------------------------------------------------------------------------
+
+/** What the mock servers above advertise in WELCOME. */
+const ADVERTISED_MAX = 1 << 20;
+
+/**
+ * Completes the handshake, then reads until the peer goes away. Answers
+ * nothing after AUTH_OK: an oversize request must be refused before it reaches
+ * the socket, so this server must never see one.
+ */
+async function serveHandshakeOnly(sock: net.Socket): Promise<void> {
+  const chan = new FrameChannel(sock);
+  const helloFrame = await chan.read();
+  const hello = decodeHello(helloFrame.payload);
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome({
+      serverId: "mock-brain",
+      chosenVersion: 1,
+      connectionId: new Uint8Array(16).fill(0xab),
+      capabilities: hello.capabilities,
+      serverFeatures: {
+        maxPayloadSize: ADVERTISED_MAX,
+        maxConcurrentStreams: 256,
+        idleTimeoutSeconds: 300,
+        authMethods: [],
+      },
+    }),
+  });
+
+  await chan.read();
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk({
+      spaceId: SERVER_AGENT_ID,
+      boundShardId: 0,
+      permissions: {
+        canEncode: true,
+        canRecall: true,
+        canPlan: true,
+        canReason: true,
+        canForget: true,
+        canAdmin: false,
+        canActAs: false,
+      },
+      namespace: "",
+      serverTimeUnixNanos: 1n,
+    }),
+  });
+
+  for (;;) {
+    try {
+      await chan.read();
+    } catch {
+      return;
+    }
+  }
+}
+
+describe("the negotiated payload limit", () => {
+  it("refuses a payload over the advertised maximum locally", async () => {
+    const { server, port } = await startServer(serveHandshakeOnly);
+    try {
+      const hello: HelloPayload = {
+        clientId: "limit-test",
+        supportedVersions: [1],
+        capabilities: { streaming: true, compressionZstd: false, serverPush: false },
+        clientConnectionToken: null,
+      };
+      const auth: AuthPayload = {
+        method: AuthMethod.Token,
+        credentials: { kind: "Token", token: new TextEncoder().encode("opaque-token") },
+      };
+      const { conn, outcome } = await MuxConnection.connect("127.0.0.1", port, hello, auth);
+      expect(outcome.welcome.serverFeatures.maxPayloadSize).toBe(ADVERTISED_MAX);
+
+      const oversize = new Uint8Array(ADVERTISED_MAX + 1);
+      // The message must name the SERVER's number, not a local constant —
+      // that is the whole point of enforcing the negotiated value.
+      await expect(conn.requestOne(Opcode.EncodeReq, oversize)).rejects.toThrow(
+        new RegExp(`${ADVERTISED_MAX}.*WELCOME`),
+      );
+
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+});

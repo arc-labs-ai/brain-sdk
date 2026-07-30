@@ -26,7 +26,7 @@ from typing import TypeVar, Union
 
 from .errors import BrainTimeout, ConnectionClosed, ProtocolError, ServerError, VersionMismatch
 from .transport import read_frame, write_frame
-from .wire.frame import FLAG_EOS, Frame
+from .wire.frame import FLAG_EOS, MAX_PAYLOAD_BYTES, Frame
 from .wire.opcode import Opcode
 from .wire.types import (
     AuthOkPayload,
@@ -77,6 +77,15 @@ class MuxConnection:
     def __init__(self, sock: socket.socket, request_timeout: float | None = None) -> None:
         self._sock = sock
         self._request_timeout = request_timeout
+        # The server's WELCOME `max_payload_size`, enforced before every write.
+        # A *policy* limit, not the frame format's structural 24-bit ceiling: a
+        # server may advertise less than 16 MiB, and nothing checked it — all
+        # three SDKs decoded this field and discarded it, so an oversize request
+        # went out and came back as a server error, or killed the connection,
+        # instead of failing locally with the number the server just supplied.
+        # Set at the end of `handshake`; until then only handshake frames are
+        # written and those are small.
+        self._max_payload_size = MAX_PAYLOAD_BYTES
         self._routes: dict[int, _RouteQueue] = {}
         self._routes_lock = threading.Lock()
         self._write_lock = threading.Lock()
@@ -119,6 +128,14 @@ class MuxConnection:
             self._write(Opcode.AUTH, HANDSHAKE_STREAM_ID, encode_payload(auth))
             auth_ok_frame = self._expect(q, Opcode.AUTH_OK)
             auth_ok = decode_payload(AuthOkPayload, auth_ok_frame.payload)
+            # A server that leaves this field at its default advertises 0.
+            # Zero is not a meaningful payload cap -- read literally it refuses
+            # every request -- so it means "unset", and the structural 24-bit
+            # ceiling stands in. Reading it literally bricked the client
+            # against any such server.
+            self._max_payload_size = (
+                welcome.server_features.max_payload_size or MAX_PAYLOAD_BYTES
+            )
             return HandshakeOutcome(welcome=welcome, auth_ok=auth_ok)
         finally:
             self._deregister(HANDSHAKE_STREAM_ID)
@@ -264,6 +281,11 @@ class MuxConnection:
         return frame
 
     def _write(self, opcode: Opcode, stream_id: int, payload: bytes) -> None:
+        if len(payload) > self._max_payload_size:
+            raise ProtocolError(
+                f"payload is {len(payload)} bytes, over the "
+                f"{self._max_payload_size} the server advertised at WELCOME"
+            )
         frame = Frame(opcode=int(opcode), flags=FLAG_EOS, stream_id=stream_id, payload=payload)
         with self._write_lock:
             write_frame(self._sock, frame)

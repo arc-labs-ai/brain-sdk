@@ -38,7 +38,7 @@ use tokio::task::JoinHandle;
 use crate::error::{BrainError, Result};
 use crate::transport::{read_frame, write_frame};
 use crate::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
-use crate::wire::frame::{Frame, FLAG_EOS};
+use crate::wire::frame::{Frame, FLAG_EOS, MAX_PAYLOAD_BYTES};
 use crate::wire::opcode::Opcode;
 use crate::wire::types::{
     AuthOkPayload, AuthPayload, ByeRequest, ClientPongRequest, ErrorResponse, HelloPayload,
@@ -88,6 +88,15 @@ struct Shared<S> {
     table: Arc<Mutex<RouteTable>>,
     next_stream_id: AtomicU32,
     request_timeout: Option<Duration>,
+    /// The server's WELCOME `max_payload_size`, enforced before every write.
+    ///
+    /// This is a *policy* limit and is not the same as the frame format's
+    /// structural 24-bit ceiling: a server may advertise less than 16 MiB, and
+    /// nothing checked it — all three SDKs decoded this field and discarded it,
+    /// so an oversize request went out and came back as a server error, or
+    /// killed the connection, instead of failing locally with the number the
+    /// server just supplied.
+    max_payload_size: usize,
 }
 
 impl<S> Shared<S>
@@ -123,7 +132,18 @@ where
     }
 
     /// Write one frame, serialized against every other writer on the socket.
+    ///
+    /// Checks the payload against the negotiated `max_payload_size` first, so
+    /// an oversize request fails here — naming the server's own limit — rather
+    /// than travelling the network to be rejected.
     async fn write(&self, frame: &Frame) -> Result<()> {
+        if frame.payload.len() > self.max_payload_size {
+            return Err(BrainError::Protocol(format!(
+                "payload is {} bytes, over the {} the server advertised at WELCOME",
+                frame.payload.len(),
+                self.max_payload_size
+            )));
+        }
         let mut w = self.writer.lock().await;
         write_frame(&mut *w, frame).await
     }
@@ -266,6 +286,16 @@ where
             table,
             next_stream_id: AtomicU32::new(1),
             request_timeout,
+            // A server that leaves this field at its default advertises 0.
+            // Zero is not a meaningful payload cap -- read literally it refuses
+            // every request -- so it means "unset", and the structural 24-bit
+            // ceiling stands in. Reading it literally bricked the client
+            // against any such server.
+            max_payload_size: if welcome.server_features.max_payload_size == 0 {
+                MAX_PAYLOAD_BYTES
+            } else {
+                welcome.server_features.max_payload_size as usize
+            },
         });
 
         let conn = Self { shared, reader };
