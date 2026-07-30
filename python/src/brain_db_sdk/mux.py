@@ -133,9 +133,7 @@ class MuxConnection:
             # every request -- so it means "unset", and the structural 24-bit
             # ceiling stands in. Reading it literally bricked the client
             # against any such server.
-            self._max_payload_size = (
-                welcome.server_features.max_payload_size or MAX_PAYLOAD_BYTES
-            )
+            self._max_payload_size = welcome.server_features.max_payload_size or MAX_PAYLOAD_BYTES
             return HandshakeOutcome(welcome=welcome, auth_ok=auth_ok)
         finally:
             self._deregister(HANDSHAKE_STREAM_ID)
