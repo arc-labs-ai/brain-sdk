@@ -94,7 +94,10 @@ fn parse(src: &str, out: &mut Types) {
             .unwrap_or_default()
             .to_string();
 
-        let mut depth = line.matches('{').count().saturating_sub(line.matches('}').count());
+        let mut depth = line
+            .matches('{')
+            .count()
+            .saturating_sub(line.matches('}').count());
         let mut members: Vec<String> = Vec::new();
         i += 1;
         while i < lines.len() && depth > 0 {
@@ -107,7 +110,8 @@ fn parse(src: &str, out: &mut Types) {
                         if let Some(rest) = t.strip_prefix("pub ") {
                             if let Some(field) = rest.split(':').next() {
                                 let f = field.trim();
-                                if !f.is_empty() && f.chars().all(|c| c.is_alphanumeric() || c == '_')
+                                if !f.is_empty()
+                                    && f.chars().all(|c| c.is_alphanumeric() || c == '_')
                                 {
                                     members.push(f.to_string());
                                 }
@@ -199,13 +203,19 @@ fn shared_wire_types_agree_with_brain_protocol() {
         };
         shared += 1;
         if srv_kind != sdk_kind {
-            drift.push(format!("{name}: server is {srv_kind:?}, SDK is {sdk_kind:?}"));
+            drift.push(format!(
+                "{name}: server is {srv_kind:?}, SDK is {sdk_kind:?}"
+            ));
             continue;
         }
-        let only_server: Vec<&String> =
-            srv_members.iter().filter(|m| !sdk_members.contains(m)).collect();
-        let only_sdk: Vec<&String> =
-            sdk_members.iter().filter(|m| !srv_members.contains(m)).collect();
+        let only_server: Vec<&String> = srv_members
+            .iter()
+            .filter(|m| !sdk_members.contains(m))
+            .collect();
+        let only_sdk: Vec<&String> = sdk_members
+            .iter()
+            .filter(|m| !srv_members.contains(m))
+            .collect();
         if !only_server.is_empty() || !only_sdk.is_empty() {
             drift.push(format!(
                 "{name}: server-only {only_server:?}, SDK-only {only_sdk:?}"
@@ -238,9 +248,7 @@ fn shared_opcodes_agree_with_brain_protocol() {
             let Some((name, rest)) = t.split_once(" = ") else {
                 continue;
             };
-            if !name
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '_')
+            if !name.chars().all(|c| c.is_alphanumeric() || c == '_')
                 || !name.chars().next().is_some_and(char::is_uppercase)
             {
                 continue;
