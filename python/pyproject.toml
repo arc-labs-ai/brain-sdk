@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brain-db-sdk"
-version = "0.1.0" # x-release-please-version
+version = "0.2.0" # x-release-please-version
 description = "Python client SDK for the Brain memory database. Speaks Brain's BRN0 wire protocol directly over TCP."
 readme = "README.md"
 requires-python = ">=3.9"
