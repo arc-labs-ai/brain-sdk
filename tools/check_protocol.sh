@@ -22,9 +22,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 MANIFEST="conformance/protocol.json"
-RUST_MANIFEST="$(mktemp -t rust_manifest)"
-PY_SRC="$(mktemp -t py_wire)"
-TS_SRC="$(mktemp -t ts_wire)"
+# `mktemp -t` differs between BSD and GNU: BSD appends a random suffix to the
+# template, GNU requires the template to end in at least three X's and errors
+# out otherwise. Without them this script runs on macOS and dies on every
+# Linux CI runner with "too few X's in template" — which is exactly how this
+# gate sat red in CI while passing locally.
+RUST_MANIFEST="$(mktemp -t rust_manifest.XXXXXX)"
+PY_SRC="$(mktemp -t py_wire.XXXXXX)"
+TS_SRC="$(mktemp -t ts_wire.XXXXXX)"
 trap 'rm -f "$RUST_MANIFEST" "$PY_SRC" "$TS_SRC"' EXIT
 
 python3 tools/protocol_manifest.py rust/src/wire > "$RUST_MANIFEST"

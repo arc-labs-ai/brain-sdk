@@ -83,9 +83,7 @@ describe("retryability is classified identically across the three SDKs", () => {
 
   it("covers every server error category", () => {
     // A category with no row above would silently default to "not retryable".
-    const covered = new Set(
-      CASES.map(([label]) => label).filter((l) => l.startsWith("server ")),
-    );
+    const covered = new Set(CASES.map(([label]) => label).filter((l) => l.startsWith("server ")));
     const declared = Object.keys(ErrorCategoryWire).filter((k) => Number.isNaN(Number(k)));
     for (const name of declared) {
       expect(covered.has(`server ${name}`), `${name} has no retryability row`).toBe(true);

@@ -16,7 +16,6 @@
 import { createConnection, type Socket } from "node:net";
 
 import {
-  BrainError,
   BrainTimeout,
   ConnectionClosed,
   ProtocolError,
