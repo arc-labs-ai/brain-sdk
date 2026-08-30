@@ -10951,6 +10951,14 @@
      "name": "timeout_seconds",
      "serde": {},
      "type": "u32"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}

@@ -305,7 +305,7 @@ describe("REASON round-trip", () => {
 
 describe("TXN round-trip", () => {
   it("begin / commit / abort", () => {
-    rt(encodeTxnBegin, decodeTxnBegin, { txnId: ID16(0x10), timeoutSeconds: 30 });
+    rt(encodeTxnBegin, decodeTxnBegin, { txnId: ID16(0x10), timeoutSeconds: 30, actAs: null });
     rt(encodeTxnBeginResponse, decodeTxnBeginResponse, {
       txnId: ID16(0x10),
       timeoutSeconds: 30,

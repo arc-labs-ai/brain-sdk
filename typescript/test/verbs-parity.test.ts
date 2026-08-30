@@ -395,7 +395,7 @@ describe("parity verbs over a mock server", () => {
       });
       expect(link.alreadyExisted).toBe(false);
 
-      const begun = await client.txnBegin({ txnId: TXN_ID, timeoutSeconds: 30 });
+      const begun = await client.txnBegin({ txnId: TXN_ID, timeoutSeconds: 30, actAs: null });
       expect([...begun.txnId]).toEqual([...TXN_ID]);
       const committed = await client.txnCommit({ txnId: TXN_ID });
       expect(committed.operationsApplied).toBe(1);

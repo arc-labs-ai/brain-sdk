@@ -2380,11 +2380,17 @@ pub struct SessionDeleteResponse {
 
 /// TXN_BEGIN (`0x0040`). The client mints the `txn_id`; the server binds the
 /// transaction to it for the duration of the session.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxnBeginRequest {
     #[serde(with = "serde_bytes")]
     pub txn_id: WireUuid,
     pub timeout_seconds: u32,
+    /// Effective identity every write buffered in this transaction commits as.
+    /// Delegation is fixed at begin and applies to the whole txn; `TXN_COMMIT`
+    /// carries no `act_as` of its own. `None` (omitted on the wire) means the
+    /// txn commits as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// TXN_BEGIN_RESP (`0x00C0`).

@@ -4774,15 +4774,25 @@ function decodeReasonTrace(value: unknown): ReasonTrace {
 export interface TxnBeginRequest {
   txnId: WireUuid;
   timeoutSeconds: number;
+  /** Effective identity every write buffered in this transaction commits as,
+   * on behalf of the connection principal. Delegation is fixed at begin and
+   * applies to the whole txn; TXN_COMMIT carries no `act_as` of its own.
+   * `null` (the common case, CBOR-omitted) commits as the connection's own
+   * key-bound identity. */
+  actAs: ActAs | null;
 }
 
-/** Encode a TXN_BEGIN (`0x0040`) request. */
+/** Encode a TXN_BEGIN (`0x0040`) request. `act_as` follows `timeout_seconds`
+ * and is omitted from the map when `null`. */
 export function encodeTxnBegin(p: TxnBeginRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["txn_id", p.txnId],
-      ["timeout_seconds", p.timeoutSeconds],
-    ]),
+    requestMapWithActAs(
+      [
+        ["txn_id", p.txnId],
+        ["timeout_seconds", p.timeoutSeconds],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -4792,6 +4802,7 @@ export function decodeTxnBegin(bytes: Uint8Array): TxnBeginRequest {
   return {
     txnId: asBytes(field(m, "txn_id")),
     timeoutSeconds: asNum(field(m, "timeout_seconds")),
+    actAs: decodeOptActAs(m),
   };
 }
 

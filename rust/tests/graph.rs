@@ -1362,6 +1362,7 @@ fn txn_types_round_trip() {
     round_trip(&TxnBeginRequest {
         txn_id: TXN_ID,
         timeout_seconds: 30,
+        act_as: None,
     });
     round_trip(&TxnBeginResponse {
         txn_id: TXN_ID,
@@ -1489,6 +1490,7 @@ async fn txn_verbs_over_connection() {
         .txn_begin(&TxnBeginRequest {
             txn_id: TXN_ID,
             timeout_seconds: 30,
+            act_as: None,
         })
         .await
         .expect("txn_begin");

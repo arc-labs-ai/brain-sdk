@@ -3908,13 +3908,29 @@ class TxnBeginRequest:
 
     txn_id: bytes
     timeout_seconds: int
+    # Effective identity every write buffered in this transaction commits as.
+    # Delegation is fixed at begin and applies to the whole txn; TXN_COMMIT
+    # carries no act_as of its own. Omitted from the CBOR map when None so the
+    # common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {"txn_id": self.txn_id, "timeout_seconds": self.timeout_seconds}
+        m: dict[str, Any] = {
+            "txn_id": self.txn_id,
+            "timeout_seconds": self.timeout_seconds,
+        }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> TxnBeginRequest:
-        return cls(m["txn_id"], m["timeout_seconds"])
+        act_as = m.get("act_as")
+        return cls(
+            m["txn_id"],
+            m["timeout_seconds"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
