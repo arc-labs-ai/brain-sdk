@@ -153,6 +153,7 @@ async function serveUnaryAndStreamed(sock: net.Socket): Promise<void> {
         embeddingVersion: 1,
         flags: 0,
       },
+      resolvedFrom: [],
     }),
   });
 

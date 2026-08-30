@@ -5141,20 +5141,39 @@ export function decodeEntityGet(bytes: Uint8Array): EntityGetRequest {
   return { entityId: asBytes(field(m, "entity_id")), actAs: decodeOptActAs(m) };
 }
 
-/** ENTITY_GET_RESP (`0x01B1`): the requested entity view. */
+/** ENTITY_GET_RESP (`0x01B1`): the requested entity view plus the
+ *  merge-redirect chain that was walked to reach it. */
 export interface EntityGetResponse {
   entity: EntityView;
+  /** Merge audit trail: the redirect ids the GET walked through to reach
+   *  `entity` (the survivor), in order, EXCLUDING the survivor. Empty on a
+   *  direct hit. For `A -> B -> C`, `ENTITY_GET(A)` returns `entity = C` and
+   *  `resolvedFrom = [A, B]`. Unlike every other id on the wire, this field
+   *  carries no `serde_bytes` server-side, so each id encodes as a CBOR array
+   *  of 16 ints (major type 4), not a byte string — encoded here the same way
+   *  as `attributesBlob`. */
+  resolvedFrom: WireUuid[];
 }
 
 /** Encode an ENTITY_GET_RESP (`0x01B1`) payload. */
 export function encodeEntityGetResponse(p: EntityGetResponse): Uint8Array {
-  return toCbor(new Map<string, unknown>([["entity", encodeEntityView(p.entity)]]));
+  return toCbor(
+    new Map<string, unknown>([
+      ["entity", encodeEntityView(p.entity)],
+      ["resolved_from", p.resolvedFrom.map((u) => Array.from(u))],
+    ]),
+  );
 }
 
 /** Decode an ENTITY_GET_RESP (`0x01B1`) payload. */
 export function decodeEntityGetResponse(bytes: Uint8Array): EntityGetResponse {
   const m = asMap(fromCbor(bytes));
-  return { entity: decodeEntityView(field(m, "entity")) };
+  return {
+    entity: decodeEntityView(field(m, "entity")),
+    resolvedFrom: asArray(field(m, "resolved_from")).map((u) =>
+      Uint8Array.from(asArray(u).map(asNum)),
+    ),
+  };
 }
 
 /** ENTITY_LIST (`0x0137`): page through entities with a type filter and a cursor. */

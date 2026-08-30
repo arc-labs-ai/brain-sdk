@@ -4929,16 +4929,33 @@ class EntityGetRequest:
 
 @dataclass
 class EntityGetResponse:
-    """ENTITY_GET_RESP (``0x01B1``). The requested entity's view."""
+    """ENTITY_GET_RESP (``0x01B1``). The requested entity's view plus the
+    merge-redirect chain that was walked to reach it."""
 
     entity: EntityView
+    # Merge audit trail: the redirect ids the GET walked through to reach
+    # ``entity`` (the survivor), in order, EXCLUDING the survivor. Empty on a
+    # direct hit. For ``A -> B -> C``, ``ENTITY_GET(A)`` returns ``entity = C``
+    # and ``resolved_from = [A, B]``. Each id is a 16-byte ``bytes`` like every
+    # other uuid in this SDK, but — unlike every other id on the wire — this
+    # field carries NO ``serde_bytes`` server-side, so each id encodes as a
+    # CBOR array of 16 ints (major type 4), not a byte string. So, exactly like
+    # ``attributes_blob``, ``to_map`` spreads each id to a ``list[int]`` and
+    # ``from_map`` reassembles the bytes.
+    resolved_from: list[bytes]
 
     def to_map(self) -> dict[str, Any]:
-        return {"entity": self.entity.to_map()}
+        return {
+            "entity": self.entity.to_map(),
+            "resolved_from": [list(x) for x in self.resolved_from],
+        }
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityGetResponse:
-        return cls(EntityView.from_map(m["entity"]))
+        return cls(
+            EntityView.from_map(m["entity"]),
+            [bytes(x) for x in m["resolved_from"]],
+        )
 
 
 @dataclass

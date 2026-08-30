@@ -383,6 +383,7 @@ fn read_side_types_round_trip() {
     });
     round_trip(&EntityGetResponse {
         entity: sample_entity_view(),
+        resolved_from: vec![[7u8; 16], [8u8; 16]],
     });
     round_trip(&EntityListRequest {
         entity_type_id: 1,
@@ -606,6 +607,7 @@ async fn serve_read(mut sock: TcpStream) {
         f.stream_id,
         &EntityGetResponse {
             entity: sample_entity_view(),
+            resolved_from: Vec::new(),
         },
     )
     .await;

@@ -195,7 +195,10 @@ def test_read_side_types_round_trip() -> None:
 
     # Entity get/list.
     _round_trip(EntityGetRequest(ENTITY_ID), EntityGetRequest)
-    _round_trip(EntityGetResponse(_entity_view()), EntityGetResponse)
+    _round_trip(
+        EntityGetResponse(_entity_view(), [bytes([7] * 16), bytes([8] * 16)]),
+        EntityGetResponse,
+    )
     _round_trip(EntityListRequest(1, "Ad", 0, False, False, 100, []), EntityListRequest)
     _round_trip(
         EntityListResponseFrame([EntityListItem(_entity_view())], [9], 1, True),
@@ -393,7 +396,10 @@ def _serve_read_side(sock: socket.socket) -> None:
     f = read_frame(sock, buf)
     assert f.opcode == Opcode.ENTITY_GET_REQ
     _write(
-        sock, Opcode.ENTITY_GET_RESP, f.stream_id, encode_payload(EntityGetResponse(_entity_view()))
+        sock,
+        Opcode.ENTITY_GET_RESP,
+        f.stream_id,
+        encode_payload(EntityGetResponse(_entity_view(), [])),
     )
 
     # ENTITY_RESOLVE (unary).

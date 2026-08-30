@@ -342,7 +342,10 @@ describe("GET_CAPABILITIES round-trip", () => {
 
 describe("ENTITY read-side round-trip", () => {
   it("get response + list request/response", () => {
-    rt(encodeEntityGetResponse, decodeEntityGetResponse, { entity: ENTITY_VIEW });
+    rt(encodeEntityGetResponse, decodeEntityGetResponse, {
+      entity: ENTITY_VIEW,
+      resolvedFrom: [new Uint8Array(16).fill(7), new Uint8Array(16).fill(8)],
+    });
     rt(encodeEntityList, decodeEntityList, {
       entityTypeId: 7,
       namePrefix: "Ada",

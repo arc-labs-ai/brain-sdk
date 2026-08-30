@@ -5425,6 +5425,11 @@
      "name": "entity",
      "serde": {},
      "type": "EntityView"
+    },
+    {
+     "name": "resolved_from",
+     "serde": {},
+     "type": "Vec<[u8; 16]>"
     }
    ],
    "serde": {}

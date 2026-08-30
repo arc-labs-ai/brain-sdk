@@ -1,3 +1,10 @@
-Corpus vendored from arc-labs-ai/brain
-commit: c1269a4d29ee48d775ef7af986329ca7aa517812
-date: 2026-07-30
+Corpus vendored from arc-labs-ai/brain-db
+commit: 8d5e667ad566feb589b599c95086452389e0f712
+date: 2026-08-30
+
+resp_entity_get re-blessed at this commit for the ENTITY_GET
+merge-redirect chain (EntityGetResponse.resolved_from, brain-db
+47f7cc88). resp_entity_get_merged is an SDK-curated case beyond the
+server's representative set; resolved_from was added to it in lockstep.
+The remaining cases carry over unchanged from the previous vendor
+(c1269a4, 2026-07-30) and are byte-identical to the server corpus.

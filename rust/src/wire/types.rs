@@ -2918,6 +2918,14 @@ pub struct EntityGetRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityGetResponse {
     pub entity: EntityView,
+    /// Merge audit trail: the chain of redirect ids the GET walked through to
+    /// reach `entity` (the surviving row), in order, EXCLUDING the survivor
+    /// itself. Empty on a direct hit (the requested id was live). For
+    /// `A → B → C`, `ENTITY_GET(A)` returns `entity = C` and
+    /// `resolved_from = [A, B]`. Each id encodes as a CBOR array of 16 ints
+    /// (plain `[u8; 16]`), matching the server's default serde encoding for
+    /// this field.
+    pub resolved_from: Vec<WireUuid>,
 }
 
 /// ENTITY_LIST (`0x0137`). Empty/zero fields mean "no filter".
