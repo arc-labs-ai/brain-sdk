@@ -97,6 +97,10 @@ export const Opcode = {
   SchemaListResp: 0x01a2,
   SchemaValidateReq: 0x0123,
   SchemaValidateResp: 0x01a3,
+  // Surgical narrow of a single declared predicate / relation_type — the
+  // per-type counterpart to the namespace-wide SchemaReplace. Brain §03.05.
+  SchemaDropReq: 0x0125,
+  SchemaDropResp: 0x01a5,
   // Destructive namespace swap — drops every declared row before the new
   // document lands. Distinct from SchemaUpload, which merges. Brain §03.05.
   SchemaReplaceReq: 0x0127,

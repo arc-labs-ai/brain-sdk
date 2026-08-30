@@ -39,8 +39,9 @@ use crate::wire::types::{
     RelationListToResponseFrame, RelationSupersedeRequest, RelationSupersedeResponse,
     RelationTombstoneRequest, RelationTombstoneResponse, RelationTraverseRequest,
     RelationTraverseResponseFrame, RelationView, SchemaGetRequest, SchemaGetResponse,
-    SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame, SchemaReplaceRequest,
-    SchemaReplaceResponse, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
+    SchemaDropRequest, SchemaDropResponse, SchemaListItemWire, SchemaListRequest,
+    SchemaListResponseFrame, SchemaReplaceRequest, SchemaReplaceResponse, SchemaUploadRequest,
+    SchemaUploadResponse, SchemaValidateRequest,
     SchemaValidateResponse, ServerFeatures, SessionCreateRequest, SessionCreateResponse,
     SessionDeleteRequest, SessionDeleteResponse, SessionListRequest, SessionListResponse,
     SpaceCreateRequest, SpaceCreateResponse, SpaceDeleteRequest, SpaceDeleteResponse,
@@ -814,6 +815,27 @@ impl BrainClient {
             Opcode::SchemaReplaceReq,
             Opcode::SchemaReplaceResp,
             "SCHEMA_REPLACE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Drop a single declared predicate or relation_type (SCHEMA_DROP).
+    ///
+    /// The surgical counterpart to [`Self::replace_schema`]: it narrows the
+    /// active schema by one type rather than swapping the whole namespace.
+    /// Existing rows on the dropped type survive as orphans, readable as plain
+    /// memories but no longer enriched from the typed-graph tables.
+    ///
+    /// `force` is required only when the target still has live rows; the server
+    /// rejects `false` in that case with `Conflict` and mutates nothing. The
+    /// SDK does not default it, so the destructive intent is written at the
+    /// call site.
+    pub async fn drop_schema(&self, request: &SchemaDropRequest) -> Result<SchemaDropResponse> {
+        self.unary(
+            Opcode::SchemaDropReq,
+            Opcode::SchemaDropResp,
+            "SCHEMA_DROP_RESP",
             request,
         )
         .await

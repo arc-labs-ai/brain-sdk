@@ -322,10 +322,12 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("req_schema_list", SchemaListRequest);
     payload!("req_schema_validate", SchemaValidateRequest);
     payload!("req_schema_replace", SchemaReplaceRequest);
+    payload!("req_schema_drop", SchemaDropRequest);
     payload!("resp_schema_get", SchemaGetResponse);
     payload!("resp_schema_list", SchemaListResponseFrame);
     payload!("resp_schema_validate", SchemaValidateResponse);
     payload!("resp_schema_replace", SchemaReplaceResponse);
+    payload!("resp_schema_drop", SchemaDropResponse);
     payload!("req_txn_begin", TxnBeginRequest);
     payload!("req_txn_commit", TxnCommitRequest);
     payload!("req_txn_abort", TxnAbortRequest);

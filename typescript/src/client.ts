@@ -101,6 +101,8 @@ import {
   type SchemaListResponseFrame,
   type CancelStreamAck,
   type CancellationReason,
+  type SchemaDropRequest,
+  type SchemaDropResponse,
   type SchemaReplaceRequest,
   type SchemaReplaceResponse,
   type SchemaUploadRequest,
@@ -146,6 +148,7 @@ import {
   decodeSchemaGetResponse,
   decodeSchemaListResponse,
   decodeCancelStreamAck,
+  decodeSchemaDropResponse,
   decodeSchemaReplaceResponse,
   decodeSchemaUploadResponse,
   decodeSchemaValidateResponse,
@@ -235,6 +238,7 @@ import {
   encodeSchemaGet,
   encodeSchemaList,
   encodeCancelStream,
+  encodeSchemaDrop,
   encodeSchemaReplace,
   encodeSchemaUpload,
   encodeSchemaValidate,
@@ -973,6 +977,23 @@ export class BrainClient {
     const frame = await this.conn.requestOne(Opcode.SchemaReplaceReq, encodeSchemaReplace(request));
     this.expect(frame.opcode, Opcode.SchemaReplaceResp, "SCHEMA_REPLACE_RESP");
     return decodeSchemaReplaceResponse(frame.payload);
+  }
+
+  /**
+   * Drop a single declared predicate or relation_type (SCHEMA_DROP).
+   *
+   * The surgical counterpart to {@link replaceSchema}: it narrows the active
+   * schema by one type rather than swapping the whole namespace. Existing rows
+   * on the dropped type survive as orphans, readable as plain memories but no
+   * longer enriched from the typed-graph tables.
+   *
+   * `force` is required only when the target still has live rows; the server
+   * rejects `false` in that case with `Conflict` and mutates nothing.
+   */
+  async dropSchema(request: SchemaDropRequest): Promise<SchemaDropResponse> {
+    const frame = await this.conn.requestOne(Opcode.SchemaDropReq, encodeSchemaDrop(request));
+    this.expect(frame.opcode, Opcode.SchemaDropResp, "SCHEMA_DROP_RESP");
+    return decodeSchemaDropResponse(frame.payload);
   }
 
   /**

@@ -3022,6 +3022,129 @@ export function decodeSchemaUpload(bytes: Uint8Array): SchemaUploadRequest {
   };
 }
 
+/** Target kinds for {@link SchemaDropRequest}'s `targetKind`. */
+export const SchemaDropTarget = {
+  Predicate: 0,
+  RelationType: 1,
+} as const;
+
+/**
+ * SCHEMA_DROP (`0x0125`) — surgical narrow of a single declared type.
+ *
+ * The per-type counterpart to the namespace-wide {@link SchemaReplaceRequest}:
+ * removes one declared predicate or relation_type from the active schema set,
+ * then bumps the namespace to a new version whose document no longer declares
+ * it. Existing rows on the dropped type survive as orphans: still readable as
+ * plain memories, no longer enriched from the typed-graph tables.
+ *
+ * `force` is required only when the target still has live (non-tombstoned)
+ * rows: `false` with live rows present is rejected with `Conflict` and mutates
+ * nothing. A type with no live rows drops without `force`.
+ */
+export interface SchemaDropRequest {
+  namespace: string;
+  targetKind: number;
+  targetName: string;
+  force: boolean;
+  requestId: Uint8Array;
+}
+
+/** Encode a SCHEMA_DROP (`0x0125`) request payload. */
+export function encodeSchemaDrop(p: SchemaDropRequest): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["target_kind", p.targetKind],
+      ["target_name", p.targetName],
+      ["force", p.force],
+      ["request_id", p.requestId],
+    ]),
+  );
+}
+
+/** Decode a SCHEMA_DROP (`0x0125`) request payload. */
+export function decodeSchemaDrop(bytes: Uint8Array): SchemaDropRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    targetKind: asNum(field(m, "target_kind")),
+    targetName: asStr(field(m, "target_name")),
+    force: asBool(field(m, "force")),
+    requestId: asBytes(field(m, "request_id")),
+  };
+}
+
+/**
+ * SCHEMA_DROP_RESP (`0x01A5`).
+ *
+ * `schemaVersion` is the new active version after the narrow, or `0` when
+ * nothing was dropped or the drop was rejected. `dropped` is `true` only when a
+ * declared row was actually removed. `liveRows` is the count of live rows found
+ * referencing the target — non-zero with `dropped === false` means the drop was
+ * refused for lack of `force`.
+ */
+export interface SchemaDropResponse {
+  namespace: string;
+  schemaVersion: number;
+  targetKind: number;
+  targetName: string;
+  dropped: boolean;
+  liveRows: number;
+  validationErrors: SchemaValidationErrorWire[];
+}
+
+/** Encode a SCHEMA_DROP_RESP (`0x01A5`) payload. */
+export function encodeSchemaDropResponse(p: SchemaDropResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["schema_version", p.schemaVersion],
+      ["target_kind", p.targetKind],
+      ["target_name", p.targetName],
+      ["dropped", p.dropped],
+      ["live_rows", p.liveRows],
+      [
+        "validation_errors",
+        p.validationErrors.map(
+          (e) =>
+            new Map<string, unknown>([
+              ["code", e.code],
+              ["message", e.message],
+              ["line", e.line],
+              ["column", e.column],
+              ["length", e.length],
+              ["severity", e.severity],
+            ]),
+        ),
+      ],
+    ]),
+  );
+}
+
+/** Decode a SCHEMA_DROP_RESP (`0x01A5`) payload. */
+export function decodeSchemaDropResponse(bytes: Uint8Array): SchemaDropResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    schemaVersion: asNum(field(m, "schema_version")),
+    targetKind: asNum(field(m, "target_kind")),
+    targetName: asStr(field(m, "target_name")),
+    dropped: asBool(field(m, "dropped")),
+    liveRows: asNum(field(m, "live_rows")),
+    validationErrors: asArray(field(m, "validation_errors")).map((v) => {
+      const e = asMap(v);
+      return {
+        code: asStr(field(e, "code")),
+        message: asStr(field(e, "message")),
+        line: asNum(field(e, "line")),
+        column: asNum(field(e, "column")),
+        length: asNum(field(e, "length")),
+        severity: asNum(field(e, "severity")),
+      };
+    }),
+  };
+}
+
 /**
  * SCHEMA_REPLACE (`0x0127`) — destructive namespace swap.
  *

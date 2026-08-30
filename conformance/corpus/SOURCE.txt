@@ -1,8 +1,12 @@
 Corpus vendored from arc-labs-ai/brain-db
-commit: 8d5e667ad566feb589b599c95086452389e0f712
-date: 2026-08-30
+commit: ee71f9569c54d5730792bacc7b1cda3af9461fc0
+date: 2026-08-31
 
-resp_entity_get re-blessed at this commit for the ENTITY_GET
+req_schema_drop / resp_schema_drop added at this commit for the new
+SCHEMA_DROP opcode (0x0125 / 0x01A5, brain-db ee71f956), copied
+byte-for-byte from the server corpus.
+
+resp_entity_get was re-blessed at 8d5e667a for the ENTITY_GET
 merge-redirect chain (EntityGetResponse.resolved_from, brain-db
 47f7cc88). resp_entity_get_merged is an SDK-curated case beyond the
 server's representative set; resolved_from was added to it in lockstep.

@@ -2676,6 +2676,99 @@ class SchemaValidationError:
         return cls(m["code"], m["message"], m["line"], m["column"], m["length"], m["severity"])
 
 
+# Target kinds for :class:`SchemaDropRequest`. ``target_kind`` MUST be one of
+# these; the server rejects any other discriminant with ``InvalidRequest``.
+# Entity types are deliberately absent: they are global in the v1 storage model,
+# so dropping one would race rows in other namespaces referencing the same shared
+# type — the same reason SCHEMA_REPLACE never drops them.
+SCHEMA_DROP_TARGET_PREDICATE: int = 0
+SCHEMA_DROP_TARGET_RELATION_TYPE: int = 1
+
+
+@dataclass
+class SchemaDropRequest:
+    """SCHEMA_DROP (``0x0125``). Surgical narrow of a single declared type.
+
+    The per-type counterpart to the namespace-wide :class:`SchemaReplaceRequest`:
+    removes one declared predicate or relation_type from the active schema set,
+    then bumps the namespace to a new version whose document no longer declares
+    it. Existing rows on the dropped type survive as orphans — readable as plain
+    memories, no longer enriched from the typed-graph tables.
+
+    ``force`` is required only when the target still has live (non-tombstoned)
+    rows: ``False`` with live rows present is rejected with ``Conflict`` and
+    mutates nothing. A type with no live rows drops without ``force``.
+    """
+
+    namespace: str
+    target_kind: int
+    target_name: str
+    force: bool
+    request_id: bytes
+
+    def to_map(self) -> dict[str, Any]:
+        return {
+            "namespace": self.namespace,
+            "target_kind": self.target_kind,
+            "target_name": self.target_name,
+            "force": self.force,
+            "request_id": self.request_id,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> SchemaDropRequest:
+        return cls(
+            m["namespace"],
+            m["target_kind"],
+            m["target_name"],
+            m["force"],
+            m["request_id"],
+        )
+
+
+@dataclass
+class SchemaDropResponse:
+    """SCHEMA_DROP_RESP (``0x01A5``).
+
+    ``schema_version`` is the new active version after the narrow, or ``0`` when
+    nothing was dropped or the drop was rejected. ``dropped`` is ``True`` only
+    when a declared row was actually removed. ``live_rows`` is the count of live
+    rows found referencing the target — non-zero with ``dropped == False`` means
+    the drop was refused for lack of ``force``.
+    """
+
+    namespace: str
+    schema_version: int
+    target_kind: int
+    target_name: str
+    dropped: bool
+    live_rows: int
+    validation_errors: list[SchemaValidationError]
+
+    def to_map(self) -> dict[str, Any]:
+        return {
+            "namespace": self.namespace,
+            "schema_version": self.schema_version,
+            "target_kind": self.target_kind,
+            "target_name": self.target_name,
+            "dropped": self.dropped,
+            "live_rows": self.live_rows,
+            "validation_errors": [e.to_map() for e in self.validation_errors],
+        }
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> SchemaDropResponse:
+        return cls(
+            m["namespace"],
+            m["schema_version"],
+            m["target_kind"],
+            m["target_name"],
+            m["dropped"],
+            m["live_rows"],
+            [SchemaValidationError.from_map(e) for e in m.get("validation_errors", [])],
+        )
+
+
 @dataclass
 class SchemaReplaceRequest:
     """SCHEMA_REPLACE (``0x0127``). Destructive namespace swap.

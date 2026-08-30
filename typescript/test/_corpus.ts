@@ -269,6 +269,7 @@ export const codecs: Record<string, Codec> = {
   req_schema_list: payloadRoundTrip(t.decodeSchemaList, t.encodeSchemaList),
   req_schema_validate: payloadRoundTrip(t.decodeSchemaValidate, t.encodeSchemaValidate),
   req_schema_replace: payloadRoundTrip(t.decodeSchemaReplace, t.encodeSchemaReplace),
+  req_schema_drop: payloadRoundTrip(t.decodeSchemaDrop, t.encodeSchemaDrop),
   resp_schema_get: payloadRoundTrip(t.decodeSchemaGetResponse, t.encodeSchemaGetResponse),
   resp_schema_list: payloadRoundTrip(t.decodeSchemaListResponse, t.encodeSchemaListResponse),
   resp_schema_validate: payloadRoundTrip(
@@ -278,6 +279,10 @@ export const codecs: Record<string, Codec> = {
   resp_schema_replace: payloadRoundTrip(
     t.decodeSchemaReplaceResponse,
     t.encodeSchemaReplaceResponse,
+  ),
+  resp_schema_drop: payloadRoundTrip(
+    t.decodeSchemaDropResponse,
+    t.encodeSchemaDropResponse,
   ),
   req_txn_begin: payloadRoundTrip(t.decodeTxnBegin, t.encodeTxnBegin),
   req_txn_commit: payloadRoundTrip(t.decodeTxnCommit, t.encodeTxnCommit),

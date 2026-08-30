@@ -104,6 +104,8 @@ from .wire.types import (
     SchemaListItem,
     SchemaListRequest,
     SchemaListResponseFrame,
+    SchemaDropRequest,
+    SchemaDropResponse,
     SchemaReplaceRequest,
     SchemaReplaceResponse,
     SchemaUploadRequest,
@@ -824,6 +826,25 @@ class BrainClient:
             Opcode.SCHEMA_REPLACE_REQ,
             Opcode.SCHEMA_REPLACE_RESP,
             SchemaReplaceResponse,
+            request,
+        )
+
+    def drop_schema(self, request: SchemaDropRequest) -> SchemaDropResponse:
+        """Drop a single declared predicate or relation_type (SCHEMA_DROP).
+
+        The surgical counterpart to :meth:`replace_schema`: it narrows the
+        active schema by one type rather than swapping the whole namespace.
+        Existing rows on the dropped type survive as orphans, readable as plain
+        memories but no longer enriched from the typed-graph tables.
+
+        ``request.force`` is required only when the target still has live rows;
+        the server rejects ``False`` in that case with ``Conflict`` and mutates
+        nothing.
+        """
+        return self._unary(
+            Opcode.SCHEMA_DROP_REQ,
+            Opcode.SCHEMA_DROP_RESP,
+            SchemaDropResponse,
             request,
         )
 

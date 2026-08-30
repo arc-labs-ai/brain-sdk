@@ -110,6 +110,10 @@ class Opcode(IntEnum):
     SCHEMA_LIST_RESP = 0x01A2
     SCHEMA_VALIDATE_REQ = 0x0123
     SCHEMA_VALIDATE_RESP = 0x01A3
+    # Surgical narrow of a single declared predicate / relation_type — the
+    # per-type counterpart to the namespace-wide SCHEMA_REPLACE. Brain §03.05.
+    SCHEMA_DROP_REQ = 0x0125
+    SCHEMA_DROP_RESP = 0x01A5
     # Destructive namespace swap — drops every declared row before the new
     # document lands. Distinct from SCHEMA_UPLOAD, which merges. Brain §03.05.
     SCHEMA_REPLACE_REQ = 0x0127

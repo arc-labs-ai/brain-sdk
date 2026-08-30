@@ -2042,6 +2042,64 @@ pub struct SchemaUploadResponse {
     pub migration_summary_blob: Vec<u8>,
 }
 
+/// Target kinds for a [`SchemaDropRequest`]. `target_kind` MUST be one of
+/// these; the server rejects any other discriminant with `InvalidRequest`.
+///
+/// Entity types are deliberately absent: they are global in the v1 storage
+/// model, so dropping one would race rows in other namespaces that reference
+/// the same shared type — the same reason `SCHEMA_REPLACE` never drops them.
+pub mod schema_drop_target {
+    /// Drop a declared predicate.
+    pub const PREDICATE: u8 = 0;
+    /// Drop a declared relation_type.
+    pub const RELATION_TYPE: u8 = 1;
+}
+
+/// `SCHEMA_DROP` (`0x0125`) — surgical narrow of a single declared type.
+///
+/// The per-type counterpart to the namespace-wide `SCHEMA_REPLACE`: removes one
+/// declared predicate or relation_type from the active schema set, then bumps
+/// the namespace to a new version whose document no longer declares it. Existing
+/// rows on the dropped type survive as orphans — readable as plain memories, no
+/// longer enriched from the typed-graph tables.
+///
+/// `force` is required only when the target still has live (non-tombstoned)
+/// rows: `false` with live rows present is rejected with `Conflict` and mutates
+/// nothing. A type with no live rows drops without `force`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaDropRequest {
+    /// Namespace the target lives in. MUST equal the caller's own namespace,
+    /// or the server rejects with `Unauthorized`.
+    pub namespace: String,
+    /// One of [`schema_drop_target`]. Any other value → `InvalidRequest`.
+    pub target_kind: u8,
+    /// Local name of the predicate / relation_type to drop (the qname is
+    /// `{namespace}:{target_name}`).
+    pub target_name: String,
+    /// Confirmation flag required only when the target still has live rows.
+    pub force: bool,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+}
+
+/// `SCHEMA_DROP_RESP` (`0x01A5`).
+///
+/// `schema_version` is the new active version after the narrow, or `0` when
+/// nothing was dropped or the drop was rejected. `dropped` is `true` only when
+/// a declared row was actually removed. `live_rows` is the count of live rows
+/// found referencing the target — non-zero with `dropped == false` means the
+/// drop was refused for lack of `force`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaDropResponse {
+    pub namespace: String,
+    pub schema_version: u32,
+    pub target_kind: u8,
+    pub target_name: String,
+    pub dropped: bool,
+    pub live_rows: u32,
+    pub validation_errors: Vec<SchemaValidationErrorWire>,
+}
+
 /// `SCHEMA_REPLACE` (`0x0127`) — destructive namespace swap.
 ///
 /// Unlike `SCHEMA_UPLOAD`, this DROPS every declared row in the namespace
