@@ -12,6 +12,7 @@ builder mints makes the resend idempotent server-side.
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import TypeVar
@@ -72,9 +73,11 @@ from .wire.types import (
     MemoryListResponseFrame,
     MemoryResult,
     MtlsClaim,
+    PingRequest,
     PlanRequest,
     PlanResponseFrame,
     PlanStep,
+    PongResponse,
     QueryExplainRequest,
     QueryExplainResponse,
     QueryTraceRequest,
@@ -99,13 +102,13 @@ from .wire.types import (
     RelationTraverseRequest,
     RelationTraverseResponseFrame,
     RelationView,
+    SchemaDropRequest,
+    SchemaDropResponse,
     SchemaGetRequest,
     SchemaGetResponse,
     SchemaListItem,
     SchemaListRequest,
     SchemaListResponseFrame,
-    SchemaDropRequest,
-    SchemaDropResponse,
     SchemaReplaceRequest,
     SchemaReplaceResponse,
     SchemaUploadRequest,
@@ -750,6 +753,27 @@ class BrainClient:
             Opcode.GET_CAPABILITIES_RESP,
             GetCapabilitiesResponse,
             request,
+        )
+
+    def ping(self, client_timestamp_unix_nanos: int | None = None) -> PongResponse:
+        """Probe the connection round-trip (PING → PONG).
+
+        A client-initiated liveness/RTT check: sends PING carrying a client
+        timestamp and awaits the server's PONG, which echoes that timestamp
+        alongside the server's own. Distinct from the server's idle-timer
+        heartbeat (SERVER_PING), which the mux answers automatically. Defaults
+        the timestamp to the current wall clock when the caller omits it.
+        """
+        ts = (
+            client_timestamp_unix_nanos
+            if client_timestamp_unix_nanos is not None
+            else time.time_ns()
+        )
+        return self._unary(
+            Opcode.PING,
+            Opcode.PONG,
+            PongResponse,
+            PingRequest(client_timestamp_unix_nanos=ts),
         )
 
     def extractor_list(
