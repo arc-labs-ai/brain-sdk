@@ -21,7 +21,8 @@ use brain_db_sdk::wire::types::{
     GraphEdge, GraphFetchRequest, GraphFetchResponseFrame, GraphNode, HelloPayload,
     MemoryInspectRequest, MemoryInspectResponse, MemoryListDirWire, MemoryListItem,
     MemoryListRequest, MemoryListResponseFrame, MemoryListSortWire, MemoryListTimeAxisWire,
-    SchemaDropRequest, SchemaDropResponse, ServerFeatures, SpacePermissions, WelcomePayload,
+    PingRequest, PongResponse, SchemaDropRequest, SchemaDropResponse, ServerFeatures,
+    SpacePermissions, WelcomePayload,
 };
 use brain_db_sdk::{Auth, BrainClient};
 
@@ -77,7 +78,9 @@ async fn serve(mut sock: TcpStream) {
     handshake(&mut sock, &mut buf).await;
 
     // SCHEMA_DROP (first call): a declared type is actually removed.
-    let f = read_frame(&mut sock, &mut buf).await.expect("schema drop 1");
+    let f = read_frame(&mut sock, &mut buf)
+        .await
+        .expect("schema drop 1");
     assert_eq!(f.opcode, Opcode::SchemaDropReq as u16);
     let req: SchemaDropRequest = from_cbor_bytes(&f.payload).expect("decode drop 1");
     assert_eq!(req.namespace, "people");
@@ -100,7 +103,9 @@ async fn serve(mut sock: TcpStream) {
 
     // SCHEMA_DROP (second call): the type is already gone — a lenient re-drop is
     // a no-op that reports dropped=false with schema_version=0.
-    let f = read_frame(&mut sock, &mut buf).await.expect("schema drop 2");
+    let f = read_frame(&mut sock, &mut buf)
+        .await
+        .expect("schema drop 2");
     assert_eq!(f.opcode, Opcode::SchemaDropReq as u16);
     let req: SchemaDropRequest = from_cbor_bytes(&f.payload).expect("decode drop 2");
     write_one(
@@ -120,7 +125,9 @@ async fn serve(mut sock: TcpStream) {
     .await;
 
     // EXTRACTOR_LIST (unary): the always-on extractor registry snapshot.
-    let f = read_frame(&mut sock, &mut buf).await.expect("extractor list");
+    let f = read_frame(&mut sock, &mut buf)
+        .await
+        .expect("extractor list");
     assert_eq!(f.opcode, Opcode::ExtractorListReq as u16);
     let _req: ExtractorListRequest = from_cbor_bytes(&f.payload).expect("decode extractor list");
     write_one(
@@ -188,7 +195,9 @@ async fn serve(mut sock: TcpStream) {
     .await;
 
     // MEMORY_INSPECT (unary): the durable write-artifact bundle for one memory.
-    let f = read_frame(&mut sock, &mut buf).await.expect("memory inspect");
+    let f = read_frame(&mut sock, &mut buf)
+        .await
+        .expect("memory inspect");
     assert_eq!(f.opcode, Opcode::MemoryInspectReq as u16);
     let req: MemoryInspectRequest = from_cbor_bytes(&f.payload).expect("decode inspect");
     assert_eq!(req.memory_id, MEMORY_ID);
@@ -246,6 +255,21 @@ async fn serve(mut sock: TcpStream) {
             }],
             next_cursor: Vec::new(),
             is_final: true,
+        },
+    )
+    .await;
+
+    // --- PING: client-initiated liveness probe, echoed back as PONG ------
+    let f = read_frame(&mut sock, &mut buf).await.expect("ping");
+    assert_eq!(f.opcode, Opcode::Ping as u16);
+    let req: PingRequest = from_cbor_bytes(&f.payload).expect("decode ping");
+    write_one(
+        &mut sock,
+        Opcode::Pong,
+        f.stream_id,
+        &PongResponse {
+            client_timestamp_unix_nanos: req.client_timestamp_unix_nanos,
+            server_timestamp_unix_nanos: 42,
         },
     )
     .await;
@@ -366,6 +390,11 @@ async fn reads_and_admin_verbs_over_connection() {
     assert_eq!(nodes[0].id, ENTITY_ID);
     assert_eq!(edges.len(), 1);
     assert_eq!(edges[0].from_id, ENTITY_ID);
+
+    // PING — client-initiated liveness probe; the PONG echoes our timestamp.
+    let pong = client.ping(Some(123_456_789)).await.expect("ping");
+    assert_eq!(pong.client_timestamp_unix_nanos, 123_456_789);
+    assert_eq!(pong.server_timestamp_unix_nanos, 42);
 
     client.close().await.expect("bye");
     server.await.expect("server task");

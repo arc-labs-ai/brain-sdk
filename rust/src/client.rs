@@ -10,7 +10,7 @@
 //! makes the resend idempotent server-side.
 
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::net::TcpStream;
 
@@ -31,28 +31,27 @@ use crate::wire::types::{
     GraphFetchRequest, GraphFetchResponseFrame, GraphNode, HelloCapabilities, HelloPayload,
     InferenceStep, LinkRequest, LinkResponse, MaterializeProceduralRequest,
     MaterializeProceduralResponse, MemoryInspectRequest, MemoryInspectResponse, MemoryListItem,
-    MemoryListRequest, MemoryListResponseFrame, MemoryResult, MtlsClaim, PlanRequest,
-    PlanResponseFrame, PlanStep, QueryExplainRequest, QueryExplainResponse, QueryTraceRequest,
-    QueryTraceResponse, ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame,
-    RelationCreateRequest, RelationCreateResponse, RelationGetRequest, RelationGetResponse,
-    RelationListFromRequest, RelationListFromResponseFrame, RelationListToRequest,
-    RelationListToResponseFrame, RelationSupersedeRequest, RelationSupersedeResponse,
-    RelationTombstoneRequest, RelationTombstoneResponse, RelationTraverseRequest,
-    RelationTraverseResponseFrame, RelationView, SchemaGetRequest, SchemaGetResponse,
-    SchemaDropRequest, SchemaDropResponse, SchemaListItemWire, SchemaListRequest,
+    MemoryListRequest, MemoryListResponseFrame, MemoryResult, MtlsClaim, PingRequest, PlanRequest,
+    PlanResponseFrame, PlanStep, PongResponse, QueryExplainRequest, QueryExplainResponse,
+    QueryTraceRequest, QueryTraceResponse, ReasonRequest, ReasonResponseFrame, RecallRequest,
+    RecallResponseFrame, RelationCreateRequest, RelationCreateResponse, RelationGetRequest,
+    RelationGetResponse, RelationListFromRequest, RelationListFromResponseFrame,
+    RelationListToRequest, RelationListToResponseFrame, RelationSupersedeRequest,
+    RelationSupersedeResponse, RelationTombstoneRequest, RelationTombstoneResponse,
+    RelationTraverseRequest, RelationTraverseResponseFrame, RelationView, SchemaDropRequest,
+    SchemaDropResponse, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
     SchemaListResponseFrame, SchemaReplaceRequest, SchemaReplaceResponse, SchemaUploadRequest,
-    SchemaUploadResponse, SchemaValidateRequest,
-    SchemaValidateResponse, ServerFeatures, SessionCreateRequest, SessionCreateResponse,
-    SessionDeleteRequest, SessionDeleteResponse, SessionListRequest, SessionListResponse,
-    SpaceCreateRequest, SpaceCreateResponse, SpaceDeleteRequest, SpaceDeleteResponse,
-    SpaceListRequest, SpaceListResponse, SpacePermissions, StatementCreateRequest,
-    StatementCreateResponse, StatementGetRequest, StatementGetResponse, StatementHistoryRequest,
-    StatementHistoryResponseFrame, StatementListRequest, StatementListResponseFrame,
-    StatementRetractRequest, StatementRetractResponse, StatementSupersedeRequest,
-    StatementSupersedeResponse, StatementTombstoneRequest, StatementTombstoneResponse,
-    StatementView, SubscribeRequest, TraversalPathWire, TxnAbortRequest, TxnAbortResponse,
-    TxnBeginRequest, TxnBeginResponse, TxnCommitRequest, TxnCommitResponse, UnlinkRequest,
-    UnlinkResponse,
+    SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse, ServerFeatures,
+    SessionCreateRequest, SessionCreateResponse, SessionDeleteRequest, SessionDeleteResponse,
+    SessionListRequest, SessionListResponse, SpaceCreateRequest, SpaceCreateResponse,
+    SpaceDeleteRequest, SpaceDeleteResponse, SpaceListRequest, SpaceListResponse, SpacePermissions,
+    StatementCreateRequest, StatementCreateResponse, StatementGetRequest, StatementGetResponse,
+    StatementHistoryRequest, StatementHistoryResponseFrame, StatementListRequest,
+    StatementListResponseFrame, StatementRetractRequest, StatementRetractResponse,
+    StatementSupersedeRequest, StatementSupersedeResponse, StatementTombstoneRequest,
+    StatementTombstoneResponse, StatementView, SubscribeRequest, TraversalPathWire,
+    TxnAbortRequest, TxnAbortResponse, TxnBeginRequest, TxnBeginResponse, TxnCommitRequest,
+    TxnCommitResponse, UnlinkRequest, UnlinkResponse,
 };
 
 /// Default `client_id` advertised in HELLO.
@@ -839,6 +838,28 @@ impl BrainClient {
             request,
         )
         .await
+    }
+
+    /// Client-initiated liveness probe (PING → PONG).
+    ///
+    /// Distinct from the server's idle-timer SERVER_PING keepalive, which the
+    /// mux auto-answers with CLIENT_PONG: this is an on-demand round-trip whose
+    /// PONG routes back by stream id through the normal unary path.
+    /// `client_timestamp_unix_nanos` defaults to the current wall clock when
+    /// `None`; the PONG echoes it back alongside the server's timestamp, so the
+    /// caller can measure RTT.
+    pub async fn ping(&self, client_timestamp_unix_nanos: Option<u64>) -> Result<PongResponse> {
+        let ts = client_timestamp_unix_nanos.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0)
+        });
+        let request = PingRequest {
+            client_timestamp_unix_nanos: ts,
+        };
+        self.unary(Opcode::Ping, Opcode::Pong, "PONG", &request)
+            .await
     }
 
     /// Cancel an in-flight stream (CANCEL_STREAM).
