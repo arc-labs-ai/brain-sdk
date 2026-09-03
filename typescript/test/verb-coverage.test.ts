@@ -7,11 +7,9 @@
  *   - EXTRACTOR_LIST (client.extractorList)
  *   - TXN_ABORT    (client.txnAbort)     — only begin/commit were exercised
  *
- * Plus a client-initiated PING/PONG wire round-trip. `encodePing` exists but the
- * BrainClient never *emits* PING — only the SERVER_PING -> CLIENT_PONG keepalive
- * is wired (see mux.ts / mux.test.ts). There is no client method to drive, so
- * this pins the opcodes and payload round-trip over a real FrameChannel rather
- * than forcing a client change; see the note on that test.
+ * Plus a client-initiated PING via `client.ping()` (PING -> PONG), distinct from
+ * the SERVER_PING -> CLIENT_PONG keepalive the mux auto-answers (see mux.ts /
+ * mux.test.ts): the PONG routes back by stream id through the normal unary path.
  *
  * Like stream-control.test.ts, several of these verbs are thinly guarded at the
  * byte level, so the mock asserts the numeric opcode — a renumbering upstream
@@ -33,13 +31,11 @@ import {
   decodeExtractorList,
   decodeHello,
   decodePing,
-  decodePong,
   decodeSchemaDrop,
   decodeSchemaList,
   decodeTxnAbort,
   encodeAuthOk,
   encodeExtractorListResponse,
-  encodePing,
   encodePong,
   encodeSchemaDropResponse,
   encodeSchemaListResponse,
@@ -375,63 +371,65 @@ describe("txn-abort over a mock server", () => {
 });
 
 /**
- * Client-initiated PING has a type (`encodePing`/`decodePong`) and a corpus
- * vector, but the BrainClient exposes NO method to send one: only the
- * SERVER_PING -> CLIENT_PONG keepalive is wired (mux.ts). Rather than force a
- * client change, this pins the PING/PONG opcodes and payload round-trip over a
- * real FrameChannel pair — the wire contract a future `client.ping()` would use.
- *
- * METHOD GAP: BrainClient has no client-initiated ping(). If one is added, it
- * should send Opcode.Ping (0x0010) and decode Opcode.Pong (0x0090); a mock test
- * driving that method should replace this round-trip.
+ * Client-initiated PING (`client.ping()`) → PONG, driven through the real
+ * BrainClient + mux. Distinct from the server's idle-timer SERVER_PING keepalive
+ * (auto-answered with CLIENT_PONG by the mux): this is an on-demand round-trip
+ * whose PONG routes back by stream id through the normal unary path. The mock
+ * echoes the client timestamp so the caller can measure RTT.
  */
-describe("client-initiated PING/PONG wire round-trip", () => {
-  it("pins the opcodes and echoes the client nonce", async () => {
-    const nonce = 0xdead_beefn;
-    let received: { opcode: number; clientTs: bigint } | null = null;
+async function servePing(sock: net.Socket): Promise<void> {
+  const chan = new FrameChannel(sock);
+  await handshake(chan);
+  const f = await chan.read();
+  expect(f.opcode, "PING opcode").toBe(0x0010);
+  const req = decodePing(f.payload);
+  await chan.write({
+    opcode: Opcode.Pong,
+    flags: FLAG_EOS,
+    streamId: f.streamId,
+    payload: encodePong({
+      clientTimestampUnixNanos: req.clientTimestampUnixNanos,
+      serverTimestampUnixNanos: 42n,
+    }),
+  });
+}
 
+describe("client-initiated PING over a mock server", () => {
+  it("client.ping() sends PING and decodes the PONG echo", async () => {
+    const nonce = 0xdead_beefn;
+    const { server, port } = await startServer(servePing);
+    try {
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
+      const pong = await client.ping({ clientTimestampUnixNanos: nonce });
+      expect(pong.clientTimestampUnixNanos, "PONG echoes the client nonce").toBe(nonce);
+      expect(pong.serverTimestampUnixNanos).toBe(42n);
+      await client.close();
+    } finally {
+      server.close();
+    }
+  });
+
+  it("client.ping() defaults the client timestamp to a real wall-clock value", async () => {
+    let seen = 0n;
     const serve = async (sock: net.Socket): Promise<void> => {
       const chan = new FrameChannel(sock);
+      await handshake(chan);
       const f = await chan.read();
-      const req = decodePing(f.payload);
-      received = { opcode: f.opcode, clientTs: req.clientTimestampUnixNanos };
+      seen = decodePing(f.payload).clientTimestampUnixNanos;
       await chan.write({
         opcode: Opcode.Pong,
         flags: FLAG_EOS,
         streamId: f.streamId,
-        payload: encodePong({
-          clientTimestampUnixNanos: req.clientTimestampUnixNanos,
-          serverTimestampUnixNanos: 42n,
-        }),
+        payload: encodePong({ clientTimestampUnixNanos: seen, serverTimestampUnixNanos: 7n }),
       });
-      sock.end();
     };
-
     const { server, port } = await startServer(serve);
     try {
-      const sock = net.connect(port, "127.0.0.1");
-      await new Promise<void>((resolve, reject) => {
-        sock.once("connect", () => resolve());
-        sock.once("error", reject);
-      });
-      const chan = new FrameChannel(sock);
-      await chan.write({
-        opcode: Opcode.Ping,
-        flags: FLAG_EOS,
-        streamId: 1,
-        payload: encodePing({ clientTimestampUnixNanos: nonce }),
-      });
-      const pongFrame = await chan.read();
-
-      expect(received, "the mock must have decoded a PING").not.toBeNull();
-      expect(received!.opcode, "PING opcode").toBe(0x0010);
-      expect(received!.clientTs).toBe(nonce);
-      expect(pongFrame.opcode, "PONG opcode").toBe(0x0090);
-      const pong = decodePong(pongFrame.payload);
-      expect(pong.clientTimestampUnixNanos, "PONG echoes the client nonce").toBe(nonce);
-      expect(pong.serverTimestampUnixNanos).toBe(42n);
-
-      sock.destroy();
+      const client = await BrainClient.connect("127.0.0.1", port, { auth: TEST_AUTH });
+      const pong = await client.ping();
+      expect(seen > 0n, "ping() defaulted to a real timestamp").toBe(true);
+      expect(pong.clientTimestampUnixNanos, "PONG echoes the defaulted timestamp").toBe(seen);
+      await client.close();
     } finally {
       server.close();
     }

@@ -222,6 +222,10 @@ import {
   encodeEntityList,
   encodeEntityResolve,
   encodeExtractorList,
+  encodePing,
+  decodePong,
+  type PingRequest,
+  type PongResponse,
   encodeForget,
   encodeGetCapabilities,
   encodeLink,
@@ -914,6 +918,22 @@ export class BrainClient {
     const frame = await this.conn.requestOne(Opcode.ExtractorListReq, encodeExtractorList(request));
     this.expect(frame.opcode, Opcode.ExtractorListResp, "EXTRACTOR_LIST_RESP");
     return decodeExtractorListResponse(frame.payload);
+  }
+
+  /**
+   * Client-initiated liveness probe (PING → PONG). Distinct from the server's
+   * idle-timer SERVER_PING keepalive, which the mux auto-answers with
+   * CLIENT_PONG: this is an on-demand round-trip to the server. The client
+   * timestamp defaults to the current wall clock (ns); the PONG echoes it back
+   * alongside the server's timestamp, so the caller can measure RTT.
+   */
+  async ping(request: Partial<PingRequest> = {}): Promise<PongResponse> {
+    const req: PingRequest = {
+      clientTimestampUnixNanos: request.clientTimestampUnixNanos ?? BigInt(Date.now()) * 1_000_000n,
+    };
+    const frame = await this.conn.requestOne(Opcode.Ping, encodePing(req));
+    this.expect(frame.opcode, Opcode.Pong, "PONG");
+    return decodePong(frame.payload);
   }
 
   /** Fetch one entity by id (ENTITY_GET). */
