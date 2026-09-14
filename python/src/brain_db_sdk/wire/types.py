@@ -1241,6 +1241,19 @@ class AnswerKind:
     NONE = "None"
 
 
+class RecallScope:
+    """RECALL scope selector. Encoded as the variant-name string on the wire,
+    and always present (never skipped) — a plain recall carries ``"Space"``.
+
+      * ``Space``     — the caller's single ``(namespace, space)`` (default).
+      * ``Namespace`` — every space in the caller's namespace (cross-shard
+        fan-out + merge); never crosses namespaces.
+    """
+
+    SPACE = "Space"
+    NAMESPACE = "Namespace"
+
+
 @dataclass
 class RecallRequest:
     """RECALL (``0x0021``). Cue-driven memory retrieval: the cue text and subject, result and confidence bounds, temporal/kind filters, and enrichment toggles."""
@@ -1266,6 +1279,10 @@ class RecallRequest:
     # Effective identity this recall runs as. Omitted from the CBOR map when
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
+    # Recall scope — the caller's single space (default) or every space in its
+    # namespace. Always present on the wire (a ``RecallScope`` variant-name
+    # string); a plain recall carries ``"Space"``.
+    scope: str = RecallScope.SPACE
 
     def to_map(self) -> dict[str, Any]:
         m: dict[str, Any] = {
@@ -1287,6 +1304,7 @@ class RecallRequest:
         }
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
+        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -1309,6 +1327,7 @@ class RecallRequest:
             m["txn_id"],
             bool(m.get("trace", False)),
             None if act_as is None else ActAs.from_map(act_as),
+            m.get("scope", RecallScope.SPACE),
         )
 
 
@@ -6231,13 +6250,29 @@ class StatementHistoryRequest:
 
     anchor_id: bytes
     include_tombstoned: bool
+    # Keyset page size (``1..=1000``).
+    limit: int = 100
+    # Opaque keyset cursor — empty on the first page, then the ``next_cursor``
+    # echoed from the previous response. A plain byte vector (``Vec<u8>``), so
+    # it encodes as a CBOR array of unsigned ints, NOT a byte string.
+    cursor: list[int] = field(default_factory=list)
 
     def to_map(self) -> dict[str, Any]:
-        return {"anchor_id": self.anchor_id, "include_tombstoned": self.include_tombstoned}
+        return {
+            "anchor_id": self.anchor_id,
+            "include_tombstoned": self.include_tombstoned,
+            "limit": self.limit,
+            "cursor": list(self.cursor),
+        }
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StatementHistoryRequest:
-        return cls(m["anchor_id"], m["include_tombstoned"])
+        return cls(
+            m["anchor_id"],
+            m["include_tombstoned"],
+            m["limit"],
+            list(m["cursor"]),
+        )
 
 
 @dataclass
@@ -6247,6 +6282,10 @@ class StatementHistoryResponseFrame:
     items: list[StatementView]
     chain_root: bytes
     total_versions: int
+    # Opaque keyset token to resume from — empty when the chain is exhausted.
+    # A plain byte vector (``Vec<u8>``), so it encodes as a CBOR array of
+    # unsigned ints, NOT a byte string.
+    next_cursor: list[int]
     is_final: bool
 
     def to_map(self) -> dict[str, Any]:
@@ -6254,6 +6293,7 @@ class StatementHistoryResponseFrame:
             "items": [i.to_map() for i in self.items],
             "chain_root": self.chain_root,
             "total_versions": self.total_versions,
+            "next_cursor": list(self.next_cursor),
             "is_final": self.is_final,
         }
 
@@ -6263,6 +6303,7 @@ class StatementHistoryResponseFrame:
             [StatementView.from_map(x) for x in m["items"]],
             m["chain_root"],
             m["total_versions"],
+            list(m["next_cursor"]),
             m["is_final"],
         )
 

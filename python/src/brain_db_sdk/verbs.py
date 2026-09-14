@@ -21,6 +21,7 @@ from .wire.types import (
     ForgetMode,
     ForgetRequest,
     RecallRequest,
+    RecallScope,
     WaitMode,
 )
 
@@ -119,6 +120,7 @@ class RecallBuilder:
     include_text: bool = True
     trace_enabled: bool = False
     act_as_identity: Optional[ActAs] = None
+    scope_selector: str = RecallScope.SPACE
 
     def subject(self, subject_name: str) -> RecallBuilder:
         """Name the entity a fact lookup is about, so recall resolves the
@@ -179,6 +181,13 @@ class RecallBuilder:
         self.trace_enabled = trace
         return self
 
+    def scope(self, scope: str) -> RecallBuilder:
+        """Set the recall scope. ``RecallScope.SPACE`` (default) searches the
+        caller's own space; ``RecallScope.NAMESPACE`` fans out across every
+        space in the caller's namespace (never crossing namespaces)."""
+        self.scope_selector = scope
+        return self
+
     def act_as(self, namespace: str, space_id: str) -> RecallBuilder:
         """Run this recall as the effective identity ``(namespace, space_id)``
         on behalf of the connection principal. ``space_id`` is the human-readable
@@ -207,6 +216,7 @@ class RecallBuilder:
             txn_id=None,
             trace=self.trace_enabled,
             act_as=self.act_as_identity,
+            scope=self.scope_selector,
         )
 
 

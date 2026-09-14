@@ -563,6 +563,23 @@ pub enum AnswerKindWire {
     None,
 }
 
+/// RECALL scope selector. `Space` (default) serves the caller's single
+/// `(namespace, space)` on its shard; `Namespace` spans every space in the
+/// caller's namespace via the server's cross-shard fan-out + global merge, and
+/// never crosses namespaces. Mirrors the server's `RecallScopeWire`.
+///
+/// Encoded as the variant name string (`"Space"` / `"Namespace"`), matching the
+/// server. The [`RecallRequest::scope`] field is always present on the wire,
+/// exactly as the server serializes it — a plain recall carries `"Space"`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RecallScopeWire {
+    /// The caller's single space (default).
+    #[default]
+    Space,
+    /// Every space in the caller's namespace (cross-shard fan-out + merge).
+    Namespace,
+}
+
 /// RECALL (`0x0021`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecallRequest {
@@ -591,6 +608,11 @@ pub struct RecallRequest {
     /// means the op runs as the connection's own key-bound identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
+    /// Recall scope: the caller's single space (default) or every space in its
+    /// namespace. Always serialized, exactly as the server does (`#[serde(default)]`,
+    /// no skip) — a plain recall carries `scope: "Space"`.
+    #[serde(default)]
+    pub scope: RecallScopeWire,
 }
 
 /// One streaming RECALL_RESP frame (`0x00A1`).
@@ -1959,22 +1981,28 @@ pub struct StatementRetractResponse {
 }
 
 /// STATEMENT_HISTORY (`0x0145`). Walk every version on a claim's supersession
-/// chain. A read, so it carries no `request_id`.
+/// chain. A read, so it carries no `request_id`. Keyset-paginated on the
+/// immutable chain `version`: `limit` in `1..=1000`, `cursor` opaque — empty on
+/// the first page, then the `next_cursor` echoed from the previous response.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatementHistoryRequest {
     #[serde(with = "serde_bytes")]
     pub anchor_id: WireUuid,
     pub include_tombstoned: bool,
+    pub limit: u32,
+    pub cursor: Vec<u8>,
 }
 
 /// STATEMENT_HISTORY_RESP (`0x01C5`), one streamed frame. `is_final` marks the
-/// last frame; `total_versions` is the chain length.
+/// last frame; `total_versions` is the chain length. `next_cursor` is the opaque
+/// keyset token to resume from, empty when the chain is exhausted.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatementHistoryResponseFrame {
     pub items: Vec<StatementView>,
     #[serde(with = "serde_bytes")]
     pub chain_root: WireUuid,
     pub total_versions: u32,
+    pub next_cursor: Vec<u8>,
     pub is_final: bool,
 }
 

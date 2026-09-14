@@ -2441,6 +2441,19 @@
     }
    ]
   },
+  "RecallScopeWire": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Space"
+    },
+    {
+     "name": "Namespace"
+    }
+   ]
+  },
   "RecallTraceRetrieverStatus": {
    "encoding": "int",
    "repr": "u8",
@@ -7515,6 +7528,14 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<String>"
+    },
+    {
+     "name": "retention",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<DurationAst>"
     }
    ],
    "serde": {}
@@ -8055,6 +8076,13 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {
+      "default": true
+     },
+     "type": "RecallScopeWire"
     }
    ],
    "serde": {}
@@ -10286,6 +10314,16 @@
      "name": "include_tombstoned",
      "serde": {},
      "type": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
     }
    ],
    "serde": {}
@@ -10308,6 +10346,11 @@
      "name": "total_versions",
      "serde": {},
      "type": "u32"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
     },
     {
      "name": "is_final",

@@ -1834,6 +1834,18 @@ export function decodeMemoryInspectResponse(bytes: Uint8Array): MemoryInspectRes
  */
 export type AnswerKind = "Single" | "Many" | "None";
 
+/**
+ * RECALL scope selector. `Space` (default) serves the caller's single
+ * `(namespace, space)` on its shard; `Namespace` spans every space in the
+ * caller's namespace via the server's cross-shard fan-out + global merge, and
+ * never crosses namespaces. Mirrors the server's `RecallScopeWire`.
+ *
+ * Encoded as the variant-name text string (`"Space"` / `"Namespace"`), matching
+ * the server. `RecallRequest.scope` is always present on the wire, exactly as
+ * the server serializes it — a plain recall carries `"Space"`.
+ */
+export type RecallScopeWire = "Space" | "Namespace";
+
 /** RECALL (`0x0021`): retrieve memories by cue, with subject, filters (kind/session/confidence/salience/time), and graph/text toggles. */
 export interface RecallRequest {
   cueText: string;
@@ -1858,32 +1870,38 @@ export interface RecallRequest {
   /** Effective identity this recall runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
   actAs: ActAs | null;
+  /** Recall scope: the caller's single space (`"Space"`, default) or every
+   * space in its namespace (`"Namespace"`). Always serialized, exactly as the
+   * server does — a plain recall carries `"Space"`. Positioned last, after
+   * `act_as`. */
+  scope: RecallScopeWire;
 }
 
-/** Encode a RECALL (`0x0021`) request. `trace` precedes `act_as`. */
+/** Encode a RECALL (`0x0021`) request. `trace` precedes `act_as`; `scope` is last. */
 export function encodeRecall(p: RecallRequest): Uint8Array {
-  return toCbor(
-    requestMapWithActAs(
-      [
-        ["cue_text", p.cueText],
-        ["subject_name", p.subjectName],
-        ["max_results", p.maxResults],
-        ["confidence_threshold", f32(p.confidenceThreshold)],
-        ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
-        ["age_bound_unix_nanos", p.ageBoundUnixNanos],
-        ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
-        ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k)],
-        ["salience_floor", f32(p.salienceFloor)],
-        ["include_edges", p.includeEdges],
-        ["include_graph", p.includeGraph],
-        ["include_text", p.includeText],
-        ["request_id", p.requestId],
-        ["txn_id", p.txnId],
-        ["trace", p.trace],
-      ],
-      p.actAs,
-    ),
+  const map = requestMapWithActAs(
+    [
+      ["cue_text", p.cueText],
+      ["subject_name", p.subjectName],
+      ["max_results", p.maxResults],
+      ["confidence_threshold", f32(p.confidenceThreshold)],
+      ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
+      ["age_bound_unix_nanos", p.ageBoundUnixNanos],
+      ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
+      ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k)],
+      ["salience_floor", f32(p.salienceFloor)],
+      ["include_edges", p.includeEdges],
+      ["include_graph", p.includeGraph],
+      ["include_text", p.includeText],
+      ["request_id", p.requestId],
+      ["txn_id", p.txnId],
+      ["trace", p.trace],
+    ],
+    p.actAs,
   );
+  // `scope` follows `act_as`, always present (never skipped).
+  map.set("scope", p.scope);
+  return toCbor(map);
 }
 
 /** Decode a RECALL (`0x0021`) request payload. */
@@ -1906,6 +1924,7 @@ export function decodeRecall(bytes: Uint8Array): RecallRequest {
     txnId: asOptBytes(field(m, "txn_id")),
     trace: m.has("trace") ? asBool(field(m, "trace")) : false,
     actAs: decodeOptActAs(m),
+    scope: m.has("scope") ? (asStr(field(m, "scope")) as RecallScopeWire) : "Space",
   };
 }
 
@@ -7719,10 +7738,20 @@ export function decodeStatementRetractResponse(bytes: Uint8Array): StatementRetr
   };
 }
 
-/** STATEMENT_HISTORY (`0x0145`). A read — no `requestId`. */
+/**
+ * STATEMENT_HISTORY (`0x0145`). A read — no `requestId`. Keyset-paginated on the
+ * chain version: `limit` caps the page (`1..=1000`); `cursor` is the opaque
+ * keyset token — empty on the first page, then the `nextCursor` echoed from the
+ * previous response.
+ */
 export interface StatementHistoryRequest {
   anchorId: WireUuid;
   includeTombstoned: boolean;
+  limit: number;
+  /** Opaque keyset cursor. Empty on the first page. Encodes as a CBOR array of
+   * unsigned ints (a plain byte vector), NOT a byte string — contrast
+   * `anchorId`. */
+  cursor: Uint8Array;
 }
 
 /** Encode a STATEMENT_HISTORY (`0x0145`) request. */
@@ -7731,6 +7760,10 @@ export function encodeStatementHistory(p: StatementHistoryRequest): Uint8Array {
     new Map<string, unknown>([
       ["anchor_id", p.anchorId],
       ["include_tombstoned", p.includeTombstoned],
+      ["limit", p.limit],
+      // A plain byte vector: CBOR array of unsigned ints (empty -> 0x80), not a
+      // byte string. `Array.from` yields the number[] the codec emits as MAJOR_ARRAY.
+      ["cursor", Array.from(p.cursor)],
     ]),
   );
 }
@@ -7741,6 +7774,8 @@ export function decodeStatementHistory(bytes: Uint8Array): StatementHistoryReque
   return {
     anchorId: asBytes(field(m, "anchor_id")),
     includeTombstoned: asBool(field(m, "include_tombstoned")),
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
   };
 }
 
@@ -7749,6 +7784,9 @@ export interface StatementHistoryResponseFrame {
   items: StatementView[];
   chainRoot: WireUuid;
   totalVersions: number;
+  /** Opaque keyset token to resume from; empty when the chain is exhausted.
+   * Same plain-array encoding as the request `cursor`. */
+  nextCursor: Uint8Array;
   isFinal: boolean;
 }
 
@@ -7759,6 +7797,8 @@ export function encodeStatementHistoryResponseFrame(p: StatementHistoryResponseF
       ["items", p.items.map(encodeStatementView)],
       ["chain_root", p.chainRoot],
       ["total_versions", p.totalVersions],
+      // Plain byte vector: CBOR array of unsigned ints (empty -> 0x80).
+      ["next_cursor", Array.from(p.nextCursor)],
       ["is_final", p.isFinal],
     ]),
   );
@@ -7773,6 +7813,7 @@ export function decodeStatementHistoryResponseFrame(
     items: asArray(field(m, "items")).map(decodeStatementView),
     chainRoot: asBytes(field(m, "chain_root")),
     totalVersions: asNum(field(m, "total_versions")),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
     isFinal: asBool(field(m, "is_final")),
   };
 }
