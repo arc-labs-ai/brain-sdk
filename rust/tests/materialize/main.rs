@@ -103,10 +103,7 @@ async fn materialize_on_empty_space_is_empty_not_error() {
         resp.statement_ids.is_empty(),
         "no statements to materialize from an empty space"
     );
-    assert_eq!(
-        resp.total_candidates, 0,
-        "no candidates in an empty space"
-    );
+    assert_eq!(resp.total_candidates, 0, "no candidates in an empty space");
     assert!(
         !resp.trimmed_by_budget,
         "nothing to trim when there are no candidates"

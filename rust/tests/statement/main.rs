@@ -83,6 +83,8 @@ async fn supersede_builds_a_history_chain() {
         .statement_history(&StatementHistoryRequest {
             anchor_id: first.statement_id,
             include_tombstoned: true,
+            limit: 0,
+            cursor: Vec::new(),
         })
         .await
         .expect("history");

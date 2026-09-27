@@ -614,20 +614,38 @@ export interface ActAs {
   /** Effective space, as the human-readable structured space string (CBOR
    * text string, key `space_id`). Empty selects the key-bound space. */
   spaceId: string;
+  /** Extra capability bits granted to the effective caller for this op, on
+   * top of the standard space mask — see {@link ActAsGrant}. Only honoured
+   * when the connection principal holds the bits itself. Omitted (or `0`) is
+   * CBOR-omitted, so a grant-less selector encodes byte-identically to the
+   * pre-grant form. */
+  grant?: number;
 }
 
+/** Grantable {@link ActAs.grant} bits. */
+export const ActAsGrant = {
+  /** Upload / apply schema documents. */
+  SchemaUpload: 1 << 4,
+  /** Destructive admin ops (SCHEMA_REPLACE, SCHEMA_DROP). */
+  Admin: 1 << 5,
+} as const;
+
 function encodeActAs(a: ActAs): Map<string, unknown> {
-  return new Map<string, unknown>([
+  const map = new Map<string, unknown>([
     ["namespace", a.namespace],
     ["space_id", a.spaceId],
   ]);
+  if (a.grant) map.set("grant", a.grant);
+  return map;
 }
 
 function decodeActAs(value: unknown): ActAs {
   const m = asMap(value);
+  const grant = m.has("grant") ? asNum(field(m, "grant")) : 0;
   return {
     namespace: asStr(field(m, "namespace")),
     spaceId: asStr(field(m, "space_id")),
+    ...(grant ? { grant } : {}),
   };
 }
 
@@ -649,6 +667,12 @@ function requestMapWithActAs(
 /** Read the optional `act_as` selector from a decoded request map. */
 function decodeOptActAs(m: Map<string, unknown>): ActAs | null {
   return m.has("act_as") ? decodeActAs(m.get("act_as")) : null;
+}
+
+/** `{ actAs }` when the decoded map carries one, else `{}` — for request
+ * types where `actAs` is an optional property rather than `ActAs | null`. */
+function spreadOptActAs(m: Map<string, unknown>): { actAs?: ActAs } {
+  return m.has("act_as") ? { actAs: decodeActAs(m.get("act_as")) } : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -3016,17 +3040,23 @@ export interface SchemaUploadRequest {
   dryRun: boolean;
   allowBreaking: boolean;
   requestId: WireUuid;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_UPLOAD (`0x0120`) request. */
 export function encodeSchemaUpload(p: SchemaUploadRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["schema_document", p.schemaDocument],
-      ["dry_run", p.dryRun],
-      ["allow_breaking", p.allowBreaking],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["schema_document", p.schemaDocument],
+        ["dry_run", p.dryRun],
+        ["allow_breaking", p.allowBreaking],
+        ["request_id", p.requestId],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -3038,6 +3068,7 @@ export function decodeSchemaUpload(bytes: Uint8Array): SchemaUploadRequest {
     dryRun: asBool(field(m, "dry_run")),
     allowBreaking: asBool(field(m, "allow_breaking")),
     requestId: asBytes(field(m, "request_id")),
+    ...spreadOptActAs(m),
   };
 }
 
@@ -3066,18 +3097,24 @@ export interface SchemaDropRequest {
   targetName: string;
   force: boolean;
   requestId: Uint8Array;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_DROP (`0x0125`) request payload. */
 export function encodeSchemaDrop(p: SchemaDropRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["namespace", p.namespace],
-      ["target_kind", p.targetKind],
-      ["target_name", p.targetName],
-      ["force", p.force],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["namespace", p.namespace],
+        ["target_kind", p.targetKind],
+        ["target_name", p.targetName],
+        ["force", p.force],
+        ["request_id", p.requestId],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -3090,6 +3127,7 @@ export function decodeSchemaDrop(bytes: Uint8Array): SchemaDropRequest {
     targetName: asStr(field(m, "target_name")),
     force: asBool(field(m, "force")),
     requestId: asBytes(field(m, "request_id")),
+    ...spreadOptActAs(m),
   };
 }
 
@@ -3180,16 +3218,22 @@ export interface SchemaReplaceRequest {
   schemaDocument: string;
   forceDropExisting: boolean;
   requestId: Uint8Array;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_REPLACE (`0x0127`) request payload. */
 export function encodeSchemaReplace(p: SchemaReplaceRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["schema_document", p.schemaDocument],
-      ["force_drop_existing", p.forceDropExisting],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["schema_document", p.schemaDocument],
+        ["force_drop_existing", p.forceDropExisting],
+        ["request_id", p.requestId],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -3200,6 +3244,7 @@ export function decodeSchemaReplace(bytes: Uint8Array): SchemaReplaceRequest {
     schemaDocument: asStr(field(m, "schema_document")),
     forceDropExisting: asBool(field(m, "force_drop_existing")),
     requestId: asBytes(field(m, "request_id")),
+    ...spreadOptActAs(m),
   };
 }
 
@@ -5069,16 +5114,20 @@ export function decodeTxnAbortResponse(bytes: Uint8Array): TxnAbortResponse {
  *
  * `Record<string, never>` rather than `{}`: an empty interface accepts every
  * non-nullish value, so `encodeGetCapabilities(0)` would typecheck. */
-export type GetCapabilitiesRequest = Record<string, never>;
+export type GetCapabilitiesRequest = {
+  /** Run as a tenant on a shared-pool connection: the server then filters
+   * `schemaNamespaces` to the effective namespace. Absent → the empty map. */
+  actAs?: ActAs | null;
+};
 
-/** Encode a GET_CAPABILITIES (`0x0032`) request (empty payload). */
-export function encodeGetCapabilities(_p: GetCapabilitiesRequest): Uint8Array {
-  return toCbor(new Map<string, unknown>());
+/** Encode a GET_CAPABILITIES (`0x0032`) request (empty map unless `actAs`). */
+export function encodeGetCapabilities(p: GetCapabilitiesRequest): Uint8Array {
+  return toCbor(requestMapWithActAs([], p.actAs ?? null));
 }
 
 /** Decode a GET_CAPABILITIES (`0x0032`) request payload. */
-export function decodeGetCapabilities(_bytes: Uint8Array): GetCapabilitiesRequest {
-  return {};
+export function decodeGetCapabilities(bytes: Uint8Array): GetCapabilitiesRequest {
+  return spreadOptActAs(asMap(fromCbor(bytes)));
 }
 
 /** The connected shard's live capability flags: reranker loaded, extractor tiers enabled, and embedding dimensionality. */
@@ -6380,15 +6429,21 @@ export interface SchemaGetRequest {
   namespace: string;
   /** `0` = active version. */
   version: number;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_GET (`0x0121`) request. */
 export function encodeSchemaGet(p: SchemaGetRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["namespace", p.namespace],
-      ["version", p.version],
-    ]),
+    requestMapWithActAs(
+      [
+        ["namespace", p.namespace],
+        ["version", p.version],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -6398,6 +6453,7 @@ export function decodeSchemaGet(bytes: Uint8Array): SchemaGetRequest {
   return {
     namespace: asStr(field(m, "namespace")),
     version: asNum(field(m, "version")),
+    ...spreadOptActAs(m),
   };
 }
 
@@ -6444,16 +6500,22 @@ export interface SchemaListRequest {
   /** `0` = unlimited (server-capped). */
   limit: number;
   cursor: Uint8Array;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_LIST (`0x0122`) request. */
 export function encodeSchemaList(p: SchemaListRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["namespace", p.namespace],
-      ["limit", p.limit],
-      ["cursor", Array.from(p.cursor)],
-    ]),
+    requestMapWithActAs(
+      [
+        ["namespace", p.namespace],
+        ["limit", p.limit],
+        ["cursor", Array.from(p.cursor)],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -6464,6 +6526,7 @@ export function decodeSchemaList(bytes: Uint8Array): SchemaListRequest {
     namespace: asStr(field(m, "namespace")),
     limit: asNum(field(m, "limit")),
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    ...spreadOptActAs(m),
   };
 }
 
@@ -6531,17 +6594,20 @@ export function decodeSchemaListResponse(bytes: Uint8Array): SchemaListResponseF
 /** SCHEMA_VALIDATE (`0x0123`): check a schema document for errors without persisting it. */
 export interface SchemaValidateRequest {
   schemaDocument: string;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_VALIDATE (`0x0123`) request. */
 export function encodeSchemaValidate(p: SchemaValidateRequest): Uint8Array {
-  return toCbor(new Map<string, unknown>([["schema_document", p.schemaDocument]]));
+  return toCbor(requestMapWithActAs([["schema_document", p.schemaDocument]], p.actAs ?? null));
 }
 
 /** Decode a SCHEMA_VALIDATE (`0x0123`) request payload. */
 export function decodeSchemaValidate(bytes: Uint8Array): SchemaValidateRequest {
   const m = asMap(fromCbor(bytes));
-  return { schemaDocument: asStr(field(m, "schema_document")) };
+  return { schemaDocument: asStr(field(m, "schema_document")), ...spreadOptActAs(m) };
 }
 
 /** SCHEMA_VALIDATE_RESP (`0x01A3`): whether the document is valid and any diagnostics. */

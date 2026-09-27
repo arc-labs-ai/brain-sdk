@@ -210,6 +210,26 @@ pub struct ActAs {
     /// derives the 16-byte storage space id from it at ingress. An empty
     /// string selects the connection's key-bound space.
     pub space_id: String,
+    /// Extra capability bits granted to the effective caller for this op,
+    /// on top of the standard space mask. Only `SCHEMA_UPLOAD` (`1 << 4`)
+    /// and `ADMIN` (`1 << 5`) are grantable, and only when the connection
+    /// principal holds them itself. `0` is omitted on the wire, so a
+    /// grant-less selector encodes byte-identically to the pre-grant form.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub grant: u32,
+}
+
+/// Grantable [`ActAs::grant`] bits.
+pub mod act_as_grant {
+    /// May upload / validate-and-apply schema documents.
+    pub const SCHEMA_UPLOAD: u32 = 1 << 4;
+    /// May run destructive admin ops (`SCHEMA_REPLACE`, `SCHEMA_DROP`).
+    pub const ADMIN: u32 = 1 << 5;
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if passes &T
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 // ===========================================================================
@@ -2047,6 +2067,9 @@ pub struct SchemaUploadRequest {
     pub allow_breaking: bool,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One structured schema parse/validate error.
@@ -2108,6 +2131,9 @@ pub struct SchemaDropRequest {
     pub force: bool,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// `SCHEMA_DROP_RESP` (`0x01A5`).
@@ -2147,6 +2173,9 @@ pub struct SchemaReplaceRequest {
     pub force_drop_existing: bool,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// `SCHEMA_REPLACE_RESP` (`0x01A7`).
@@ -2910,8 +2939,13 @@ pub struct SchemaUpdatedEvent {
 /// server-side state, so the client has nothing to send. Kept as a
 /// struct (not a unit type) so the encoding matches every other request
 /// body (a CBOR map, here empty).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GetCapabilitiesRequest {}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GetCapabilitiesRequest {
+    /// Run as a tenant on a shared-pool connection: the server then filters
+    /// `schema_namespaces` to the effective namespace. Absent → `0xA0`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
 
 /// Capability snapshot returned by the server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3313,6 +3347,9 @@ pub struct RelationListToResponseFrame {
 pub struct SchemaGetRequest {
     pub namespace: String,
     pub version: u32,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// SCHEMA_GET_RESP (`0x01A1`).
@@ -3334,6 +3371,9 @@ pub struct SchemaListRequest {
     pub namespace: String,
     pub limit: u32,
     pub cursor: Vec<u8>,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One entry in a SCHEMA_LIST response.
@@ -3359,6 +3399,9 @@ pub struct SchemaListResponseFrame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaValidateRequest {
     pub schema_document: String,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// SCHEMA_VALIDATE_RESP (`0x01A3`).

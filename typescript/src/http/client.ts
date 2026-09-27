@@ -54,13 +54,14 @@ import type {
   TraverseResult,
   UnlinkInput,
   UnlinkResult,
+  Permissions,
   Whoami,
 } from "./types.js";
 
 /**
  * Retry policy for the HTTP tier — applied only to idempotent verbs (`encode`,
- * `whoami`, `capabilities`). Transport/timeout errors (`status === 0`) and HTTP
- * `503` responses are retried; every other status — including all `4xx` — is
+ * `whoami`, `capabilities`). Transport/timeout errors (`status === 0`), HTTP
+ * `503` and `429` (rate limited) are retried; every other status is
  * terminal. The backoff grows exponentially from `baseDelayMs` (100ms, 200ms,
  * …), capped at `maxDelayMs`; a server `Retry-After` hint overrides it.
  */
@@ -223,9 +224,15 @@ export class BrainHttpClient {
     this.fetchImpl = f;
   }
 
-  /** Store a memory. Idempotent (stable server-side request id) — retried. */
+  /**
+   * Store a memory. Retried: every attempt carries the same `Idempotency-Key`,
+   * so a retry after an ambiguous failure (the write landed, the response was
+   * lost) replays the original result instead of storing twice.
+   */
   encode(input: EncodeInput): Promise<EncodeResult> {
-    return this.requestWithRetry("POST", "/v1/memories", input);
+    return this.requestWithRetry("POST", "/v1/memories", input, undefined, {
+      "idempotency-key": newIdempotencyKey(),
+    });
   }
 
   /** Recall memories for a cue. */
@@ -260,7 +267,7 @@ export class BrainHttpClient {
 
   /** The identity Brain resolves from the credential. Idempotent GET — retried. */
   whoami(): Promise<Whoami> {
-    return this.requestWithRetry("GET", "/v1/whoami");
+    return this.requestWithRetry<WireWhoami>("GET", "/v1/whoami").then(normalizeWhoami);
   }
 
   /** What the connected shard supports. Idempotent GET — retried. */
@@ -368,7 +375,12 @@ export class BrainHttpClient {
 
   /** Whether to retry after `attempt` (1-based) produced `err`. */
   private shouldRetry(attempt: number, err: BrainHttpError): boolean {
-    return attempt < this.retry.maxAttempts && (err.status === 0 || err.status === 503);
+    // 429 is a "slow down", not a refusal: an idempotent call is safe to repeat
+    // once the server's Retry-After has passed.
+    return (
+      attempt < this.retry.maxAttempts &&
+      (err.status === 0 || err.status === 503 || err.status === 429)
+    );
   }
 
   /** Milliseconds to wait after `attempt` (1-based) failed; a server hint wins. */
@@ -386,11 +398,12 @@ export class BrainHttpClient {
     path: string,
     body?: unknown,
     query?: Query,
+    extraHeaders?: Record<string, string>,
   ): Promise<T> {
     let attempt = 1;
     for (;;) {
       try {
-        return await this.requestOnce<T>(method, path, body, query);
+        return await this.requestOnce<T>(method, path, body, query, extraHeaders);
       } catch (e) {
         const err = e as ErrorWithRetryAfter;
         if (err instanceof BrainHttpError && this.shouldRetry(attempt, err)) {
@@ -409,12 +422,14 @@ export class BrainHttpClient {
     path: string,
     body?: unknown,
     query?: Query,
+    extraHeaders?: Record<string, string>,
   ): Promise<T> {
     const url = path + encodeQuery(query);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     const headers: Record<string, string> = {
+      ...extraHeaders,
       authorization: `Bearer ${this.apiKey}`,
     };
     const init: RequestInit = { method, headers, signal: controller.signal };
@@ -446,20 +461,10 @@ export class BrainHttpClient {
 
     const text = await res.text();
     if (!res.ok) {
-      let code = "http_error";
-      let message = `HTTP ${res.status}`;
-      try {
-        const parsed = JSON.parse(text) as { error?: { code?: string; message?: string } } | null;
-        if (parsed?.error) {
-          code = parsed.error.code ?? code;
-          message = parsed.error.message ?? message;
-        } else if (text) {
-          message = text;
-        }
-      } catch {
-        if (text) message = text;
-      }
-      const err: ErrorWithRetryAfter = new BrainHttpError(res.status, code, message);
+      const { code, message, fieldErrors } = parseErrorBody(res.status, text);
+      const err: ErrorWithRetryAfter = new BrainHttpError(res.status, code, message, {
+        fieldErrors,
+      });
       // Attach a server Retry-After hint for the retry scheduler. Not part of
       // the public {status, code, message} shape.
       const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
@@ -468,4 +473,87 @@ export class BrainHttpClient {
     }
     return (text ? toCamelKeys(JSON.parse(text)) : undefined) as T;
   }
+}
+
+/** A fresh idempotency key for one logical write (reused across its retries). */
+function newIdempotencyKey(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+/**
+ * Read an error body in either shape a Brain HTTP server sends: brain-edge's
+ * `{ error: { code, message } }`, or the cloud gateway's RFC 9457
+ * `application/problem+json` (`{ code, title, detail, errors[] }`).
+ */
+function parseErrorBody(
+  status: number,
+  text: string,
+): {
+  code: string;
+  message: string;
+  fieldErrors: { field: string; code?: string; message: string }[];
+} {
+  let code = "http_error";
+  let message = text || `HTTP ${status}`;
+  let fieldErrors: { field: string; code?: string; message: string }[] = [];
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown> | null;
+    const nested = parsed?.error as { code?: string; message?: string } | undefined;
+    if (nested && typeof nested === "object") {
+      code = nested.code ?? code;
+      message = nested.message ?? message;
+    } else if (parsed && typeof parsed.code === "string") {
+      code = parsed.code;
+      const detail = typeof parsed.detail === "string" ? parsed.detail : undefined;
+      const title = typeof parsed.title === "string" ? parsed.title : undefined;
+      message = detail ?? title ?? message;
+      if (Array.isArray(parsed.errors)) {
+        fieldErrors = (parsed.errors as Record<string, unknown>[])
+          .filter((e) => typeof e.field === "string" && typeof e.message === "string")
+          .map((e) => ({
+            field: e.field as string,
+            ...(typeof e.code === "string" ? { code: e.code } : {}),
+            message: e.message as string,
+          }));
+        // "one or more fields are invalid" says nothing; name the fields.
+        if (fieldErrors.length > 0) {
+          message = fieldErrors.map((e) => `${e.field}: ${e.message}`).join("; ");
+        }
+      }
+    }
+  } catch {
+    // not JSON — keep the raw text
+  }
+  return { code, message, fieldErrors };
+}
+
+/** `/v1/whoami` as either server sends it: brain-edge's permission flags, or
+ * the gateway's bitset (1 recall · 2 encode · 4 forget; 0 = unrestricted). */
+type WireWhoami = Omit<Whoami, "permissions"> & { permissions: Permissions | number };
+
+const PERM_RECALL = 1;
+const PERM_ENCODE = 2;
+const PERM_FORGET = 4;
+
+function normalizeWhoami(w: WireWhoami): Whoami {
+  if (typeof w.permissions !== "number") return w as Whoami;
+  const bits = w.permissions;
+  const all = bits === 0;
+  return {
+    ...w,
+    permissions: {
+      canRecall: all || (bits & PERM_RECALL) !== 0,
+      canEncode: all || (bits & PERM_ENCODE) !== 0,
+      canForget: all || (bits & PERM_FORGET) !== 0,
+      // The bitset carries no plan / reason / admin bits: only an
+      // unrestricted key grants them.
+      canPlan: all,
+      canReason: all,
+      canAdmin: all,
+    },
+  };
 }

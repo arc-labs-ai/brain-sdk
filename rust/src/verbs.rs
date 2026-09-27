@@ -9,8 +9,8 @@
 
 use crate::client::new_id;
 use crate::wire::types::{
-    ActAs, EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest, RecallScopeWire,
-    WaitMode, WireMemoryId,
+    ActAs, EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest,
+    RecallScopeWire, WaitMode, WireMemoryId,
 };
 
 /// Builder for an ENCODE request. Stores one text memory; `session` defaults
@@ -66,6 +66,7 @@ impl EncodeBuilder {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
             space_id: space_id.into(),
+            grant: 0,
         });
         self
     }
@@ -176,6 +177,7 @@ impl RecallBuilder {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
             space_id: space_id.into(),
+            grant: 0,
         });
         self
     }
@@ -312,6 +314,7 @@ impl ForgetBuilder {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
             space_id: space_id.into(),
+            grant: 0,
         });
         self
     }

@@ -261,6 +261,13 @@ impl BrainClient {
         Ok(Self { conn, connection })
     }
 
+    /// Whether this connection is dead (the server closed it, e.g. on
+    /// restart, or the socket failed). Requests on it fail at once; reconnect.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.conn.is_closed()
+    }
+
     /// The negotiated connection.
     #[must_use]
     pub fn connection(&self) -> &ConnectionInfo {

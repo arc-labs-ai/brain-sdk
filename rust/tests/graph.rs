@@ -235,6 +235,7 @@ async fn typed_graph_verbs_round_trip() {
             dry_run: true,
             allow_breaking: false,
             request_id: rid(),
+            act_as: None,
         })
         .await
         .expect("upload_schema");
@@ -365,7 +366,7 @@ where
 
 #[test]
 fn read_side_types_round_trip() {
-    round_trip(&GetCapabilitiesRequest {});
+    round_trip(&GetCapabilitiesRequest::default());
     round_trip(&GetCapabilitiesResponse {
         capabilities: Capabilities {
             rerank: true,
@@ -496,6 +497,7 @@ fn read_side_types_round_trip() {
     round_trip(&SchemaGetRequest {
         namespace: "people".to_string(),
         version: 0,
+        act_as: None,
     });
     round_trip(&SchemaGetResponse {
         namespace: "people".to_string(),
@@ -509,6 +511,7 @@ fn read_side_types_round_trip() {
         namespace: "people".to_string(),
         limit: 0,
         cursor: Vec::new(),
+        act_as: None,
     });
     round_trip(&SchemaListResponseFrame {
         namespace: "people".to_string(),
@@ -524,6 +527,7 @@ fn read_side_types_round_trip() {
     });
     round_trip(&SchemaValidateRequest {
         schema_document: "entity Person {}".to_string(),
+        act_as: None,
     });
     round_trip(&SchemaValidateResponse {
         namespace: "people".to_string(),
@@ -805,7 +809,7 @@ async fn read_side_verbs_over_connection() {
         .expect("connect");
 
     let caps = client
-        .capabilities(&GetCapabilitiesRequest {})
+        .capabilities(&GetCapabilitiesRequest::default())
         .await
         .expect("capabilities");
     assert_eq!(caps.capabilities.vector_dim, 384);
@@ -848,6 +852,7 @@ async fn read_side_verbs_over_connection() {
         .get_schema(&SchemaGetRequest {
             namespace: "people".to_string(),
             version: 0,
+            act_as: None,
         })
         .await
         .expect("get_schema");
@@ -856,6 +861,7 @@ async fn read_side_verbs_over_connection() {
     let validated = client
         .validate_schema(&SchemaValidateRequest {
             schema_document: "entity Person {}".to_string(),
+            act_as: None,
         })
         .await
         .expect("validate_schema");
@@ -932,6 +938,7 @@ async fn read_side_verbs_over_connection() {
             namespace: "people".to_string(),
             limit: 0,
             cursor: Vec::new(),
+            act_as: None,
         })
         .await
         .expect("list_schemas");

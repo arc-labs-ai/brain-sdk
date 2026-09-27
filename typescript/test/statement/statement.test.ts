@@ -68,6 +68,8 @@ describe.skipIf(T === null)("statement (integration)", () => {
       const history = await client.statementHistory({
         anchorId: first.statementId,
         includeTombstoned: true,
+        limit: 0,
+        cursor: new Uint8Array(),
       });
       expect(history.length).toBeGreaterThanOrEqual(2);
     } finally {

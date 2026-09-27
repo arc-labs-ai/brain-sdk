@@ -323,6 +323,12 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("req_schema_validate", SchemaValidateRequest);
     payload!("req_schema_replace", SchemaReplaceRequest);
     payload!("req_schema_drop", SchemaDropRequest);
+    payload!("req_schema_upload_act_as_grant", SchemaUploadRequest);
+    payload!("req_schema_get_act_as", SchemaGetRequest);
+    payload!("req_schema_list_act_as", SchemaListRequest);
+    payload!("req_schema_validate_act_as", SchemaValidateRequest);
+    payload!("req_schema_replace_act_as_grant", SchemaReplaceRequest);
+    payload!("req_schema_drop_act_as_grant", SchemaDropRequest);
     payload!("resp_schema_get", SchemaGetResponse);
     payload!("resp_schema_list", SchemaListResponseFrame);
     payload!("resp_schema_validate", SchemaValidateResponse);
@@ -339,6 +345,7 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("req_bye", ByeRequest);
     payload!("req_cancel_stream", CancelStreamRequest);
     payload!("req_get_capabilities", GetCapabilitiesRequest);
+    payload!("req_get_capabilities_act_as", GetCapabilitiesRequest);
     payload!("req_link", LinkRequest);
     payload!("req_unlink", UnlinkRequest);
     payload!("resp_unlink", UnlinkResponse);

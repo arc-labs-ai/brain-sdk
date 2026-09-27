@@ -318,6 +318,7 @@ async fn reads_and_admin_verbs_over_connection() {
             target_name: "born_in".to_string(),
             force: true,
             request_id: REQUEST_ID,
+            act_as: None,
         })
         .await
         .expect("drop_schema (first)");
@@ -331,6 +332,7 @@ async fn reads_and_admin_verbs_over_connection() {
             target_name: "born_in".to_string(),
             force: true,
             request_id: REQUEST_ID,
+            act_as: None,
         })
         .await
         .expect("drop_schema (second)");

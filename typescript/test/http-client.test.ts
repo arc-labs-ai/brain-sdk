@@ -25,6 +25,7 @@ interface Seen {
   path: string;
   auth: string | undefined;
   contentType: string | undefined;
+  idempotencyKey: string | undefined;
   body: unknown;
 }
 
@@ -47,6 +48,7 @@ beforeEach(async () => {
         path: req.url ?? "",
         auth: req.headers.authorization,
         contentType: req.headers["content-type"],
+        idempotencyKey: req.headers["idempotency-key"] as string | undefined,
         body: raw ? JSON.parse(raw) : null,
       });
       const [status, body, extra] = replies.shift() ?? [200, {}, {}];
@@ -560,5 +562,79 @@ describe("retry", () => {
     const err = await client.whoami().catch((e) => e);
     expect(err.status).toBe(401);
     expect(seen).toHaveLength(1);
+  });
+});
+
+// --- cloud-gateway compatibility ------------------------------------------
+
+describe("cloud gateway wire shapes", () => {
+  it("reads an RFC 9457 problem document, keeping the field errors", async () => {
+    replies.push([
+      422,
+      {
+        type: "https://errors.arc-labs.ai/validation/failed",
+        title: "Request validation failed",
+        status: 422,
+        code: "validation.failed",
+        detail: "one or more fields are invalid",
+        errors: [{ field: "max_results", code: "range", message: "must be 1..=1000" }],
+      },
+    ]);
+    const err = (await client
+      .recall({ query: "x", maxResults: 0 })
+      .catch((e) => e)) as BrainHttpError;
+    expect(err).toBeInstanceOf(BrainHttpError);
+    expect(err.status).toBe(422);
+    expect(err.code).toBe("validation.failed");
+    expect(err.message).toBe("max_results: must be 1..=1000");
+    expect(err.fieldErrors).toEqual([
+      { field: "max_results", code: "range", message: "must be 1..=1000" },
+    ]);
+  });
+
+  it("still reads brain-edge's { error: { code, message } }", async () => {
+    replies.push([400, { error: { code: "bad_request", message: "no" } }]);
+    const err = (await client.recall({ query: "x" }).catch((e) => e)) as BrainHttpError;
+    expect([err.code, err.message]).toEqual(["bad_request", "no"]);
+    expect(err.fieldErrors).toEqual([]);
+  });
+
+  it("normalizes the gateway's permission bitset into flags", async () => {
+    replies.push([200, { namespace: "n", space_id: "s", permissions: 3 }]);
+    const me = await client.whoami();
+    expect(me.permissions).toEqual({
+      canRecall: true,
+      canEncode: true,
+      canForget: false,
+      canPlan: false,
+      canReason: false,
+      canAdmin: false,
+    });
+    replies.push([200, { namespace: "n", space_id: "s", permissions: 0 }]);
+    expect((await client.whoami()).permissions.canAdmin).toBe(true);
+  });
+
+  it("sends one Idempotency-Key per encode, reused across its retries", async () => {
+    replies.push([503, { error: { code: "unavailable", message: "x" } }]);
+    replies.push([200, { memory_id: "1" }]);
+    await client.encode({ text: "a" });
+    replies.push([200, { memory_id: "2" }]);
+    await client.encode({ text: "b" });
+    const keys = seen.map((s) => s.idempotencyKey);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).toBeTruthy();
+    expect(keys[2]).not.toBe(keys[0]);
+  });
+
+  it("retries a 429 on an idempotent call", async () => {
+    replies.push([
+      429,
+      { code: "rate_limited", title: "Too many requests" },
+      { "retry-after": "0" },
+    ]);
+    replies.push([200, { namespace: "n", space_id: "s", permissions: 1 }]);
+    await client.whoami();
+    expect(seen).toHaveLength(2);
   });
 });

@@ -140,6 +140,7 @@ async fn schema_replace_and_cancel_stream() {
             schema_document: "entity Person {}".to_string(),
             force_drop_existing: true,
             request_id: REQUEST_ID,
+            act_as: None,
         })
         .await
         .expect("replace_schema");

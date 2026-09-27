@@ -30,6 +30,12 @@ async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u
 /// response whose `memory_id` is this connection's accept-order `tag` — so the
 /// client can tell the sockets apart.
 async fn serve_member(mut sock: TcpStream, tag: u128) {
+    serve_member_until(sock, tag, false).await;
+}
+
+/// [`serve_member`], optionally hanging up right after the handshake — a
+/// server restart, as a pooled client sees it.
+async fn serve_member_until(mut sock: TcpStream, tag: u128, hang_up: bool) {
     let mut buf = Vec::new();
 
     let hello_frame = read_frame(&mut sock, &mut buf).await.expect("hello");
@@ -66,6 +72,9 @@ async fn serve_member(mut sock: TcpStream, tag: u128) {
         server_time_unix_nanos: 1,
     };
     write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
+    if hang_up {
+        return; // drops the socket: the peer sees EOF
+    }
 
     // Answer ENCODEs (tagged with this socket's id) until the peer goes away.
     loop {
@@ -159,4 +168,49 @@ async fn pool_rejects_zero_size() {
         Err(other) => panic!("expected Protocol error, got {other:?}"),
         Ok(_) => panic!("zero size should be rejected"),
     }
+}
+
+#[tokio::test]
+async fn get_healthy_replaces_a_member_the_server_closed() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    // First connection: handshake, then the "server restarts" (hangs up).
+    // Second connection (the reconnect): serves normally, tagged 7.
+    let server = tokio::spawn(async move {
+        let (sock, _) = listener.accept().await.expect("accept 1");
+        tokio::spawn(serve_member_until(sock, 0, true));
+        let (sock, _) = listener.accept().await.expect("accept 2");
+        tokio::spawn(serve_member(sock, 7));
+    });
+
+    let pool = Pool::connect(addr, 1, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("pool connect");
+    // Wait for the client's reader to observe the hang-up.
+    for _ in 0..50 {
+        if pool.get().is_closed() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        pool.get().is_closed(),
+        "the dropped member is detected as closed"
+    );
+
+    // `get()` alone would hand out the dead socket forever; `get_healthy()`
+    // reconnects it in place, and later calls reuse the fresh one.
+    let client = pool.get_healthy().await.expect("reconnect");
+    assert!(!client.is_closed());
+    let resp = client
+        .encode(&request())
+        .await
+        .expect("encode on fresh socket");
+    assert_eq!(resp.memory_id, 7, "served by the reconnected socket");
+    assert!(
+        !pool.get().is_closed(),
+        "the slot now holds the fresh connection"
+    );
+
+    server.await.expect("server task");
 }

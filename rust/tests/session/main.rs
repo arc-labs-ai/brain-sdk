@@ -9,9 +9,7 @@
 mod common;
 
 use brain_db_sdk::new_id;
-use brain_db_sdk::wire::types::{
-    SessionCreateRequest, SessionDeleteRequest, SessionListRequest,
-};
+use brain_db_sdk::wire::types::{SessionCreateRequest, SessionDeleteRequest, SessionListRequest};
 
 #[tokio::test]
 async fn create_list_delete_round_trip() {
@@ -34,7 +32,10 @@ async fn create_list_delete_round_trip() {
         })
         .await
         .expect("create_session");
-    assert!(created.created, "a brand-new session reports created = true");
+    assert!(
+        created.created,
+        "a brand-new session reports created = true"
+    );
     assert_eq!(created.session_id, session_id);
 
     // LIST the space's sessions — the one we just made must be present.
