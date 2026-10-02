@@ -364,6 +364,11 @@ class BrainClient:
         system namespace. Read-only — the client never sends a namespace."""
         return self._connection.namespace
 
+    @property
+    def is_closed(self) -> bool:
+        """Whether this connection is dead and should be replaced."""
+        return self._conn.is_closed()
+
     def encode(self, request: EncodeRequest) -> EncodeResponse:
         """Store a memory from text (ENCODE). The server owns the embedding,
         kind classification, salience, and edge extraction."""

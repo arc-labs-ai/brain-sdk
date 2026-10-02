@@ -52,7 +52,7 @@ permissions:
 jobs:
   rust:
     name: Publish Rust → crates.io
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: release
     permissions:
       contents: read
@@ -82,7 +82,7 @@ jobs:
 
   python:
     name: Publish Python → PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: release
     permissions:
       contents: read
@@ -116,7 +116,7 @@ jobs:
 
   typescript:
     name: Publish TypeScript → npm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: release
     permissions:
       contents: read

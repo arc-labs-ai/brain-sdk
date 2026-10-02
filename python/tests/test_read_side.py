@@ -22,6 +22,7 @@ from brain_db_sdk.wire.cbor import from_cbor, to_cbor
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
+    ActAs,
     AuthOkPayload,
     AuthPayload,
     Capabilities,
@@ -58,11 +59,14 @@ from brain_db_sdk.wire.types import (
     RelationListToResponseFrame,
     RelationView,
     ResolutionOutcome,
+    SchemaDropRequest,
     SchemaGetRequest,
     SchemaGetResponse,
     SchemaListItem,
     SchemaListRequest,
     SchemaListResponseFrame,
+    SchemaReplaceRequest,
+    SchemaUploadRequest,
     SchemaValidateRequest,
     SchemaValidateResponse,
     ServerFeatures,
@@ -307,6 +311,27 @@ def test_read_side_types_round_trip() -> None:
     _round_trip(
         ReasonResponseFrame([inf_a, inf_b], True, ReasonStatus.COMPLETE), ReasonResponseFrame
     )
+
+
+def test_delegated_schema_and_capability_requests_round_trip() -> None:
+    """Optional act-as fields preserve delegated tenant and grant data."""
+    delegated = ActAs("acme", "support-bot:user123", 1 << 4)
+    _round_trip(GetCapabilitiesRequest(delegated), GetCapabilitiesRequest)
+    _round_trip(
+        SchemaUploadRequest("entity Person {}", False, False, _rid(), delegated),
+        SchemaUploadRequest,
+    )
+    _round_trip(
+        SchemaDropRequest("acme", 0, "Person", True, _rid(), delegated),
+        SchemaDropRequest,
+    )
+    _round_trip(
+        SchemaReplaceRequest("entity Person {}", True, _rid(), delegated),
+        SchemaReplaceRequest,
+    )
+    _round_trip(SchemaGetRequest("acme", 0, delegated), SchemaGetRequest)
+    _round_trip(SchemaListRequest("acme", 10, [1, 2], delegated), SchemaListRequest)
+    _round_trip(SchemaValidateRequest("entity Person {}", delegated), SchemaValidateRequest)
 
 
 # ---------------------------------------------------------------------------

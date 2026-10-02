@@ -554,7 +554,8 @@ class ActAs:
     ``space_id`` is the human-readable structured space string (e.g.
     ``"support-bot:user123"``) and encodes as a CBOR text string; the server
     derives the 16-byte storage id from ``(namespace, space_id)``. An empty
-    string selects the key-bound space.
+    string selects the key-bound space. ``grant`` carries optional delegated
+    schema/admin capability bits and is omitted when zero.
 
     Honored server-side only when the connection principal holds
     ``can_act_as`` and ``namespace`` lies within its granted allowlist —
@@ -564,13 +565,17 @@ class ActAs:
 
     namespace: str
     space_id: str
+    grant: int = 0
 
     def to_map(self) -> dict[str, Any]:
-        return {"namespace": self.namespace, "space_id": self.space_id}
+        m = {"namespace": self.namespace, "space_id": self.space_id}
+        if self.grant:
+            m["grant"] = self.grant
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> ActAs:
-        return cls(m["namespace"], m["space_id"])
+        return cls(m["namespace"], m["space_id"], int(m.get("grant", 0)))
 
 
 # ===========================================================================
@@ -2655,18 +2660,29 @@ class SchemaUploadRequest:
     dry_run: bool
     allow_breaking: bool
     request_id: bytes
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {
+        m = {
             "schema_document": self.schema_document,
             "dry_run": self.dry_run,
             "allow_breaking": self.allow_breaking,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaUploadRequest:
-        return cls(m["schema_document"], m["dry_run"], m["allow_breaking"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(
+            m["schema_document"],
+            m["dry_run"],
+            m["allow_breaking"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -2724,24 +2740,30 @@ class SchemaDropRequest:
     target_name: str
     force: bool
     request_id: bytes
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {
+        m = {
             "namespace": self.namespace,
             "target_kind": self.target_kind,
             "target_name": self.target_name,
             "force": self.force,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaDropRequest:
+        act_as = m.get("act_as")
         return cls(
             m["namespace"],
             m["target_kind"],
             m["target_name"],
             m["force"],
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -2805,17 +2827,27 @@ class SchemaReplaceRequest:
     schema_document: str
     force_drop_existing: bool
     request_id: bytes
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {
+        m = {
             "schema_document": self.schema_document,
             "force_drop_existing": self.force_drop_existing,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaReplaceRequest:
-        return cls(m["schema_document"], m["force_drop_existing"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(
+            m["schema_document"],
+            m["force_drop_existing"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -4832,17 +4864,17 @@ class UnsubscribeResponse:
 
 @dataclass
 class GetCapabilitiesRequest:
-    """Empty request — capabilities are server-side state. Encodes as an empty
-    CBOR map, matching every other request body."""
+    """Capability request, optionally scoped to a delegated identity."""
+
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {}
+        return {} if self.act_as is None else {"act_as": self.act_as.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict[str, Any]) -> GetCapabilitiesRequest:  # noqa: ARG003
-        # Empty body; the parameter exists so every payload's `from_map` has
-        # one signature.
-        return cls()
+    def from_map(cls, m: dict[str, Any]) -> GetCapabilitiesRequest:
+        act_as = m.get("act_as")
+        return cls(None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -5706,13 +5738,18 @@ class SchemaGetRequest:
 
     namespace: str
     version: int  # 0 = active version
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {"namespace": self.namespace, "version": self.version}
+        m = {"namespace": self.namespace, "version": self.version}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaGetRequest:
-        return cls(m["namespace"], m["version"])
+        act_as = m.get("act_as")
+        return cls(m["namespace"], m["version"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -5755,17 +5792,27 @@ class SchemaListRequest:
     namespace: str
     limit: int  # 0 = unlimited (server-capped)
     cursor: list[int]  # Vec<u8> -> array of ints
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {
+        m = {
             "namespace": self.namespace,
             "limit": self.limit,
             "cursor": list(self.cursor),
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaListRequest:
-        return cls(m["namespace"], m["limit"], list(m["cursor"]))
+        act_as = m.get("act_as")
+        return cls(
+            m["namespace"],
+            m["limit"],
+            list(m["cursor"]),
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -5830,13 +5877,18 @@ class SchemaValidateRequest:
     """SCHEMA_VALIDATE (``0x0123``). Validate a schema document without uploading it."""
 
     schema_document: str
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {"schema_document": self.schema_document}
+        m = {"schema_document": self.schema_document}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaValidateRequest:
-        return cls(m["schema_document"])
+        act_as = m.get("act_as")
+        return cls(m["schema_document"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6760,8 +6812,13 @@ class SpaceListRequest:
 
 @dataclass
 class SpaceListResponse:
-    """SPACE_LIST_RESP (``0x00F1``). ``cross_shard_complete`` is False when the
-    listing covers only the caller-shard's spaces (v1 behavior)."""
+    """SPACE_LIST_RESP (``0x00F1``).
+
+    ``cross_shard_complete`` says whether this listing covers the whole
+    deployment. A shard only reads its own data, so it is True on a
+    single-shard deployment and False above one, where the listing covers
+    only the caller-shard's spaces until cross-shard scatter-gather lands.
+    """
 
     spaces: list[SpaceView]
     cross_shard_complete: bool

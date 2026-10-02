@@ -157,7 +157,7 @@ def extract_python(text: str) -> dict:
 
 
 def extract_typescript(text: str) -> dict:
-    """`export interface` property declarations and `as const` enum objects."""
+    """TypeScript interfaces/object aliases and `as const` enum objects."""
     structs: dict = {}
     enums: dict = {}
 
@@ -180,6 +180,31 @@ def extract_typescript(text: str) -> dict:
                     break
         body = text[m.end() : j]
         # Drop comments so a `//` or `/** */` cannot look like a property.
+        body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
+        body = re.sub(r"//[^\n]*", "", body)
+        fields = []
+        for fm in re.finditer(r"^\s{2}(\w+)(\??)\s*:\s*([^;]+);", body, re.M):
+            shape = ts_shape(fm.group(3))
+            if fm.group(2) == "?" and not shape.startswith("opt("):
+                shape = f"opt({shape})"
+            fields.append({"name": fm.group(1), "shape": shape})
+        structs[name] = {"fields": fields}
+
+    # Object-shaped `export type` aliases are equivalent to interfaces.  The
+    # SDK uses this form for empty-or-nearly-empty request bodies where an
+    # interface would either be too permissive or less idiomatic, e.g.
+    # `GetCapabilitiesRequest = { actAs?: ActAs | null }`.
+    for m in re.finditer(r"export type (\w+)\s*=\s*\{", text):
+        name = m.group(1)
+        depth = 0
+        for j in range(m.end() - 1, len(text)):
+            if text[j] == "{":
+                depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+        body = text[m.end() : j]
         body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
         body = re.sub(r"//[^\n]*", "", body)
         fields = []

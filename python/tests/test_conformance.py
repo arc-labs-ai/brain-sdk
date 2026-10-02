@@ -69,6 +69,13 @@ PAYLOAD_TYPES = {
     "req_plan_act_as": t.PlanRequest,
     "req_reason_act_as": t.ReasonRequest,
     "req_entity_create_act_as": t.EntityCreateRequest,
+    "req_get_capabilities_act_as": t.GetCapabilitiesRequest,
+    "req_schema_upload_act_as_grant": t.SchemaUploadRequest,
+    "req_schema_drop_act_as_grant": t.SchemaDropRequest,
+    "req_schema_get_act_as": t.SchemaGetRequest,
+    "req_schema_list_act_as": t.SchemaListRequest,
+    "req_schema_replace_act_as_grant": t.SchemaReplaceRequest,
+    "req_schema_validate_act_as": t.SchemaValidateRequest,
     "resp_auth_ok_act_as": t.AuthOkPayload,
     "resp_error_act_as_denied": t.ErrorResponse,
     # Typed-graph ops.

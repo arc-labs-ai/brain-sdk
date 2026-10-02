@@ -443,6 +443,11 @@ export class BrainClient {
     return this.connection.namespace;
   }
 
+  /** Whether this connection is dead and should be replaced. */
+  get isClosed(): boolean {
+    return this.conn.isClosed;
+  }
+
   /**
    * Store a memory from text (ENCODE). Build the request by hand or with the
    * {@link EncodeBuilder}, which fills defaults and mints the `requestId`.

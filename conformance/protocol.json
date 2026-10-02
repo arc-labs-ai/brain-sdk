@@ -3758,6 +3758,14 @@
      "name": "space_id",
      "serde": {},
      "type": "String"
+    },
+    {
+     "name": "grant",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "is_zero_u32"
+     },
+     "type": "u32"
     }
    ],
    "serde": {}
@@ -6313,7 +6321,16 @@
    "serde": {}
   },
   "GetCapabilitiesRequest": {
-   "fields": [],
+   "fields": [
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
    "serde": {}
   },
   "GetCapabilitiesResponse": {
@@ -9101,6 +9118,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9156,6 +9181,14 @@
      "name": "version",
      "serde": {},
      "type": "u32"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9236,6 +9269,14 @@
      "name": "cursor",
      "serde": {},
      "type": "Vec<u8>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9288,6 +9329,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9365,6 +9414,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9405,6 +9462,14 @@
      "name": "schema_document",
      "serde": {},
      "type": "String"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}

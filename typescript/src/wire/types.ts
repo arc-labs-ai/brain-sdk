@@ -808,8 +808,14 @@ export function decodeSpaceList(bytes: Uint8Array): SpaceListRequest {
   };
 }
 
-/** SPACE_LIST_RESP (`0x00F1`): the caller-shard's spaces. `crossShardComplete`
- * is `false` until cross-shard scatter-gather lands — treat `false` as partial. */
+/** SPACE_LIST_RESP (`0x00F1`): the caller-shard's spaces.
+ *
+ * `crossShardComplete` says whether this listing covers the whole
+ * deployment. A shard only reads its own data, so it is `true` on a
+ * single-shard deployment and `false` above one, where the listing really
+ * is partial until cross-shard scatter-gather lands. Treat `false` as
+ * partial — and note it is now a real signal: it used to be hardcoded
+ * `false`, so it said "partial" even when the listing was complete. */
 export interface SpaceListResponse {
   spaces: SpaceView[];
   crossShardComplete: boolean;
