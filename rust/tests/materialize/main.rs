@@ -53,7 +53,7 @@ async fn materialize_returns_a_coherent_block() {
     // Shape invariants that hold for any extraction outcome:
     // the selected set never exceeds the candidate pool, nor the requested cap.
     assert!(
-        resp.statement_ids.len() as u32 <= resp.total_candidates,
+        u32::try_from(resp.statement_ids.len()).unwrap_or(u32::MAX) <= resp.total_candidates,
         "materialized ids ({}) cannot exceed total candidates ({})",
         resp.statement_ids.len(),
         resp.total_candidates

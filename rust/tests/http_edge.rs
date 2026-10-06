@@ -5,7 +5,7 @@
 
 use std::env;
 
-use brain_db_sdk::http::{BrainHttpClient, EncodeInput, ForgetInput, RecallInput};
+use brain_db_sdk::http::{BrainHttpClient, EncodeInput, ForgetInput, MemoryListQuery, RecallInput};
 
 fn client() -> Option<BrainHttpClient> {
     let base_url = env::var("BRAIN_SDK_IT_HTTP").ok();
@@ -57,7 +57,7 @@ async fn live_edge_memory_lifecycle() {
     let _ = recalled.memories;
 
     let page = client
-        .memory_list(&Default::default())
+        .memory_list(&MemoryListQuery::default())
         .await
         .expect("memory list");
     assert!(page

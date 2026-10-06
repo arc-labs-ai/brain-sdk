@@ -857,10 +857,14 @@ impl BrainClient {
     /// caller can measure RTT.
     pub async fn ping(&self, client_timestamp_unix_nanos: Option<u64>) -> Result<PongResponse> {
         let ts = client_timestamp_unix_nanos.unwrap_or_else(|| {
+            // Saturating rather than `as`: nanos since the epoch is a u128 and
+            // the cast would silently wrap. A clock before the epoch, or past
+            // u64 nanos (year 2554), yields a clamped stamp instead of a
+            // nonsense one — this is an RTT marker the server echoes back, so
+            // a clamped value is harmless and a wrapped one is misleading.
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0)
+                .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
         });
         let request = PingRequest {
             client_timestamp_unix_nanos: ts,

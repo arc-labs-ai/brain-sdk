@@ -29,7 +29,7 @@ async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u
 /// Serve one pooled connection: handshake, then answer every ENCODE with a
 /// response whose `memory_id` is this connection's accept-order `tag` — so the
 /// client can tell the sockets apart.
-async fn serve_member(mut sock: TcpStream, tag: u128) {
+async fn serve_member(sock: TcpStream, tag: u128) {
     serve_member_until(sock, tag, false).await;
 }
 
