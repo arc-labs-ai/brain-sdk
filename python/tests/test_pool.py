@@ -200,6 +200,14 @@ def test_pool_reconnects_a_member_the_server_dropped() -> None:
         opened_before = len(conns)
 
         # Drop one connection from the server side and let the client notice.
+        # shutdown() before close(): the serving thread is blocked in recv() on
+        # this same fd, and on Linux closing it underneath that blocked syscall
+        # does not reliably emit the FIN -- the kernel keeps the descriptor
+        # alive for the in-flight call, so the client's reader never sees EOF
+        # and is_closed stays False. shutdown() forces the FIN immediately and
+        # wakes the blocked reader on both platforms.
+        with contextlib.suppress(OSError):
+            conns[0].shutdown(socket.SHUT_RDWR)
         conns[0].close()
         deadline = time.time() + 5
         while time.time() < deadline and not any(c.is_closed for c in pool._clients):
