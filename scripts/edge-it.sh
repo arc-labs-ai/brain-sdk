@@ -7,11 +7,20 @@ set -euo pipefail
 export BRAIN_SDK_IT_REQUIRED=1
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
-python_bin="${PYTHON_BIN:-python3}"
+# Prefer the project's uv environment: a bare `python3` on a machine that
+# installs test deps with uv has no pytest, so the suite failed before running
+# a single assertion. `PYTHON_BIN` still overrides for other setups.
+if [[ -n "${PYTHON_BIN:-}" ]]; then
+  py_runner=("$PYTHON_BIN" -m pytest)
+elif command -v uv >/dev/null 2>&1; then
+  py_runner=(uv run pytest)
+else
+  py_runner=(python3 -m pytest)
+fi
 
 (
   cd "$repo_dir/python"
-  PYTHONPATH=src "$python_bin" -m pytest -q tests/test_http_edge.py
+  PYTHONPATH=src "${py_runner[@]}" -q tests/test_http_edge.py
 )
 (
   cd "$repo_dir/typescript"

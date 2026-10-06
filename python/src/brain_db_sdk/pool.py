@@ -35,10 +35,23 @@ class Pool:
     """A fixed-size set of :class:`BrainClient` connections handed out
     round-robin."""
 
-    def __init__(self, clients: list[BrainClient]) -> None:
+    def __init__(
+        self,
+        clients: list[BrainClient],
+        host: str | None = None,
+        port: int | None = None,
+        config: ClientConfig | None = None,
+    ) -> None:
         self._clients = clients
         self._counter = itertools.count()
         self._lock = threading.Lock()
+        # Retained so :meth:`get_healthy` can dial a replacement member.
+        # Optional to keep the historical ``Pool(clients)`` call working; a
+        # pool built that way simply has no reconnect target.
+        self._host = host
+        self._port = port
+        self._config = config
+        self._reconnect_locks = [threading.Lock() for _ in clients]
 
     @classmethod
     def connect(
@@ -79,7 +92,7 @@ class Pool:
                 with contextlib.suppress(Exception):
                     client.close()
             raise
-        return cls(clients)
+        return cls(clients, host, port, config)
 
     def size(self) -> int:
         """The number of pooled connections."""
@@ -91,6 +104,36 @@ class Pool:
         with self._lock:
             idx = next(self._counter) % len(self._clients)
         return self._clients[idx]
+
+    def get_healthy(self) -> BrainClient:
+        """Borrow the next connection, reconnecting it first if its socket has
+        died.
+
+        A pooled member outlives any single request, so a server restart leaves
+        every borrower holding the same dead socket until the process is
+        bounced. This checks :meth:`BrainClient.is_closed` and dials a
+        replacement in place. Requests already in flight on the old connection
+        fail as before; new ones get the fresh socket.
+
+        Concurrent callers landing on the same dead slot share one reconnect.
+        Falls back to :meth:`get` when the pool was constructed without connect
+        parameters, which has nothing to reconnect to.
+        """
+        with self._lock:
+            idx = next(self._counter) % len(self._clients)
+        client = self._clients[idx]
+        if not client.is_closed:
+            return client
+        if self._host is None or self._port is None or self._config is None:
+            return client
+        with self._reconnect_locks[idx]:
+            # Another thread may have reconnected while we waited.
+            client = self._clients[idx]
+            if not client.is_closed:
+                return client
+            fresh = BrainClient.connect_with(self._host, self._port, self._config)
+            self._clients[idx] = fresh
+            return fresh
 
     def close(self) -> None:
         """Send BYE and close every pooled connection (best-effort)."""

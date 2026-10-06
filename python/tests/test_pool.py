@@ -7,7 +7,9 @@ each request — three round-robin encodes must touch all three.
 
 from __future__ import annotations
 
+import contextlib
 import socket
+import time
 import threading
 
 import pytest
@@ -154,3 +156,66 @@ def test_pool_spreads_requests_across_all_members() -> None:
 def test_pool_rejects_zero_size() -> None:
     with pytest.raises(ProtocolError):
         Pool.connect("127.0.0.1", 1, 0, Auth.token(b"opaque-token"))
+
+
+def test_pool_reconnects_a_member_the_server_dropped() -> None:
+    """``get_healthy`` replaces a member whose peer went away.
+
+    A pooled connection outlives any single request, so a server restart
+    otherwise leaves every borrower holding the same dead socket until the
+    process is bounced. The drop is done from the SERVER side because that is
+    what a restart looks like to the client — a graceful client-side
+    ``close()`` is not a failure and deliberately does not mark the connection
+    closed.
+    """
+    size = 2
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(size + 2)
+    host, port = listener.getsockname()
+
+    conns: list[socket.socket] = []
+    accepted = threading.Semaphore(0)
+
+    def run() -> None:
+        tag = 0
+        while True:
+            try:
+                conn, _peer = listener.accept()
+            except OSError:
+                return
+            conns.append(conn)
+            threading.Thread(target=_serve_member, args=(conn, tag), daemon=True).start()
+            tag += 1
+            accepted.release()
+
+    server = threading.Thread(target=run, daemon=True)
+    server.start()
+
+    try:
+        pool = Pool.connect(host, port, size, Auth.token(b"opaque-token"))
+        for _ in range(size):
+            assert accepted.acquire(timeout=5)
+        opened_before = len(conns)
+
+        # Drop one connection from the server side and let the client notice.
+        conns[0].close()
+        deadline = time.time() + 5
+        while time.time() < deadline and not any(c.is_closed for c in pool._clients):
+            time.sleep(0.02)
+        assert any(c.is_closed for c in pool._clients), "client must observe the peer drop"
+
+        # A full round now yields only live connections, having dialled a
+        # replacement rather than handing the dead socket back.
+        for _ in range(size * 2):
+            member = pool.get_healthy()
+            assert not member.is_closed
+        assert len(conns) > opened_before, "a replacement socket was opened"
+
+        pool.close()
+    finally:
+        listener.close()
+        for c in conns:
+            with contextlib.suppress(Exception):
+                c.close()
