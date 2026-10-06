@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import contextlib
 import socket
-import time
 import threading
+import time
 
 import pytest
 

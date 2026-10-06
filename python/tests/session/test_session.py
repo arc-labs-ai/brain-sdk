@@ -59,14 +59,10 @@ def test_create_session_is_idempotent(it):
     try:
         sid = _nonzero_session_id()
 
-        first = client.create_session(
-            SessionCreateRequest(session_id=sid, request_id=new_id())
-        )
+        first = client.create_session(SessionCreateRequest(session_id=sid, request_id=new_id()))
         assert first.created is True
 
-        second = client.create_session(
-            SessionCreateRequest(session_id=sid, request_id=new_id())
-        )
+        second = client.create_session(SessionCreateRequest(session_id=sid, request_id=new_id()))
         assert second.created is False
         assert second.session_id == sid
     finally:

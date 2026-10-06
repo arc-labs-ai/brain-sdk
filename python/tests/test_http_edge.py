@@ -16,9 +16,7 @@ from brain_db_sdk.http import BrainHttpClient
 
 def _client() -> BrainHttpClient:
     base_url = os.environ.get("BRAIN_SDK_IT_HTTP")
-    api_key = os.environ.get("BRAIN_SDK_IT_HTTP_KEY") or os.environ.get(
-        "BRAIN_SDK_IT_API_KEY"
-    )
+    api_key = os.environ.get("BRAIN_SDK_IT_HTTP_KEY") or os.environ.get("BRAIN_SDK_IT_API_KEY")
     if not base_url or not api_key:
         message = (
             "live edge tests require BRAIN_SDK_IT_HTTP and "

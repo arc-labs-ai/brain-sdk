@@ -48,7 +48,11 @@ describe.skipIf(T === null)("space (integration)", () => {
 
       // The registry row is genuinely gone: re-creating provisions afresh
       // (created = true), where a surviving row would replay as created = false.
-      const recreated = await client.createSpace({ metadata: null, requestId: newId(), actAs: null });
+      const recreated = await client.createSpace({
+        metadata: null,
+        requestId: newId(),
+        actAs: null,
+      });
       expect(recreated.created).toBe(true);
     } finally {
       await client.close();

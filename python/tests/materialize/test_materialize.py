@@ -11,7 +11,7 @@ contract this test pins is the round-trip and the response shape.
 from __future__ import annotations
 
 from brain_db_sdk import EncodeBuilder, new_id
-from brain_db_sdk.wire.types import MaterializeProceduralResponse, MaterializeProceduralRequest
+from brain_db_sdk.wire.types import MaterializeProceduralRequest, MaterializeProceduralResponse
 
 
 def _materialize(client, categories):
