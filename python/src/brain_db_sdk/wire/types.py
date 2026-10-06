@@ -568,7 +568,7 @@ class ActAs:
     grant: int = 0
 
     def to_map(self) -> dict[str, Any]:
-        m = {"namespace": self.namespace, "space_id": self.space_id}
+        m: dict[str, Any] = {"namespace": self.namespace, "space_id": self.space_id}
         if self.grant:
             m["grant"] = self.grant
         return m
@@ -5880,7 +5880,7 @@ class SchemaValidateRequest:
     act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        m = {"schema_document": self.schema_document}
+        m: dict[str, Any] = {"schema_document": self.schema_document}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
         return m
