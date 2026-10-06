@@ -272,7 +272,9 @@ def _json_equal(a, b) -> bool:
             return False
         return all(_json_equal(a[k], b[k]) for k in a)
     if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(_json_equal(x, y) for x, y in zip(a, b))
+        # strict=True states the invariant the `len` guard to its left already
+        # enforces: these lists are equal-length or we never reach the zip.
+        return len(a) == len(b) and all(_json_equal(x, y) for x, y in zip(a, b, strict=True))
     return a == b
 
 

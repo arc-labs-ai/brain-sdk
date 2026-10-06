@@ -135,7 +135,9 @@ def _compare(got, exp, path: str, errors: list[str]) -> None:
         if len(got) != len(exp):
             errors.append(f"{path}: length {len(got)} != {len(exp)}")
             return
-        for i, (g, e) in enumerate(zip(got, exp)):
+        # strict=True restates the length guard above; a mismatch here would
+        # mean that guard was removed, and silent truncation would hide it.
+        for i, (g, e) in enumerate(zip(got, exp, strict=True)):
             _compare(g, e, f"{path}[{i}]", errors)
         return
     if isinstance(got, float) or isinstance(exp, float):
