@@ -163,7 +163,7 @@ fn check_vector_payload(name: &str) {
 fn check_vector_frame(name: &str) {
     let bin = read_bin(name);
     let (frame, rest) = Frame::decode(&bin).expect("decode frame");
-    assert!(rest.is_empty());
+    assert_eq!(rest, &[] as &[u8]);
 
     let (mut req, consumed): (EncodeVectorDirectRequest, usize) =
         from_cbor_prefix(&frame.payload).expect("cbor prefix");

@@ -105,7 +105,7 @@ mod tests {
 
         let (got, leftover) = reader.await.expect("join").expect("read");
         assert_eq!(got, frame);
-        assert!(leftover.is_empty());
+        assert_eq!(leftover, &[] as &[u8]);
     }
 
     #[tokio::test]

@@ -27,8 +27,8 @@ async fn live_edge_identity_and_capabilities() {
     let identity = client.whoami().await.expect("whoami");
     let capabilities = client.capabilities().await.expect("capabilities");
 
-    assert!(!identity.namespace.is_empty());
-    assert!(!identity.space_id.is_empty());
+    assert_ne!(identity.namespace, "");
+    assert_ne!(identity.space_id, "");
     assert!(capabilities.vector_dim > 0);
 }
 
@@ -44,7 +44,7 @@ async fn live_edge_memory_lifecycle() {
         })
         .await
         .expect("encode");
-    assert!(!encoded.memory_id.is_empty());
+    assert_ne!(encoded.memory_id, "");
 
     let recalled = client
         .recall(&RecallInput {
