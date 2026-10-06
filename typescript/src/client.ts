@@ -101,6 +101,8 @@ import {
   type SchemaListResponseFrame,
   type CancelStreamAck,
   type CancellationReason,
+  type SchemaDropRequest,
+  type SchemaDropResponse,
   type SchemaReplaceRequest,
   type SchemaReplaceResponse,
   type SchemaUploadRequest,
@@ -146,6 +148,7 @@ import {
   decodeSchemaGetResponse,
   decodeSchemaListResponse,
   decodeCancelStreamAck,
+  decodeSchemaDropResponse,
   decodeSchemaReplaceResponse,
   decodeSchemaUploadResponse,
   decodeSchemaValidateResponse,
@@ -219,6 +222,10 @@ import {
   encodeEntityList,
   encodeEntityResolve,
   encodeExtractorList,
+  encodePing,
+  decodePong,
+  type PingRequest,
+  type PongResponse,
   encodeForget,
   encodeGetCapabilities,
   encodeLink,
@@ -235,6 +242,7 @@ import {
   encodeSchemaGet,
   encodeSchemaList,
   encodeCancelStream,
+  encodeSchemaDrop,
   encodeSchemaReplace,
   encodeSchemaUpload,
   encodeSchemaValidate,
@@ -433,6 +441,11 @@ export class BrainClient {
    */
   get namespace(): string {
     return this.connection.namespace;
+  }
+
+  /** Whether this connection is dead and should be replaced. */
+  get isClosed(): boolean {
+    return this.conn.isClosed;
   }
 
   /**
@@ -912,6 +925,22 @@ export class BrainClient {
     return decodeExtractorListResponse(frame.payload);
   }
 
+  /**
+   * Client-initiated liveness probe (PING → PONG). Distinct from the server's
+   * idle-timer SERVER_PING keepalive, which the mux auto-answers with
+   * CLIENT_PONG: this is an on-demand round-trip to the server. The client
+   * timestamp defaults to the current wall clock (ns); the PONG echoes it back
+   * alongside the server's timestamp, so the caller can measure RTT.
+   */
+  async ping(request: Partial<PingRequest> = {}): Promise<PongResponse> {
+    const req: PingRequest = {
+      clientTimestampUnixNanos: request.clientTimestampUnixNanos ?? BigInt(Date.now()) * 1_000_000n,
+    };
+    const frame = await this.conn.requestOne(Opcode.Ping, encodePing(req));
+    this.expect(frame.opcode, Opcode.Pong, "PONG");
+    return decodePong(frame.payload);
+  }
+
   /** Fetch one entity by id (ENTITY_GET). */
   async getEntity(request: EntityGetRequest): Promise<EntityGetResponse> {
     const frame = await this.conn.requestOne(Opcode.EntityGetReq, encodeEntityGet(request));
@@ -973,6 +1002,23 @@ export class BrainClient {
     const frame = await this.conn.requestOne(Opcode.SchemaReplaceReq, encodeSchemaReplace(request));
     this.expect(frame.opcode, Opcode.SchemaReplaceResp, "SCHEMA_REPLACE_RESP");
     return decodeSchemaReplaceResponse(frame.payload);
+  }
+
+  /**
+   * Drop a single declared predicate or relation_type (SCHEMA_DROP).
+   *
+   * The surgical counterpart to {@link replaceSchema}: it narrows the active
+   * schema by one type rather than swapping the whole namespace. Existing rows
+   * on the dropped type survive as orphans, readable as plain memories but no
+   * longer enriched from the typed-graph tables.
+   *
+   * `force` is required only when the target still has live rows; the server
+   * rejects `false` in that case with `Conflict` and mutates nothing.
+   */
+  async dropSchema(request: SchemaDropRequest): Promise<SchemaDropResponse> {
+    const frame = await this.conn.requestOne(Opcode.SchemaDropReq, encodeSchemaDrop(request));
+    this.expect(frame.opcode, Opcode.SchemaDropResp, "SCHEMA_DROP_RESP");
+    return decodeSchemaDropResponse(frame.payload);
   }
 
   /**

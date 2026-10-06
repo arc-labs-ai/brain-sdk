@@ -19,8 +19,9 @@ import http.client
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 import pytest
 

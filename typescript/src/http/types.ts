@@ -44,8 +44,12 @@ export interface EncodeResult {
 // --- recall ---------------------------------------------------------------
 export interface RecallInput {
   query: string;
+  /** `1..=1000` (the server rejects anything outside it). */
   maxResults?: number;
   subject?: string;
+  /** Return Brain's read-pipeline trace as `RecallResult.trace` (cloud
+   * gateway; ignored where unsupported). Several KB — leave off in hot paths. */
+  includeTrace?: boolean;
 }
 export interface MemoryHit {
   memoryId: string;
@@ -59,6 +63,11 @@ export interface MemoryHit {
 export interface RecallResult {
   answerKind: AnswerKind;
   memories: MemoryHit[];
+  /** The read-pipeline trace as a JSON STRING (retrievers, fusion, filter
+   * chain, rerank), when `includeTrace` was set and the server supports it.
+   * A string because its ids are 128-bit integers a JSON number would round;
+   * parse with a big-integer-safe reader. */
+  trace?: string;
 }
 
 // --- forget ---------------------------------------------------------------
@@ -107,9 +116,13 @@ export interface Endpoint {
 export interface PlanInput {
   start: Endpoint;
   goal: Endpoint;
+  /** Default 8; the cloud gateway accepts 1..=64. */
   maxSteps?: number;
+  /** Default 5000; the cloud gateway accepts 1..=10000. */
   maxWallTimeMs?: number;
+  /** Default 32; the cloud gateway accepts 1..=1024. */
   maxBranches?: number;
+  /** `auto` (default), `astar`, `mcts` or `attractor_rollout`. */
   strategy?: string;
 }
 export interface PlanStep {
@@ -125,9 +138,13 @@ export interface PlanResult {
 }
 export interface ReasonInput {
   observation: Endpoint;
+  /** Default 3; the cloud gateway accepts 1..=8. */
   depth?: number;
+  /** Default 0.5, in 0..=1. */
   confidenceThreshold?: number;
+  /** Default 10; the cloud gateway accepts 1..=100. */
   maxInferences?: number;
+  /** Default 5000; the cloud gateway accepts 1..=10000. */
   budgetWallTimeMs?: number;
 }
 export interface InferenceStep {
@@ -250,7 +267,11 @@ export interface MemoryInspect {
 
 /** `GET /v1/entities` filters. Omit a field to leave that filter off. */
 export interface ListEntitiesQuery {
-  /** Entity-type filter; `0`/omitted = every type. */
+  /**
+   * Entity-type filter. Effectively REQUIRED today: the edge and gateway pass
+   * `0`/omitted through as "every type", but Brain v1.0 rejects that with
+   * `400` ("entity_type_id filter is required"). Pass a real type id.
+   */
   typeId?: number;
   /** Canonical-name prefix filter. */
   prefix?: string;
@@ -262,6 +283,9 @@ export interface ListEntitiesQuery {
   includeMerged?: boolean;
   /** Page size; omitted → 100, clamped to `1..=1000`. */
   limit?: number;
+  /** Resume after the previous page (its `nextCursor`). Keep the other
+   * filters identical across pages — the cursor is bound to them. */
+  cursor?: string;
 }
 export interface EntityDetail {
   entityId: string;
@@ -277,10 +301,14 @@ export interface EntityDetail {
 export interface ListEntitiesResult {
   entities: EntityDetail[];
   count: number;
+  /** Present when more rows follow; pass it back as `cursor`. */
+  nextCursor?: string;
 }
 export interface CreateEntityInput {
+  /** `>= 1` — `0` is not a type and is rejected (`422`). */
   entityTypeId: number;
   canonicalName: string;
+  /** At most 64. */
   aliases?: string[];
 }
 export interface CreateEntityResult {
@@ -337,7 +365,8 @@ export interface TraverseResult {
 
 /** `GET /v1/entities/{id}/relations` filters; the anchor is the path id. */
 export interface ListRelationsQuery {
-  /** `from`/`outgoing` (default) or `to`/`incoming`. */
+  /** `from`/`outgoing`/`out` (default) or `to`/`incoming`/`in`. There is no
+   * `both` (`400`): list each direction and merge. */
   direction?: string;
   /**
    * Relation-type filter; omitted = any type. Named `type` because that is the
@@ -351,6 +380,9 @@ export interface ListRelationsQuery {
   includeTombstoned?: boolean;
   /** Page size; omitted → 100, clamped to `1..=1000`. */
   limit?: number;
+  /** Resume after the previous page (its `nextCursor`). Keep the other
+   * filters identical across pages — the cursor is bound to them. */
+  cursor?: string;
 }
 /** `GET /v1/relations/{id}` options. */
 export interface GetRelationQuery {
@@ -372,6 +404,8 @@ export interface RelationDetail {
 export interface ListRelationsResult {
   relations: RelationDetail[];
   count: number;
+  /** Present when more rows follow; pass it back as `cursor`. */
+  nextCursor?: string;
 }
 
 // --- statements ------------------------------------------------------------
@@ -418,6 +452,9 @@ export interface ListStatementsQuery {
   includeTombstoned?: boolean;
   /** Page size; omitted → 100, clamped to `1..=1000`. */
   limit?: number;
+  /** Resume after the previous page (its `nextCursor`). Keep the other
+   * filters identical across pages — the cursor is bound to them. */
+  cursor?: string;
 }
 /** `GET /v1/statements/{id}` options. */
 export interface GetStatementQuery {
@@ -441,6 +478,8 @@ export interface StatementDetail {
 export interface ListStatementsResult {
   statements: StatementDetail[];
   count: number;
+  /** Present when more rows follow; pass it back as `cursor`. */
+  nextCursor?: string;
 }
 
 // --- graph -----------------------------------------------------------------

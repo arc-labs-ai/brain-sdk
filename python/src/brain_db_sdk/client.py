@@ -12,6 +12,7 @@ builder mints makes the resend idempotent server-side.
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import TypeVar
@@ -72,9 +73,11 @@ from .wire.types import (
     MemoryListResponseFrame,
     MemoryResult,
     MtlsClaim,
+    PingRequest,
     PlanRequest,
     PlanResponseFrame,
     PlanStep,
+    PongResponse,
     QueryExplainRequest,
     QueryExplainResponse,
     QueryTraceRequest,
@@ -99,6 +102,8 @@ from .wire.types import (
     RelationTraverseRequest,
     RelationTraverseResponseFrame,
     RelationView,
+    SchemaDropRequest,
+    SchemaDropResponse,
     SchemaGetRequest,
     SchemaGetResponse,
     SchemaListItem,
@@ -358,6 +363,11 @@ class BrainClient:
         from auth). Empty when the connection resolves to the reserved ``brain``
         system namespace. Read-only — the client never sends a namespace."""
         return self._connection.namespace
+
+    @property
+    def is_closed(self) -> bool:
+        """Whether this connection is dead and should be replaced."""
+        return self._conn.is_closed()
 
     def encode(self, request: EncodeRequest) -> EncodeResponse:
         """Store a memory from text (ENCODE). The server owns the embedding,
@@ -750,6 +760,27 @@ class BrainClient:
             request,
         )
 
+    def ping(self, client_timestamp_unix_nanos: int | None = None) -> PongResponse:
+        """Probe the connection round-trip (PING → PONG).
+
+        A client-initiated liveness/RTT check: sends PING carrying a client
+        timestamp and awaits the server's PONG, which echoes that timestamp
+        alongside the server's own. Distinct from the server's idle-timer
+        heartbeat (SERVER_PING), which the mux answers automatically. Defaults
+        the timestamp to the current wall clock when the caller omits it.
+        """
+        ts = (
+            client_timestamp_unix_nanos
+            if client_timestamp_unix_nanos is not None
+            else time.time_ns()
+        )
+        return self._unary(
+            Opcode.PING,
+            Opcode.PONG,
+            PongResponse,
+            PingRequest(client_timestamp_unix_nanos=ts),
+        )
+
     def extractor_list(
         self, request: ExtractorListRequest | None = None
     ) -> ExtractorListResponseFrame:
@@ -824,6 +855,25 @@ class BrainClient:
             Opcode.SCHEMA_REPLACE_REQ,
             Opcode.SCHEMA_REPLACE_RESP,
             SchemaReplaceResponse,
+            request,
+        )
+
+    def drop_schema(self, request: SchemaDropRequest) -> SchemaDropResponse:
+        """Drop a single declared predicate or relation_type (SCHEMA_DROP).
+
+        The surgical counterpart to :meth:`replace_schema`: it narrows the
+        active schema by one type rather than swapping the whole namespace.
+        Existing rows on the dropped type survive as orphans, readable as plain
+        memories but no longer enriched from the typed-graph tables.
+
+        ``request.force`` is required only when the target still has live rows;
+        the server rejects ``False`` in that case with ``Conflict`` and mutates
+        nothing.
+        """
+        return self._unary(
+            Opcode.SCHEMA_DROP_REQ,
+            Opcode.SCHEMA_DROP_RESP,
+            SchemaDropResponse,
             request,
         )
 

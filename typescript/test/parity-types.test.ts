@@ -305,7 +305,7 @@ describe("REASON round-trip", () => {
 
 describe("TXN round-trip", () => {
   it("begin / commit / abort", () => {
-    rt(encodeTxnBegin, decodeTxnBegin, { txnId: ID16(0x10), timeoutSeconds: 30 });
+    rt(encodeTxnBegin, decodeTxnBegin, { txnId: ID16(0x10), timeoutSeconds: 30, actAs: null });
     rt(encodeTxnBeginResponse, decodeTxnBeginResponse, {
       txnId: ID16(0x10),
       timeoutSeconds: 30,
@@ -342,7 +342,10 @@ describe("GET_CAPABILITIES round-trip", () => {
 
 describe("ENTITY read-side round-trip", () => {
   it("get response + list request/response", () => {
-    rt(encodeEntityGetResponse, decodeEntityGetResponse, { entity: ENTITY_VIEW });
+    rt(encodeEntityGetResponse, decodeEntityGetResponse, {
+      entity: ENTITY_VIEW,
+      resolvedFrom: [new Uint8Array(16).fill(7), new Uint8Array(16).fill(8)],
+    });
     rt(encodeEntityList, decodeEntityList, {
       entityTypeId: 7,
       namePrefix: "Ada",

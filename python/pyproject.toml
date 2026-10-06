@@ -7,31 +7,31 @@ name = "brain-db-sdk"
 version = "0.1.0" # x-release-please-version
 description = "Python client SDK for the Brain memory database. Speaks Brain's BRN0 wire protocol directly over TCP."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Niraj Georgian" }]
 keywords = ["brain", "memory", "ai-agents", "client", "database"]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Topic :: Database",
-    "Topic :: Software Development :: Libraries",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Database",
+  "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    # CBOR (RFC 8949) payload maps. cbor2 distinguishes byte strings from
-    # arrays (required for id / [u8;N] fields) and exposes per-value
-    # minimal-float encoding, which the wire format needs for f32 fields.
-    # >=5.9 is a security floor, not a feature floor: cbor2 5.6-5.8 are
-    # vulnerable to CVE-2026-26209 (CVSS 7.5) -- uncontrolled recursion in
-    # loads() lets a peer crash the client with a <100KB deeply-nested payload.
-    # 5.9 added the nesting-depth cap that turns that into a clean
-    # CBORDecodeError. See tests/test_malformed.py, which pins the behaviour.
-    "cbor2>=5.9",
-    # CRC32C is implemented in pure Python (wire/crc32c.py) — no native or
-    # network dependency for a core checksum.
+  # CBOR (RFC 8949) payload maps. cbor2 distinguishes byte strings from
+  # arrays (required for id / [u8;N] fields) and exposes per-value
+  # minimal-float encoding, which the wire format needs for f32 fields.
+  # >=5.9 is a security floor, not a feature floor: cbor2 5.6-5.8 are
+  # vulnerable to CVE-2026-26209 (CVSS 7.5) -- uncontrolled recursion in
+  # loads() lets a peer crash the client with a <100KB deeply-nested payload.
+  # 5.9 added the nesting-depth cap that turns that into a clean
+  # CBORDecodeError. See tests/test_malformed.py, which pins the behaviour.
+  "cbor2>=5.9",
+  # CRC32C is implemented in pure Python (wire/crc32c.py) — no native or
+  # network dependency for a core checksum.
 ]
 
 [project.urls]
@@ -42,7 +42,7 @@ Repository = "https://github.com/arc-labs-ai/brain-sdk"
 dev = ["pytest>=8", "ruff>=0.16", "pyright>=1.1.400"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 # Matches the TypeScript SDK's Biome setting and the width this code was
 # already written to. Ruff's default 88 would reflow 198 existing lines for no
 # reason; 100 reflows 93 and they are genuinely long.
@@ -66,67 +66,69 @@ select = ["ALL"]
 
 ignore = [
   # -- the formatter owns these ------------------------------------------
-  "E501",    # 299. line-too-long: `ruff format` decides line breaks.
-  "COM812",  # 174. missing-trailing-comma: same.
-  "ISC001",  #      single-line-implicit-concat: conflicts with the formatter.
-  "ISC003",  #      explicit-string-concat: directly contradicts ISC004, which
-             #      is kept. In a collection literal an *implicit* concat is
-             #      one missing comma away from silently merging two elements,
-             #      so the explicit `+` is the safer of the two.
+  "E501",   # 299. line-too-long: `ruff format` decides line breaks.
+  "COM812", # 174. missing-trailing-comma: same.
+  "ISC001", #      single-line-implicit-concat: conflicts with the formatter.
+  "ISC003", #      explicit-string-concat: directly contradicts ISC004, which
+  #      is kept. In a collection literal an *implicit* concat is
+  #      one missing comma away from silently merging two elements,
+  #      so the explicit `+` is the safer of the two.
 
   # -- docstring style, not docstring absence -----------------------------
   # This package is heavily documented; what pydocstyle objects to is the
   # *shape*. The prose here is deliberately multi-paragraph and explanatory,
   # and these rules would flatten it.
-  "D203",    #      incompatible with D211, which is the convention used.
-  "D205",    # 211. blank line required after a one-line summary.
-  "D209",    # 164. multi-line closing quotes on their own line.
-  "D213",    # 285. multi-line summary on the second line: this codebase puts
-             #      the summary on the first line (D212), which is the opposite.
-  "D401",    #  21. imperative mood ("Returns the…" vs "Return the…").
-  "D400",    #   1. first line must end with a period.
-  "D415",    #   1. same, with more punctuation allowed.
+  "D203", #      incompatible with D211, which is the convention used.
+  "D205", # 211. blank line required after a one-line summary.
+  "D209", # 164. multi-line closing quotes on their own line.
+  "D213", # 285. multi-line summary on the second line: this codebase puts
+  #      the summary on the first line (D212), which is the opposite.
+  "D401", #  21. imperative mood ("Returns the…" vs "Return the…").
+  "D400", #   1. first line must end with a period.
+  "D415", #   1. same, with more punctuation allowed.
 
   # -- fights what this package is ----------------------------------------
   "PLR2004", #  74. magic-value-comparison: opcodes, CBOR major types and
-             #      frame offsets are magic numbers by definition.
-  "FBT001",  #  26. boolean-typed positional argument, and
-  "FBT002",  #   6. boolean default, and
-  "FBT003",  #  91. boolean positional in a call — the wire dataclasses mirror
-             #      the server's field order, which is not ours to reshape.
-  "TRY003",  #  29. long message outside the exception class, and
-  "EM101",   #   7. string literal in a raise, and
-  "EM102",   #  22. f-string in a raise — a wire error should say what byte or
-             #      field was wrong, at the point that knows.
-  "CPY001",  #  49. missing copyright notice: the licence is in LICENSE.
-  "UP045",   # 193. `Optional[X]` -> `X | None`, and
-  "UP007",   #   2. the same for Union — requires-python is >=3.9, where the
-             #      new syntax is not available at runtime and several of these
-             #      modules have annotations that are evaluated eagerly.
-  "PYI019",  #   3. same TypeVar-instead-of-Self constraint as PYI034 below.
-  "PYI034",  #   3. `__enter__` should return `Self` — which is 3.11+, while
-             #      requires-python is >=3.9, and `typing_extensions` is not a
-             #      dependency. A `TypeVar` bound to the class carries the same
-             #      meaning and is what these use; ruff's autofix for this rule
-             #      imports typing_extensions and breaks the install.
-  "TC001",   #   1. and
-  "TC003",   #   3. move typing-only imports into a TYPE_CHECKING block. The
-             #      saving is a few microseconds of import time; the risk is a
-             #      dataclass or a `get_type_hints` call resolving a name that
-             #      is no longer there at runtime. Not worth it for this shape
-             #      of code.
-  "D107",    #  12. undocumented `__init__`: every one is a one-line
-             #      constructor under a class docstring that already says what
-             #      the type is and what it carries. A second docstring below
-             #      it would restate the first.
-  "RUF022",  #   1. `__all__` is grouped by tier (wire, http, client) with a
-             #      comment on each group; alphabetising it would scatter the
-             #      groups and orphan the comments.
-  "D105",    #   8. undocumented magic method: `__enter__`/`__exit__`/`__iter__`
-             #      mean exactly what the protocol says they mean.
-  "N818",    #  11. exception names must end in "Error": these mirror the Rust
-             #      SDK's variant names (VersionMismatch, ConnectionClosed) so
-             #      the three SDKs read the same.
+  #      frame offsets are magic numbers by definition.
+  "FBT001", #  26. boolean-typed positional argument, and
+  "FBT002", #   6. boolean default, and
+  "FBT003", #  91. boolean positional in a call — the wire dataclasses mirror
+  #      the server's field order, which is not ours to reshape.
+  "TRY003", #  29. long message outside the exception class, and
+  "EM101",  #   7. string literal in a raise, and
+  "EM102",  #  22. f-string in a raise — a wire error should say what byte or
+  #      field was wrong, at the point that knows.
+  "CPY001", #  49. missing copyright notice: the licence is in LICENSE.
+  "UP045",  # 193. `Optional[X]` -> `X | None`, and
+  "UP007",  #   2. the same for Union. These were required at the old >=3.9
+  #      floor, where `X | Y` is not available at runtime and several
+  #      of these modules evaluate annotations eagerly. At >=3.10 the
+  #      syntax works, so the ignores are now a deliberate choice not
+  #      to churn ~195 annotation sites rather than a hard constraint.
+  "PYI019", #   3. same TypeVar-instead-of-Self constraint as PYI034 below.
+  "PYI034", #   3. `__enter__` should return `Self` — which is 3.11+, while
+  #      requires-python is >=3.10, and `typing_extensions` is not a
+  #      dependency. A `TypeVar` bound to the class carries the same
+  #      meaning and is what these use; ruff's autofix for this rule
+  #      imports typing_extensions and breaks the install.
+  "TC001", #   1. and
+  "TC003", #   3. move typing-only imports into a TYPE_CHECKING block. The
+  #      saving is a few microseconds of import time; the risk is a
+  #      dataclass or a `get_type_hints` call resolving a name that
+  #      is no longer there at runtime. Not worth it for this shape
+  #      of code.
+  "D107", #  12. undocumented `__init__`: every one is a one-line
+  #      constructor under a class docstring that already says what
+  #      the type is and what it carries. A second docstring below
+  #      it would restate the first.
+  "RUF022", #   1. `__all__` is grouped by tier (wire, http, client) with a
+  #      comment on each group; alphabetising it would scatter the
+  #      groups and orphan the comments.
+  "D105", #   8. undocumented magic method: `__enter__`/`__exit__`/`__iter__`
+  #      mean exactly what the protocol says they mean.
+  "N818", #  11. exception names must end in "Error": these mirror the Rust
+  #      SDK's variant names (VersionMismatch, ConnectionClosed) so
+  #      the three SDKs read the same.
 
   # -- thresholds, not defects --------------------------------------------
   "PLR0913", #   7. too-many-arguments
@@ -138,10 +140,10 @@ ignore = [
 
   # -- wrong for this code, on inspection ---------------------------------
   "PERF203", #   4. try-except in a loop: every one is a retry or a
-             #      best-effort cleanup, which is what the construct is for.
-  "S110",    #   4. try-except-pass: all four are best-effort connection
-             #      teardown, already carrying a comment saying so. A failure
-             #      to close a socket we are discarding is not actionable.
+  #      best-effort cleanup, which is what the construct is for.
+  "S110", #   4. try-except-pass: all four are best-effort connection
+  #      teardown, already carrying a comment saying so. A failure
+  #      to close a socket we are discarding is not actionable.
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -150,7 +152,14 @@ ignore = [
 # every field and serde attribute, and the corpus pins the bytes. A docstring
 # on each of ~495 generated-equivalent `to_map`/`from_map` methods would
 # restate the method name and bury the ones that do carry meaning.
-"src/brain_db_sdk/wire/types.py" = ["D101", "D102", "D105", "D106", "D107", "RUF012"]
+"src/brain_db_sdk/wire/types.py" = [
+  "D101",
+  "D102",
+  "D105",
+  "D106",
+  "D107",
+  "RUF012",
+]
 "src/brain_db_sdk/http/types.py" = ["D101", "D102", "D105", "D106", "D107"]
 
 # Tests: `assert` is what pytest is built on, fixture data is camelCase because
@@ -160,14 +169,21 @@ ignore = [
   "S101",    # 368. assert
   "INP001",  #  30. implicit namespace package
   "ANN",     # 111. missing annotations on test helpers
-  "D100", "D101", "D102", "D103", "D104", "D107",
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D104",
+  "D107",
   "N815",    #   4. camelCase in class scope — JSON fixture keys
   "N812",    #   1. lowercase import aliased to non-lowercase
   "PLC0415", #   3. import outside top-level — deliberate lazy imports
   "E402",    #   1. import not at top — after a guard
   "PT018",   #  15. composite assertion
   "SLF001",  #      private member access: tests check internals on purpose
-  "S105", "S106", "S311",
+  "S105",
+  "S106",
+  "S311",
 ]
 
 [tool.pytest.ini_options]
@@ -176,7 +192,9 @@ ignore = [
 # flat offline suites (e.g. tests/test_handshake.py vs tests/handshake/…).
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
-markers = ["slow: builds a wheel; excluded from the default run with -m 'not slow'"]
+markers = [
+  "slow: builds a wheel; excluded from the default run with -m 'not slow'",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/brain_db_sdk"]
@@ -190,13 +208,13 @@ artifacts = ["src/brain_db_sdk/py.typed"]
 # The type checker the other two SDKs always had: Rust has the compiler,
 # TypeScript has `tsc`, and Python had annotations that nothing verified.
 #
-# pyright rather than mypy because this package advertises
-# `requires-python = ">=3.9"` and mypy 2.x refuses to target anything below
-# 3.10 — a checker that cannot check the floor we ship is not checking the
-# thing that matters. pyright is also what Pylance runs, so what CI enforces is
-# what a user sees in their editor.
+# pyright rather than mypy. The original reason was that mypy 2.x refuses to
+# target anything below 3.10 and the floor was 3.9, so mypy could not check the
+# version we ship. At a >=3.10 floor that no longer applies, and pyright stays
+# on its own merits: it is what Pylance runs, so what CI enforces is what a
+# user sees in their editor.
 include = ["src/brain_db_sdk"]
-pythonVersion = "3.9"
+pythonVersion = "3.10"
 # `standard`, not `strict`, and the difference is recorded rather than hidden:
 # strict additionally reports 112 `reportUnknown*` diagnostics, essentially all
 # of them in `wire/types.py`'s externally-tagged union helpers, where a

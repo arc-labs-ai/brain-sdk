@@ -211,6 +211,21 @@ pub struct MuxConnection<S> {
     reader: JoinHandle<()>,
 }
 
+impl<S> MuxConnection<S> {
+    /// Whether the connection is dead: the reader task has ended (the peer
+    /// closed the socket, or a read failed). Every further request on a closed
+    /// connection fails immediately, so a pool should replace it.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.reader.is_finished()
+            || self
+                .shared
+                .table
+                .lock()
+                .map_or(true, |t| t.closed.is_some())
+    }
+}
+
 impl<S> std::fmt::Debug for MuxConnection<S> {
     /// Hand-written so it does not require `S: Debug`, and so it reports the
     /// one thing worth seeing — how many requests are still in flight. Reads

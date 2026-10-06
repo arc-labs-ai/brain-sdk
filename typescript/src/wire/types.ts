@@ -614,20 +614,38 @@ export interface ActAs {
   /** Effective space, as the human-readable structured space string (CBOR
    * text string, key `space_id`). Empty selects the key-bound space. */
   spaceId: string;
+  /** Extra capability bits granted to the effective caller for this op, on
+   * top of the standard space mask — see {@link ActAsGrant}. Only honoured
+   * when the connection principal holds the bits itself. Omitted (or `0`) is
+   * CBOR-omitted, so a grant-less selector encodes byte-identically to the
+   * pre-grant form. */
+  grant?: number;
 }
 
+/** Grantable {@link ActAs.grant} bits. */
+export const ActAsGrant = {
+  /** Upload / apply schema documents. */
+  SchemaUpload: 1 << 4,
+  /** Destructive admin ops (SCHEMA_REPLACE, SCHEMA_DROP). */
+  Admin: 1 << 5,
+} as const;
+
 function encodeActAs(a: ActAs): Map<string, unknown> {
-  return new Map<string, unknown>([
+  const map = new Map<string, unknown>([
     ["namespace", a.namespace],
     ["space_id", a.spaceId],
   ]);
+  if (a.grant) map.set("grant", a.grant);
+  return map;
 }
 
 function decodeActAs(value: unknown): ActAs {
   const m = asMap(value);
+  const grant = m.has("grant") ? asNum(field(m, "grant")) : 0;
   return {
     namespace: asStr(field(m, "namespace")),
     spaceId: asStr(field(m, "space_id")),
+    ...(grant ? { grant } : {}),
   };
 }
 
@@ -649,6 +667,12 @@ function requestMapWithActAs(
 /** Read the optional `act_as` selector from a decoded request map. */
 function decodeOptActAs(m: Map<string, unknown>): ActAs | null {
   return m.has("act_as") ? decodeActAs(m.get("act_as")) : null;
+}
+
+/** `{ actAs }` when the decoded map carries one, else `{}` — for request
+ * types where `actAs` is an optional property rather than `ActAs | null`. */
+function spreadOptActAs(m: Map<string, unknown>): { actAs?: ActAs } {
+  return m.has("act_as") ? { actAs: decodeActAs(m.get("act_as")) } : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -784,8 +808,14 @@ export function decodeSpaceList(bytes: Uint8Array): SpaceListRequest {
   };
 }
 
-/** SPACE_LIST_RESP (`0x00F1`): the caller-shard's spaces. `crossShardComplete`
- * is `false` until cross-shard scatter-gather lands — treat `false` as partial. */
+/** SPACE_LIST_RESP (`0x00F1`): the caller-shard's spaces.
+ *
+ * `crossShardComplete` says whether this listing covers the whole
+ * deployment. A shard only reads its own data, so it is `true` on a
+ * single-shard deployment and `false` above one, where the listing really
+ * is partial until cross-shard scatter-gather lands. Treat `false` as
+ * partial — and note it is now a real signal: it used to be hardcoded
+ * `false`, so it said "partial" even when the listing was complete. */
 export interface SpaceListResponse {
   spaces: SpaceView[];
   crossShardComplete: boolean;
@@ -1834,6 +1864,18 @@ export function decodeMemoryInspectResponse(bytes: Uint8Array): MemoryInspectRes
  */
 export type AnswerKind = "Single" | "Many" | "None";
 
+/**
+ * RECALL scope selector. `Space` (default) serves the caller's single
+ * `(namespace, space)` on its shard; `Namespace` spans every space in the
+ * caller's namespace via the server's cross-shard fan-out + global merge, and
+ * never crosses namespaces. Mirrors the server's `RecallScopeWire`.
+ *
+ * Encoded as the variant-name text string (`"Space"` / `"Namespace"`), matching
+ * the server. `RecallRequest.scope` is always present on the wire, exactly as
+ * the server serializes it — a plain recall carries `"Space"`.
+ */
+export type RecallScopeWire = "Space" | "Namespace";
+
 /** RECALL (`0x0021`): retrieve memories by cue, with subject, filters (kind/session/confidence/salience/time), and graph/text toggles. */
 export interface RecallRequest {
   cueText: string;
@@ -1858,32 +1900,38 @@ export interface RecallRequest {
   /** Effective identity this recall runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
   actAs: ActAs | null;
+  /** Recall scope: the caller's single space (`"Space"`, default) or every
+   * space in its namespace (`"Namespace"`). Always serialized, exactly as the
+   * server does — a plain recall carries `"Space"`. Positioned last, after
+   * `act_as`. */
+  scope: RecallScopeWire;
 }
 
-/** Encode a RECALL (`0x0021`) request. `trace` precedes `act_as`. */
+/** Encode a RECALL (`0x0021`) request. `trace` precedes `act_as`; `scope` is last. */
 export function encodeRecall(p: RecallRequest): Uint8Array {
-  return toCbor(
-    requestMapWithActAs(
-      [
-        ["cue_text", p.cueText],
-        ["subject_name", p.subjectName],
-        ["max_results", p.maxResults],
-        ["confidence_threshold", f32(p.confidenceThreshold)],
-        ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
-        ["age_bound_unix_nanos", p.ageBoundUnixNanos],
-        ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
-        ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k)],
-        ["salience_floor", f32(p.salienceFloor)],
-        ["include_edges", p.includeEdges],
-        ["include_graph", p.includeGraph],
-        ["include_text", p.includeText],
-        ["request_id", p.requestId],
-        ["txn_id", p.txnId],
-        ["trace", p.trace],
-      ],
-      p.actAs,
-    ),
+  const map = requestMapWithActAs(
+    [
+      ["cue_text", p.cueText],
+      ["subject_name", p.subjectName],
+      ["max_results", p.maxResults],
+      ["confidence_threshold", f32(p.confidenceThreshold)],
+      ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
+      ["age_bound_unix_nanos", p.ageBoundUnixNanos],
+      ["as_of_record_time_unix_nanos", p.asOfRecordTimeUnixNanos],
+      ["kind_filter", p.kindFilter === null ? null : p.kindFilter.map((k) => k)],
+      ["salience_floor", f32(p.salienceFloor)],
+      ["include_edges", p.includeEdges],
+      ["include_graph", p.includeGraph],
+      ["include_text", p.includeText],
+      ["request_id", p.requestId],
+      ["txn_id", p.txnId],
+      ["trace", p.trace],
+    ],
+    p.actAs,
   );
+  // `scope` follows `act_as`, always present (never skipped).
+  map.set("scope", p.scope);
+  return toCbor(map);
 }
 
 /** Decode a RECALL (`0x0021`) request payload. */
@@ -1906,6 +1954,7 @@ export function decodeRecall(bytes: Uint8Array): RecallRequest {
     txnId: asOptBytes(field(m, "txn_id")),
     trace: m.has("trace") ? asBool(field(m, "trace")) : false,
     actAs: decodeOptActAs(m),
+    scope: m.has("scope") ? (asStr(field(m, "scope")) as RecallScopeWire) : "Space",
   };
 }
 
@@ -2997,17 +3046,23 @@ export interface SchemaUploadRequest {
   dryRun: boolean;
   allowBreaking: boolean;
   requestId: WireUuid;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_UPLOAD (`0x0120`) request. */
 export function encodeSchemaUpload(p: SchemaUploadRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["schema_document", p.schemaDocument],
-      ["dry_run", p.dryRun],
-      ["allow_breaking", p.allowBreaking],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["schema_document", p.schemaDocument],
+        ["dry_run", p.dryRun],
+        ["allow_breaking", p.allowBreaking],
+        ["request_id", p.requestId],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -3019,6 +3074,137 @@ export function decodeSchemaUpload(bytes: Uint8Array): SchemaUploadRequest {
     dryRun: asBool(field(m, "dry_run")),
     allowBreaking: asBool(field(m, "allow_breaking")),
     requestId: asBytes(field(m, "request_id")),
+    ...spreadOptActAs(m),
+  };
+}
+
+/** Target kinds for {@link SchemaDropRequest}'s `targetKind`. */
+export const SchemaDropTarget = {
+  Predicate: 0,
+  RelationType: 1,
+} as const;
+
+/**
+ * SCHEMA_DROP (`0x0125`) — surgical narrow of a single declared type.
+ *
+ * The per-type counterpart to the namespace-wide {@link SchemaReplaceRequest}:
+ * removes one declared predicate or relation_type from the active schema set,
+ * then bumps the namespace to a new version whose document no longer declares
+ * it. Existing rows on the dropped type survive as orphans: still readable as
+ * plain memories, no longer enriched from the typed-graph tables.
+ *
+ * `force` is required only when the target still has live (non-tombstoned)
+ * rows: `false` with live rows present is rejected with `Conflict` and mutates
+ * nothing. A type with no live rows drops without `force`.
+ */
+export interface SchemaDropRequest {
+  namespace: string;
+  targetKind: number;
+  targetName: string;
+  force: boolean;
+  requestId: Uint8Array;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
+}
+
+/** Encode a SCHEMA_DROP (`0x0125`) request payload. */
+export function encodeSchemaDrop(p: SchemaDropRequest): Uint8Array {
+  return toCbor(
+    requestMapWithActAs(
+      [
+        ["namespace", p.namespace],
+        ["target_kind", p.targetKind],
+        ["target_name", p.targetName],
+        ["force", p.force],
+        ["request_id", p.requestId],
+      ],
+      p.actAs ?? null,
+    ),
+  );
+}
+
+/** Decode a SCHEMA_DROP (`0x0125`) request payload. */
+export function decodeSchemaDrop(bytes: Uint8Array): SchemaDropRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    targetKind: asNum(field(m, "target_kind")),
+    targetName: asStr(field(m, "target_name")),
+    force: asBool(field(m, "force")),
+    requestId: asBytes(field(m, "request_id")),
+    ...spreadOptActAs(m),
+  };
+}
+
+/**
+ * SCHEMA_DROP_RESP (`0x01A5`).
+ *
+ * `schemaVersion` is the new active version after the narrow, or `0` when
+ * nothing was dropped or the drop was rejected. `dropped` is `true` only when a
+ * declared row was actually removed. `liveRows` is the count of live rows found
+ * referencing the target — non-zero with `dropped === false` means the drop was
+ * refused for lack of `force`.
+ */
+export interface SchemaDropResponse {
+  namespace: string;
+  schemaVersion: number;
+  targetKind: number;
+  targetName: string;
+  dropped: boolean;
+  liveRows: number;
+  validationErrors: SchemaValidationErrorWire[];
+}
+
+/** Encode a SCHEMA_DROP_RESP (`0x01A5`) payload. */
+export function encodeSchemaDropResponse(p: SchemaDropResponse): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      ["namespace", p.namespace],
+      ["schema_version", p.schemaVersion],
+      ["target_kind", p.targetKind],
+      ["target_name", p.targetName],
+      ["dropped", p.dropped],
+      ["live_rows", p.liveRows],
+      [
+        "validation_errors",
+        p.validationErrors.map(
+          (e) =>
+            new Map<string, unknown>([
+              ["code", e.code],
+              ["message", e.message],
+              ["line", e.line],
+              ["column", e.column],
+              ["length", e.length],
+              ["severity", e.severity],
+            ]),
+        ),
+      ],
+    ]),
+  );
+}
+
+/** Decode a SCHEMA_DROP_RESP (`0x01A5`) payload. */
+export function decodeSchemaDropResponse(bytes: Uint8Array): SchemaDropResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    namespace: asStr(field(m, "namespace")),
+    schemaVersion: asNum(field(m, "schema_version")),
+    targetKind: asNum(field(m, "target_kind")),
+    targetName: asStr(field(m, "target_name")),
+    dropped: asBool(field(m, "dropped")),
+    liveRows: asNum(field(m, "live_rows")),
+    validationErrors: asArray(field(m, "validation_errors")).map((v) => {
+      const e = asMap(v);
+      return {
+        code: asStr(field(e, "code")),
+        message: asStr(field(e, "message")),
+        line: asNum(field(e, "line")),
+        column: asNum(field(e, "column")),
+        length: asNum(field(e, "length")),
+        severity: asNum(field(e, "severity")),
+      };
+    }),
   };
 }
 
@@ -3038,16 +3224,22 @@ export interface SchemaReplaceRequest {
   schemaDocument: string;
   forceDropExisting: boolean;
   requestId: Uint8Array;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_REPLACE (`0x0127`) request payload. */
 export function encodeSchemaReplace(p: SchemaReplaceRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["schema_document", p.schemaDocument],
-      ["force_drop_existing", p.forceDropExisting],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["schema_document", p.schemaDocument],
+        ["force_drop_existing", p.forceDropExisting],
+        ["request_id", p.requestId],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -3058,6 +3250,7 @@ export function decodeSchemaReplace(bytes: Uint8Array): SchemaReplaceRequest {
     schemaDocument: asStr(field(m, "schema_document")),
     forceDropExisting: asBool(field(m, "force_drop_existing")),
     requestId: asBytes(field(m, "request_id")),
+    ...spreadOptActAs(m),
   };
 }
 
@@ -4774,15 +4967,25 @@ function decodeReasonTrace(value: unknown): ReasonTrace {
 export interface TxnBeginRequest {
   txnId: WireUuid;
   timeoutSeconds: number;
+  /** Effective identity every write buffered in this transaction commits as,
+   * on behalf of the connection principal. Delegation is fixed at begin and
+   * applies to the whole txn; TXN_COMMIT carries no `act_as` of its own.
+   * `null` (the common case, CBOR-omitted) commits as the connection's own
+   * key-bound identity. */
+  actAs: ActAs | null;
 }
 
-/** Encode a TXN_BEGIN (`0x0040`) request. */
+/** Encode a TXN_BEGIN (`0x0040`) request. `act_as` follows `timeout_seconds`
+ * and is omitted from the map when `null`. */
 export function encodeTxnBegin(p: TxnBeginRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["txn_id", p.txnId],
-      ["timeout_seconds", p.timeoutSeconds],
-    ]),
+    requestMapWithActAs(
+      [
+        ["txn_id", p.txnId],
+        ["timeout_seconds", p.timeoutSeconds],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -4792,6 +4995,7 @@ export function decodeTxnBegin(bytes: Uint8Array): TxnBeginRequest {
   return {
     txnId: asBytes(field(m, "txn_id")),
     timeoutSeconds: asNum(field(m, "timeout_seconds")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -4916,16 +5120,20 @@ export function decodeTxnAbortResponse(bytes: Uint8Array): TxnAbortResponse {
  *
  * `Record<string, never>` rather than `{}`: an empty interface accepts every
  * non-nullish value, so `encodeGetCapabilities(0)` would typecheck. */
-export type GetCapabilitiesRequest = Record<string, never>;
+export type GetCapabilitiesRequest = {
+  /** Run as a tenant on a shared-pool connection: the server then filters
+   * `schemaNamespaces` to the effective namespace. Absent → the empty map. */
+  actAs?: ActAs | null;
+};
 
-/** Encode a GET_CAPABILITIES (`0x0032`) request (empty payload). */
-export function encodeGetCapabilities(_p: GetCapabilitiesRequest): Uint8Array {
-  return toCbor(new Map<string, unknown>());
+/** Encode a GET_CAPABILITIES (`0x0032`) request (empty map unless `actAs`). */
+export function encodeGetCapabilities(p: GetCapabilitiesRequest): Uint8Array {
+  return toCbor(requestMapWithActAs([], p.actAs ?? null));
 }
 
 /** Decode a GET_CAPABILITIES (`0x0032`) request payload. */
-export function decodeGetCapabilities(_bytes: Uint8Array): GetCapabilitiesRequest {
-  return {};
+export function decodeGetCapabilities(bytes: Uint8Array): GetCapabilitiesRequest {
+  return spreadOptActAs(asMap(fromCbor(bytes)));
 }
 
 /** The connected shard's live capability flags: reranker loaded, extractor tiers enabled, and embedding dimensionality. */
@@ -5141,20 +5349,39 @@ export function decodeEntityGet(bytes: Uint8Array): EntityGetRequest {
   return { entityId: asBytes(field(m, "entity_id")), actAs: decodeOptActAs(m) };
 }
 
-/** ENTITY_GET_RESP (`0x01B1`): the requested entity view. */
+/** ENTITY_GET_RESP (`0x01B1`): the requested entity view plus the
+ *  merge-redirect chain that was walked to reach it. */
 export interface EntityGetResponse {
   entity: EntityView;
+  /** Merge audit trail: the redirect ids the GET walked through to reach
+   *  `entity` (the survivor), in order, EXCLUDING the survivor. Empty on a
+   *  direct hit. For `A -> B -> C`, `ENTITY_GET(A)` returns `entity = C` and
+   *  `resolvedFrom = [A, B]`. Unlike every other id on the wire, this field
+   *  carries no `serde_bytes` server-side, so each id encodes as a CBOR array
+   *  of 16 ints (major type 4), not a byte string — encoded here the same way
+   *  as `attributesBlob`. */
+  resolvedFrom: WireUuid[];
 }
 
 /** Encode an ENTITY_GET_RESP (`0x01B1`) payload. */
 export function encodeEntityGetResponse(p: EntityGetResponse): Uint8Array {
-  return toCbor(new Map<string, unknown>([["entity", encodeEntityView(p.entity)]]));
+  return toCbor(
+    new Map<string, unknown>([
+      ["entity", encodeEntityView(p.entity)],
+      ["resolved_from", p.resolvedFrom.map((u) => Array.from(u))],
+    ]),
+  );
 }
 
 /** Decode an ENTITY_GET_RESP (`0x01B1`) payload. */
 export function decodeEntityGetResponse(bytes: Uint8Array): EntityGetResponse {
   const m = asMap(fromCbor(bytes));
-  return { entity: decodeEntityView(field(m, "entity")) };
+  return {
+    entity: decodeEntityView(field(m, "entity")),
+    resolvedFrom: asArray(field(m, "resolved_from")).map((u) =>
+      Uint8Array.from(asArray(u).map(asNum)),
+    ),
+  };
 }
 
 /** ENTITY_LIST (`0x0137`): page through entities with a type filter and a cursor. */
@@ -6208,15 +6435,21 @@ export interface SchemaGetRequest {
   namespace: string;
   /** `0` = active version. */
   version: number;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_GET (`0x0121`) request. */
 export function encodeSchemaGet(p: SchemaGetRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["namespace", p.namespace],
-      ["version", p.version],
-    ]),
+    requestMapWithActAs(
+      [
+        ["namespace", p.namespace],
+        ["version", p.version],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -6226,6 +6459,7 @@ export function decodeSchemaGet(bytes: Uint8Array): SchemaGetRequest {
   return {
     namespace: asStr(field(m, "namespace")),
     version: asNum(field(m, "version")),
+    ...spreadOptActAs(m),
   };
 }
 
@@ -6272,16 +6506,22 @@ export interface SchemaListRequest {
   /** `0` = unlimited (server-capped). */
   limit: number;
   cursor: Uint8Array;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_LIST (`0x0122`) request. */
 export function encodeSchemaList(p: SchemaListRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["namespace", p.namespace],
-      ["limit", p.limit],
-      ["cursor", Array.from(p.cursor)],
-    ]),
+    requestMapWithActAs(
+      [
+        ["namespace", p.namespace],
+        ["limit", p.limit],
+        ["cursor", Array.from(p.cursor)],
+      ],
+      p.actAs ?? null,
+    ),
   );
 }
 
@@ -6292,6 +6532,7 @@ export function decodeSchemaList(bytes: Uint8Array): SchemaListRequest {
     namespace: asStr(field(m, "namespace")),
     limit: asNum(field(m, "limit")),
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    ...spreadOptActAs(m),
   };
 }
 
@@ -6359,17 +6600,20 @@ export function decodeSchemaListResponse(bytes: Uint8Array): SchemaListResponseF
 /** SCHEMA_VALIDATE (`0x0123`): check a schema document for errors without persisting it. */
 export interface SchemaValidateRequest {
   schemaDocument: string;
+  /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
+   * Absent / `null` is CBOR-omitted. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a SCHEMA_VALIDATE (`0x0123`) request. */
 export function encodeSchemaValidate(p: SchemaValidateRequest): Uint8Array {
-  return toCbor(new Map<string, unknown>([["schema_document", p.schemaDocument]]));
+  return toCbor(requestMapWithActAs([["schema_document", p.schemaDocument]], p.actAs ?? null));
 }
 
 /** Decode a SCHEMA_VALIDATE (`0x0123`) request payload. */
 export function decodeSchemaValidate(bytes: Uint8Array): SchemaValidateRequest {
   const m = asMap(fromCbor(bytes));
-  return { schemaDocument: asStr(field(m, "schema_document")) };
+  return { schemaDocument: asStr(field(m, "schema_document")), ...spreadOptActAs(m) };
 }
 
 /** SCHEMA_VALIDATE_RESP (`0x01A3`): whether the document is valid and any diagnostics. */
@@ -7566,10 +7810,20 @@ export function decodeStatementRetractResponse(bytes: Uint8Array): StatementRetr
   };
 }
 
-/** STATEMENT_HISTORY (`0x0145`). A read — no `requestId`. */
+/**
+ * STATEMENT_HISTORY (`0x0145`). A read — no `requestId`. Keyset-paginated on the
+ * chain version: `limit` caps the page (`1..=1000`); `cursor` is the opaque
+ * keyset token — empty on the first page, then the `nextCursor` echoed from the
+ * previous response.
+ */
 export interface StatementHistoryRequest {
   anchorId: WireUuid;
   includeTombstoned: boolean;
+  limit: number;
+  /** Opaque keyset cursor. Empty on the first page. Encodes as a CBOR array of
+   * unsigned ints (a plain byte vector), NOT a byte string — contrast
+   * `anchorId`. */
+  cursor: Uint8Array;
 }
 
 /** Encode a STATEMENT_HISTORY (`0x0145`) request. */
@@ -7578,6 +7832,10 @@ export function encodeStatementHistory(p: StatementHistoryRequest): Uint8Array {
     new Map<string, unknown>([
       ["anchor_id", p.anchorId],
       ["include_tombstoned", p.includeTombstoned],
+      ["limit", p.limit],
+      // A plain byte vector: CBOR array of unsigned ints (empty -> 0x80), not a
+      // byte string. `Array.from` yields the number[] the codec emits as MAJOR_ARRAY.
+      ["cursor", Array.from(p.cursor)],
     ]),
   );
 }
@@ -7588,6 +7846,8 @@ export function decodeStatementHistory(bytes: Uint8Array): StatementHistoryReque
   return {
     anchorId: asBytes(field(m, "anchor_id")),
     includeTombstoned: asBool(field(m, "include_tombstoned")),
+    limit: asNum(field(m, "limit")),
+    cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
   };
 }
 
@@ -7596,6 +7856,9 @@ export interface StatementHistoryResponseFrame {
   items: StatementView[];
   chainRoot: WireUuid;
   totalVersions: number;
+  /** Opaque keyset token to resume from; empty when the chain is exhausted.
+   * Same plain-array encoding as the request `cursor`. */
+  nextCursor: Uint8Array;
   isFinal: boolean;
 }
 
@@ -7606,6 +7869,8 @@ export function encodeStatementHistoryResponseFrame(p: StatementHistoryResponseF
       ["items", p.items.map(encodeStatementView)],
       ["chain_root", p.chainRoot],
       ["total_versions", p.totalVersions],
+      // Plain byte vector: CBOR array of unsigned ints (empty -> 0x80).
+      ["next_cursor", Array.from(p.nextCursor)],
       ["is_final", p.isFinal],
     ]),
   );
@@ -7620,6 +7885,7 @@ export function decodeStatementHistoryResponseFrame(
     items: asArray(field(m, "items")).map(decodeStatementView),
     chainRoot: asBytes(field(m, "chain_root")),
     totalVersions: asNum(field(m, "total_versions")),
+    nextCursor: Uint8Array.from(asArray(field(m, "next_cursor")).map(asNum)),
     isFinal: asBool(field(m, "is_final")),
   };
 }

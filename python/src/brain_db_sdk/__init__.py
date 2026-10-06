@@ -47,7 +47,7 @@ from .mux import HandshakeOutcome, MuxConnection, Subscription
 from .pool import Pool
 from .retry import RetryPolicy, with_retry
 from .verbs import EncodeBuilder, ForgetBuilder, RecallBuilder
-from .wire.types import AnswerKind, RecallAnswer, WaitMode
+from .wire.types import AnswerKind, RecallAnswer, RecallScope, WaitMode
 
 __all__ = [
     "wire",
@@ -72,6 +72,7 @@ __all__ = [
     "ForgetBuilder",
     "RecallAnswer",
     "AnswerKind",
+    "RecallScope",
     "WaitMode",
     "RetryPolicy",
     "with_retry",

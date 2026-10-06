@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional, TypeVar
+from typing import Optional, TypeVar
 
 from .errors import ServerError, is_retryable
 

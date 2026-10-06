@@ -68,6 +68,10 @@ describe.skipIf(T === null)("statement (integration)", () => {
       const history = await client.statementHistory({
         anchorId: first.statementId,
         includeTombstoned: true,
+        // `0` is rejected by the server ("limit must be in 1..=1000");
+        // 100 matches the Python SDK's default.
+        limit: 100,
+        cursor: new Uint8Array(),
       });
       expect(history.length).toBeGreaterThanOrEqual(2);
     } finally {

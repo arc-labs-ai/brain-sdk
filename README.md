@@ -4,9 +4,9 @@ First-party client SDKs for the [Brain](https://github.com/arc-labs-ai/brain-db)
 
 Brain ships no client of its own — its public interface is a binary wire protocol over TCP: a 32-byte `BRN0` frame header plus CBOR payloads. Each SDK here re-implements that protocol independently and hand-written, so a Brain server can be driven from any of the three languages without a server-side dependency.
 
-A shared **conformance corpus** (vendored from Brain's reference implementation) is the byte-level drift guard every SDK tests against: each language decodes all 38 golden `.bin`/`.json` cases and re-encodes them to identical bytes, so all three agree on the wire.
+A shared **conformance corpus** (vendored from Brain's reference implementation) is the byte-level drift guard every SDK tests against: each language decodes all 158 golden `.bin`/`.json` cases and re-encodes them to identical bytes, so all three agree on the wire.
 
-**Status: feature-complete, pre-1.0.** Every SDK implements the full client surface — wire codec, async transport, handshake, a multiplexed connection (concurrent requests over one socket, demultiplexed by `stream_id`), the v1 verbs (`encode` / `recall` streaming / `forget`) with ergonomic builders, a retry layer (exponential backoff with full jitter, honoring the server's `retry_after_ms`), the typed-graph verbs (`entity` / `statement` / `relation` / `schema` / `query` / `materialize_procedural`), and a round-robin connection pool that spreads requests across its members. Pool-member health-checking and reconnect, transparent reconnect, and registry publishing are the remaining work.
+**Status: feature-complete, pre-1.0.** Every SDK implements the full client surface — wire codec, async transport, handshake, a multiplexed connection (concurrent requests over one socket, demultiplexed by `stream_id`), the v1 verbs (`encode` / `recall` streaming / `forget`) with ergonomic builders, a retry layer (exponential backoff with full jitter, honoring the server's `retry_after_ms`), the typed-graph verbs (`entity` / `statement` / `relation` / `schema` / `query` / `materialize_procedural`), and a round-robin connection pool that spreads requests across its members, with a reconnecting accessor (`get_healthy` / `getHealthy`) that replaces a member whose peer went away. Transparent per-request reconnect and registry publishing are the remaining work.
 
 ## Layout
 
@@ -17,7 +17,7 @@ Published package names share the `brain-db` identity:
 | [`rust/`](rust/) | crates.io | `brain-db-sdk` | `brain_db_sdk` | feature-complete |
 | [`python/`](python/) | PyPI | `brain-db-sdk` | `brain_db_sdk` | feature-complete |
 | [`typescript/`](typescript/) | npm | `@brain-db/sdk` | `@brain-db/sdk` | feature-complete |
-| [`conformance/`](conformance/) | — | shared golden corpus | — | 38 cases, byte-verified |
+| [`conformance/`](conformance/) | — | shared golden corpus | — | 158 cases, byte-verified |
 
 Each package has its own README with a quickstart and the exact test commands.
 

@@ -69,6 +69,13 @@ PAYLOAD_TYPES = {
     "req_plan_act_as": t.PlanRequest,
     "req_reason_act_as": t.ReasonRequest,
     "req_entity_create_act_as": t.EntityCreateRequest,
+    "req_get_capabilities_act_as": t.GetCapabilitiesRequest,
+    "req_schema_upload_act_as_grant": t.SchemaUploadRequest,
+    "req_schema_drop_act_as_grant": t.SchemaDropRequest,
+    "req_schema_get_act_as": t.SchemaGetRequest,
+    "req_schema_list_act_as": t.SchemaListRequest,
+    "req_schema_replace_act_as_grant": t.SchemaReplaceRequest,
+    "req_schema_validate_act_as": t.SchemaValidateRequest,
     "resp_auth_ok_act_as": t.AuthOkPayload,
     "resp_error_act_as_denied": t.ErrorResponse,
     # Typed-graph ops.
@@ -120,10 +127,12 @@ PAYLOAD_TYPES = {
     "req_schema_list": t.SchemaListRequest,
     "req_schema_validate": t.SchemaValidateRequest,
     "req_schema_replace": t.SchemaReplaceRequest,
+    "req_schema_drop": t.SchemaDropRequest,
     "resp_schema_get": t.SchemaGetResponse,
     "resp_schema_list": t.SchemaListResponseFrame,
     "resp_schema_validate": t.SchemaValidateResponse,
     "resp_schema_replace": t.SchemaReplaceResponse,
+    "resp_schema_drop": t.SchemaDropResponse,
     "req_txn_begin": t.TxnBeginRequest,
     "req_txn_commit": t.TxnCommitRequest,
     "req_txn_abort": t.TxnAbortRequest,
@@ -263,7 +272,9 @@ def _json_equal(a, b) -> bool:
             return False
         return all(_json_equal(a[k], b[k]) for k in a)
     if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(_json_equal(x, y) for x, y in zip(a, b))
+        # strict=True states the invariant the `len` guard to its left already
+        # enforces: these lists are equal-length or we never reach the zip.
+        return len(a) == len(b) and all(_json_equal(x, y) for x, y in zip(a, b, strict=True))
     return a == b
 
 

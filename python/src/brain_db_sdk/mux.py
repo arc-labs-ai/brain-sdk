@@ -185,6 +185,11 @@ class MuxConnection:
         with self._routes_lock:
             return len(self._routes)
 
+    def is_closed(self) -> bool:
+        """Whether the reader has stopped or the peer has failed."""
+        with self._routes_lock:
+            return self._closed_error is not None or not self._reader.is_alive()
+
     def send_bye(self) -> None:
         """Send BYE to end the session cleanly."""
         # A CBOR map, not an empty payload: the server decodes this as a

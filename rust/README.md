@@ -84,6 +84,11 @@ Run the live smoke example (reads `BRAIN_API_URL` + `BRAIN_API_KEY`):
 BRAIN_API_URL=http://127.0.0.1:8080 BRAIN_API_KEY=brain_… cargo run --example http_smoke
 ```
 
+The live HTTP edge smoke tests cover identity, capabilities, and a memory
+encode/recall/list/forget lifecycle across all SDKs. Run them from the repo
+root with `BRAIN_SDK_IT_HTTP=https://edge.example BRAIN_SDK_IT_HTTP_KEY=brain_…
+scripts/edge-it.sh`.
+
 License: Apache-2.0.
 
 [`BrainHttpClient`]: src/http/client.rs

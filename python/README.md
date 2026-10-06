@@ -87,4 +87,9 @@ who = brain.whoami()  # namespace + space_id + permissions
 ```
 
 Dependencies: `cbor2` (runtime), `pytest` (dev). CRC32C is pure Python.
+
+The live HTTP edge smoke tests cover identity, capabilities, and a memory
+encode/recall/list/forget lifecycle across all SDKs. Run them from the repo
+root with `BRAIN_SDK_IT_HTTP=https://edge.example BRAIN_SDK_IT_HTTP_KEY=brain_…
+scripts/edge-it.sh`.
 License: Apache-2.0.

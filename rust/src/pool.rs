@@ -12,28 +12,55 @@
 //! callers issue verbs on it directly (the client's verbs take `&self`). The
 //! returned `Arc` can be cloned and moved into tasks freely.
 //!
-//! Deferred (documented as later work): transparent reconnect of a dropped
-//! member, health-checking, and graceful per-member BYE on shutdown. Dropping
-//! the pool drops every client, which closes its socket (a TCP FIN); it does
-//! not send a BYE frame first.
+//! [`Pool::get_healthy`] replaces a member whose connection has died (the
+//! server restarted, or the socket failed) before handing it out, so a
+//! long-lived pool survives a server restart instead of failing every request
+//! on the dead sockets forever. At most one reconnect runs per member at a
+//! time; concurrent callers wait for it rather than each opening a socket.
+//!
+//! Deferred: periodic background health-checking, and graceful per-member BYE
+//! on shutdown. Dropping the pool drops every client, which closes its socket
+//! (a TCP FIN); it does not send a BYE frame first.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::client::{Auth, BrainClient, ClientConfig};
 use crate::error::{BrainError, Result};
 
+/// One pooled connection, swappable when it dies.
+struct Slot {
+    client: RwLock<Arc<BrainClient>>,
+    /// Serializes reconnects of this slot so a burst opens one socket.
+    reconnecting: tokio::sync::Mutex<()>,
+}
+
+impl Slot {
+    fn new(client: BrainClient) -> Self {
+        Self {
+            client: RwLock::new(Arc::new(client)),
+            reconnecting: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    fn current(&self) -> Arc<BrainClient> {
+        Arc::clone(&self.client.read().expect("pool slot lock poisoned"))
+    }
+}
+
 /// A fixed-size set of [`BrainClient`] connections handed out round-robin.
 pub struct Pool {
-    clients: Vec<Arc<BrainClient>>,
+    slots: Vec<Slot>,
     next: AtomicUsize,
+    addr: SocketAddr,
+    config: ClientConfig,
 }
 
 impl std::fmt::Debug for Pool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Pool")
-            .field("size", &self.clients.len())
+            .field("size", &self.slots.len())
             .finish_non_exhaustive()
     }
 }
@@ -61,37 +88,73 @@ impl Pool {
                 "connection pool size must be >= 1".to_string(),
             ));
         }
-        let mut clients = Vec::with_capacity(size);
+        let mut slots = Vec::with_capacity(size);
         for _ in 0..size {
             let cfg = config.clone();
             match BrainClient::connect_with(addr, cfg).await {
-                Ok(client) => clients.push(Arc::new(client)),
+                Ok(client) => slots.push(Slot::new(client)),
                 Err(e) => {
                     // Best-effort close of the members opened so far before
                     // surfacing the failure; dropping each closes its socket.
-                    drop(clients);
+                    drop(slots);
                     return Err(e);
                 }
             }
         }
         Ok(Self {
-            clients,
+            slots,
             next: AtomicUsize::new(0),
+            addr,
+            config: config.clone(),
         })
     }
 
     /// The number of pooled connections.
     #[must_use]
     pub fn size(&self) -> usize {
-        self.clients.len()
+        self.slots.len()
     }
 
-    /// Borrow the next connection, round-robin. The returned `Arc` is cheap to
-    /// clone and safe to move across tasks; the underlying client multiplexes
-    /// concurrent requests itself.
+    fn next_slot(&self) -> &Slot {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.slots.len();
+        &self.slots[idx]
+    }
+
+    /// Borrow the next connection, round-robin, as-is — it may be dead if the
+    /// server went away. Prefer [`Pool::get_healthy`] for long-lived pools.
+    /// The returned `Arc` is cheap to clone and safe to move across tasks; the
+    /// underlying client multiplexes concurrent requests itself.
+    ///
+    /// # Panics
+    /// Only if a slot's lock was poisoned by a panic while swapping a client.
     #[must_use]
     pub fn get(&self) -> Arc<BrainClient> {
-        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.clients.len();
-        Arc::clone(&self.clients[idx])
+        self.next_slot().current()
+    }
+
+    /// Borrow the next live connection, round-robin, reconnecting it first if
+    /// it has died (e.g. the server restarted). Requests already in flight on
+    /// the old connection fail as before; new ones get the fresh socket.
+    ///
+    /// # Errors
+    /// The reconnect's [`BrainError`] if the server is still unreachable.
+    ///
+    /// # Panics
+    /// Only if a slot's lock was poisoned by a panic while swapping a client.
+    pub async fn get_healthy(&self) -> Result<Arc<BrainClient>> {
+        let slot = self.next_slot();
+        let client = slot.current();
+        if !client.is_closed() {
+            return Ok(client);
+        }
+        let _guard = slot.reconnecting.lock().await;
+        // Another caller may have reconnected while we waited.
+        let client = slot.current();
+        if !client.is_closed() {
+            return Ok(client);
+        }
+        let fresh = Arc::new(BrainClient::connect_with(self.addr, self.config.clone()).await?);
+        *slot.client.write().expect("pool slot lock poisoned") = Arc::clone(&fresh);
+        Ok(fresh)
     }
 }

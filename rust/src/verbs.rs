@@ -9,8 +9,8 @@
 
 use crate::client::new_id;
 use crate::wire::types::{
-    ActAs, EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest, WaitMode,
-    WireMemoryId,
+    ActAs, EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest,
+    RecallScopeWire, WaitMode, WireMemoryId,
 };
 
 /// Builder for an ENCODE request. Stores one text memory; `session` defaults
@@ -66,6 +66,7 @@ impl EncodeBuilder {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
             space_id: space_id.into(),
+            grant: 0,
         });
         self
     }
@@ -131,6 +132,7 @@ pub struct RecallBuilder {
     include_text: bool,
     trace: bool,
     act_as: Option<ActAs>,
+    scope: RecallScopeWire,
 }
 
 impl RecallBuilder {
@@ -153,7 +155,17 @@ impl RecallBuilder {
             include_text: true,
             trace: false,
             act_as: None,
+            scope: RecallScopeWire::Space,
         }
+    }
+
+    /// Set the recall scope. [`RecallScopeWire::Space`] (default) searches the
+    /// caller's own space; [`RecallScopeWire::Namespace`] fans out across every
+    /// space in the caller's namespace (never crossing namespaces).
+    #[must_use]
+    pub fn scope(mut self, scope: RecallScopeWire) -> Self {
+        self.scope = scope;
+        self
     }
 
     /// Run this recall on behalf of another `(namespace, space_id)` identity.
@@ -165,6 +177,7 @@ impl RecallBuilder {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
             space_id: space_id.into(),
+            grant: 0,
         });
         self
     }
@@ -267,6 +280,7 @@ impl RecallBuilder {
             txn_id: None,
             trace: self.trace,
             act_as: self.act_as,
+            scope: self.scope,
         }
     }
 }
@@ -300,6 +314,7 @@ impl ForgetBuilder {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
             space_id: space_id.into(),
+            grant: 0,
         });
         self
     }

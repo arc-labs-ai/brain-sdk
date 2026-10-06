@@ -304,7 +304,7 @@ mod tests {
         let bytes = original.encode().expect("frame fits");
         assert_eq!(bytes.len(), HEADER_SIZE + original.payload.len());
         let (decoded, rest) = Frame::decode(&bytes).expect("decode");
-        assert!(rest.is_empty());
+        assert_eq!(rest, &[] as &[u8]);
         assert_eq!(decoded, original);
     }
 
@@ -315,8 +315,8 @@ mod tests {
         assert_eq!(bytes.len(), HEADER_SIZE);
         assert_eq!(&bytes[OFF_PAYLOAD_CRC..OFF_PAYLOAD_CRC + 4], &[0u8; 4]);
         let (decoded, rest) = Frame::decode(&bytes).expect("decode empty");
-        assert!(rest.is_empty());
-        assert!(decoded.payload.is_empty());
+        assert_eq!(rest, &[] as &[u8]);
+        assert_eq!(decoded.payload, Vec::<u8>::new());
     }
 
     #[test]
