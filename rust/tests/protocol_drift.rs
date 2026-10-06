@@ -34,12 +34,13 @@
 //! a field added, removed, or renamed on one side only is a live
 //! deserialization break and fails here.
 //!
-//! # Skips when brain is not checked out alongside
+//! # Locating the raw Brain checkout
 //!
-//! This crate ships independently, so `../../brain` is not guaranteed to
-//! exist. When it is absent the test prints and returns rather than failing —
-//! the same shape as the eval's `BRAIN_EVAL_ENDPOINT` skip. In the workspace
-//! checkout, where drift actually gets introduced, it runs.
+//! This crate ships independently, so a raw server checkout is not guaranteed
+//! to exist. Set `BRAIN_PROTOCOL_SRC` to the raw checkout's
+//! `crates/brain-protocol/src` directory when running the drift test locally.
+//! Without it, the historical sibling checkout (`../../brain`) is tried and
+//! the test remains a no-op when neither location exists.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -50,6 +51,9 @@ const SDK_TYPES: &str = include_str!("../src/wire/types.rs");
 
 /// Brain's protocol crate, relative to this crate's manifest.
 fn brain_protocol_src() -> PathBuf {
+    if let Ok(path) = std::env::var("BRAIN_PROTOCOL_SRC") {
+        return PathBuf::from(path);
+    }
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../brain/crates/brain-protocol/src")
 }
 

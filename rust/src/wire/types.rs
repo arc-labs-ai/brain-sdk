@@ -210,6 +210,26 @@ pub struct ActAs {
     /// derives the 16-byte storage space id from it at ingress. An empty
     /// string selects the connection's key-bound space.
     pub space_id: String,
+    /// Extra capability bits granted to the effective caller for this op,
+    /// on top of the standard space mask. Only `SCHEMA_UPLOAD` (`1 << 4`)
+    /// and `ADMIN` (`1 << 5`) are grantable, and only when the connection
+    /// principal holds them itself. `0` is omitted on the wire, so a
+    /// grant-less selector encodes byte-identically to the pre-grant form.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub grant: u32,
+}
+
+/// Grantable [`ActAs::grant`] bits.
+pub mod act_as_grant {
+    /// May upload / validate-and-apply schema documents.
+    pub const SCHEMA_UPLOAD: u32 = 1 << 4;
+    /// May run destructive admin ops (`SCHEMA_REPLACE`, `SCHEMA_DROP`).
+    pub const ADMIN: u32 = 1 << 5;
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if passes &T
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 // ===========================================================================
@@ -563,6 +583,23 @@ pub enum AnswerKindWire {
     None,
 }
 
+/// RECALL scope selector. `Space` (default) serves the caller's single
+/// `(namespace, space)` on its shard; `Namespace` spans every space in the
+/// caller's namespace via the server's cross-shard fan-out + global merge, and
+/// never crosses namespaces. Mirrors the server's `RecallScopeWire`.
+///
+/// Encoded as the variant name string (`"Space"` / `"Namespace"`), matching the
+/// server. The [`RecallRequest::scope`] field is always present on the wire,
+/// exactly as the server serializes it — a plain recall carries `"Space"`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RecallScopeWire {
+    /// The caller's single space (default).
+    #[default]
+    Space,
+    /// Every space in the caller's namespace (cross-shard fan-out + merge).
+    Namespace,
+}
+
 /// RECALL (`0x0021`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecallRequest {
@@ -591,6 +628,11 @@ pub struct RecallRequest {
     /// means the op runs as the connection's own key-bound identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
+    /// Recall scope: the caller's single space (default) or every space in its
+    /// namespace. Always serialized, exactly as the server does (`#[serde(default)]`,
+    /// no skip) — a plain recall carries `scope: "Space"`.
+    #[serde(default)]
+    pub scope: RecallScopeWire,
 }
 
 /// One streaming RECALL_RESP frame (`0x00A1`).
@@ -1959,22 +2001,28 @@ pub struct StatementRetractResponse {
 }
 
 /// STATEMENT_HISTORY (`0x0145`). Walk every version on a claim's supersession
-/// chain. A read, so it carries no `request_id`.
+/// chain. A read, so it carries no `request_id`. Keyset-paginated on the
+/// immutable chain `version`: `limit` in `1..=1000`, `cursor` opaque — empty on
+/// the first page, then the `next_cursor` echoed from the previous response.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatementHistoryRequest {
     #[serde(with = "serde_bytes")]
     pub anchor_id: WireUuid,
     pub include_tombstoned: bool,
+    pub limit: u32,
+    pub cursor: Vec<u8>,
 }
 
 /// STATEMENT_HISTORY_RESP (`0x01C5`), one streamed frame. `is_final` marks the
-/// last frame; `total_versions` is the chain length.
+/// last frame; `total_versions` is the chain length. `next_cursor` is the opaque
+/// keyset token to resume from, empty when the chain is exhausted.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatementHistoryResponseFrame {
     pub items: Vec<StatementView>,
     #[serde(with = "serde_bytes")]
     pub chain_root: WireUuid,
     pub total_versions: u32,
+    pub next_cursor: Vec<u8>,
     pub is_final: bool,
 }
 
@@ -2019,6 +2067,9 @@ pub struct SchemaUploadRequest {
     pub allow_breaking: bool,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One structured schema parse/validate error.
@@ -2042,6 +2093,67 @@ pub struct SchemaUploadResponse {
     pub migration_summary_blob: Vec<u8>,
 }
 
+/// Target kinds for a [`SchemaDropRequest`]. `target_kind` MUST be one of
+/// these; the server rejects any other discriminant with `InvalidRequest`.
+///
+/// Entity types are deliberately absent: they are global in the v1 storage
+/// model, so dropping one would race rows in other namespaces that reference
+/// the same shared type — the same reason `SCHEMA_REPLACE` never drops them.
+pub mod schema_drop_target {
+    /// Drop a declared predicate.
+    pub const PREDICATE: u8 = 0;
+    /// Drop a declared relation_type.
+    pub const RELATION_TYPE: u8 = 1;
+}
+
+/// `SCHEMA_DROP` (`0x0125`) — surgical narrow of a single declared type.
+///
+/// The per-type counterpart to the namespace-wide `SCHEMA_REPLACE`: removes one
+/// declared predicate or relation_type from the active schema set, then bumps
+/// the namespace to a new version whose document no longer declares it. Existing
+/// rows on the dropped type survive as orphans — readable as plain memories, no
+/// longer enriched from the typed-graph tables.
+///
+/// `force` is required only when the target still has live (non-tombstoned)
+/// rows: `false` with live rows present is rejected with `Conflict` and mutates
+/// nothing. A type with no live rows drops without `force`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaDropRequest {
+    /// Namespace the target lives in. MUST equal the caller's own namespace,
+    /// or the server rejects with `Unauthorized`.
+    pub namespace: String,
+    /// One of [`schema_drop_target`]. Any other value → `InvalidRequest`.
+    pub target_kind: u8,
+    /// Local name of the predicate / relation_type to drop (the qname is
+    /// `{namespace}:{target_name}`).
+    pub target_name: String,
+    /// Confirmation flag required only when the target still has live rows.
+    pub force: bool,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// `SCHEMA_DROP_RESP` (`0x01A5`).
+///
+/// `schema_version` is the new active version after the narrow, or `0` when
+/// nothing was dropped or the drop was rejected. `dropped` is `true` only when
+/// a declared row was actually removed. `live_rows` is the count of live rows
+/// found referencing the target — non-zero with `dropped == false` means the
+/// drop was refused for lack of `force`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaDropResponse {
+    pub namespace: String,
+    pub schema_version: u32,
+    pub target_kind: u8,
+    pub target_name: String,
+    pub dropped: bool,
+    pub live_rows: u32,
+    pub validation_errors: Vec<SchemaValidationErrorWire>,
+}
+
 /// `SCHEMA_REPLACE` (`0x0127`) — destructive namespace swap.
 ///
 /// Unlike `SCHEMA_UPLOAD`, this DROPS every declared row in the namespace
@@ -2061,6 +2173,9 @@ pub struct SchemaReplaceRequest {
     pub force_drop_existing: bool,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// `SCHEMA_REPLACE_RESP` (`0x01A7`).
@@ -2380,11 +2495,17 @@ pub struct SessionDeleteResponse {
 
 /// TXN_BEGIN (`0x0040`). The client mints the `txn_id`; the server binds the
 /// transaction to it for the duration of the session.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxnBeginRequest {
     #[serde(with = "serde_bytes")]
     pub txn_id: WireUuid,
     pub timeout_seconds: u32,
+    /// Effective identity every write buffered in this transaction commits as.
+    /// Delegation is fixed at begin and applies to the whole txn; `TXN_COMMIT`
+    /// carries no `act_as` of its own. `None` (omitted on the wire) means the
+    /// txn commits as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// TXN_BEGIN_RESP (`0x00C0`).
@@ -2818,8 +2939,13 @@ pub struct SchemaUpdatedEvent {
 /// server-side state, so the client has nothing to send. Kept as a
 /// struct (not a unit type) so the encoding matches every other request
 /// body (a CBOR map, here empty).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GetCapabilitiesRequest {}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GetCapabilitiesRequest {
+    /// Run as a tenant on a shared-pool connection: the server then filters
+    /// `schema_namespaces` to the effective namespace. Absent → `0xA0`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
 
 /// Capability snapshot returned by the server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -2918,6 +3044,14 @@ pub struct EntityGetRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityGetResponse {
     pub entity: EntityView,
+    /// Merge audit trail: the chain of redirect ids the GET walked through to
+    /// reach `entity` (the surviving row), in order, EXCLUDING the survivor
+    /// itself. Empty on a direct hit (the requested id was live). For
+    /// `A → B → C`, `ENTITY_GET(A)` returns `entity = C` and
+    /// `resolved_from = [A, B]`. Each id encodes as a CBOR array of 16 ints
+    /// (plain `[u8; 16]`), matching the server's default serde encoding for
+    /// this field.
+    pub resolved_from: Vec<WireUuid>,
 }
 
 /// ENTITY_LIST (`0x0137`). Empty/zero fields mean "no filter".
@@ -3213,6 +3347,9 @@ pub struct RelationListToResponseFrame {
 pub struct SchemaGetRequest {
     pub namespace: String,
     pub version: u32,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// SCHEMA_GET_RESP (`0x01A1`).
@@ -3234,6 +3371,9 @@ pub struct SchemaListRequest {
     pub namespace: String,
     pub limit: u32,
     pub cursor: Vec<u8>,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// One entry in a SCHEMA_LIST response.
@@ -3259,6 +3399,9 @@ pub struct SchemaListResponseFrame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaValidateRequest {
     pub schema_document: String,
+    /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// SCHEMA_VALIDATE_RESP (`0x01A3`).

@@ -1,0 +1,11 @@
+# brain-sdk is consumed as a BuildKit named build context by the api repo's
+# service images, which only need brain-sdk/rust. Exclude the other language
+# ports and all build output so the context stays small.
+target/
+**/target/
+.git/
+python/
+typescript/node_modules/
+**/node_modules/
+**/dist/
+**/.venv/

@@ -110,6 +110,11 @@ pub enum Opcode {
     SchemaListResp = 0x01A2,
     SchemaValidateReq = 0x0123,
     SchemaValidateResp = 0x01A3,
+    // Surgical narrow of a single declared predicate / relation_type. The
+    // per-type counterpart to the namespace-wide SCHEMA_REPLACE; see Brain
+    // spec §03.05.
+    SchemaDropReq = 0x0125,
+    SchemaDropResp = 0x01A5,
     // Destructive namespace swap. Separate from SCHEMA_UPLOAD because it drops
     // every declared row in the namespace before the new document lands; see
     // Brain spec §03.05.

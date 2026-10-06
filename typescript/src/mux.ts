@@ -152,6 +152,11 @@ export class MuxConnection {
     return new MuxConnection(socket, requestTimeoutMs);
   }
 
+  /** Whether the socket has failed or the peer has closed the connection. */
+  get isClosed(): boolean {
+    return this.closedError !== null;
+  }
+
   /** Run the client side of the handshake on stream 0. */
   async handshake(hello: HelloPayload, auth: AuthPayload): Promise<HandshakeOutcome> {
     const offered = [...hello.supportedVersions];

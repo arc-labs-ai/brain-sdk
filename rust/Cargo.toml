@@ -1,6 +1,6 @@
 [package]
 name = "brain-db-sdk"
-version = "0.1.0" # x-release-please-version
+version = "0.1.0"                                                                                                   # x-release-please-version
 edition = "2021"
 rust-version = "1.75"
 description = "Rust client SDK for the Brain memory database. Speaks Brain's BRN0 wire protocol directly over TCP."
@@ -20,22 +20,32 @@ path = "src/lib.rs"
 # Wire codec: independent re-implementation of Brain's frame + payload encoding.
 # Versions pinned to match brain-protocol so produced bytes are identical to the
 # conformance corpus (the byte-level oracle we test against).
-ciborium = "0.2"           # CBOR (RFC 8949) payload maps, deterministic encoding
+ciborium = "0.2"                                 # CBOR (RFC 8949) payload maps, deterministic encoding
 serde = { version = "1", features = ["derive"] }
-serde_bytes = "0.11"       # [u8; N] / id fields -> CBOR byte strings (major type 2)
-serde_repr = "0.1"         # enum discriminants -> CBOR integers
-crc32c = "0.6"             # header_crc32c + payload_crc32c
-thiserror = "1"            # structured frame-codec + client error taxonomy
+serde_bytes = "0.11"                             # [u8; N] / id fields -> CBOR byte strings (major type 2)
+serde_repr = "0.1"                               # enum discriminants -> CBOR integers
+crc32c = "0.6"                                   # header_crc32c + payload_crc32c
+thiserror = "1"                                  # structured frame-codec + client error taxonomy
 
 # Async TCP transport + connection. The connection layer is async (tokio)
 # per the SDK plan; the wire codec above stays runtime-agnostic.
-tokio = { version = "1", features = ["net", "io-util", "rt", "time", "macros", "sync"] }
+tokio = { version = "1", features = [
+  "net",
+  "io-util",
+  "rt",
+  "time",
+  "macros",
+  "sync",
+] }
 # request_id / agent_id minting: time-ordered UUIDv7, taken as 16 raw bytes.
 uuid = { version = "1", features = ["v5", "v7"] }
 
 # HTTP tier (`http` module): the BrainHttpClient talks JSON to the Brain HTTP
 # edge. reqwest with rustls (no OpenSSL); serde_json for the JSON bodies.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+] }
 serde_json = "1"
 
 [dev-dependencies]
@@ -44,7 +54,13 @@ serde_json = "1"
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 # Multi-threaded runtime + in-process duplex pipe drive the handshake /
 # round-trip tests against a mock server, no real socket required.
-tokio = { version = "1", features = ["rt-multi-thread", "io-util", "macros", "net", "time"] }
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "io-util",
+  "macros",
+  "net",
+  "time",
+] }
 # proptest  = "1"           # frame round-trip + CRC-rejection properties (build phase)
 
 # ---------------------------------------------------------------------------

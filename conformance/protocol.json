@@ -1954,6 +1954,14 @@
      "name": "ExtractorListResp"
     },
     {
+     "discriminant": 293,
+     "name": "SchemaDropReq"
+    },
+    {
+     "discriminant": 421,
+     "name": "SchemaDropResp"
+    },
+    {
      "discriminant": 295,
      "name": "SchemaReplaceReq"
     },
@@ -2433,6 +2441,19 @@
     }
    ]
   },
+  "RecallScopeWire": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Space"
+    },
+    {
+     "name": "Namespace"
+    }
+   ]
+  },
   "RecallTraceRetrieverStatus": {
    "encoding": "int",
    "repr": "u8",
@@ -2726,6 +2747,10 @@
     {
      "name": "SchemaReplace",
      "payload": "SchemaReplaceRequest"
+    },
+    {
+     "name": "SchemaDrop",
+     "payload": "SchemaDropRequest"
     },
     {
      "name": "ExtractorList",
@@ -3048,6 +3073,10 @@
     {
      "name": "SchemaReplace",
      "payload": "SchemaReplaceResponse"
+    },
+    {
+     "name": "SchemaDrop",
+     "payload": "SchemaDropResponse"
     },
     {
      "name": "ExtractorList",
@@ -3664,6 +3693,8 @@
   "RelationTombstoneResp": 467,
   "RelationTraverseReq": 342,
   "RelationTraverseResp": 470,
+  "SchemaDropReq": 293,
+  "SchemaDropResp": 421,
   "SchemaGetReq": 289,
   "SchemaGetResp": 417,
   "SchemaListReq": 290,
@@ -3727,6 +3758,14 @@
      "name": "space_id",
      "serde": {},
      "type": "String"
+    },
+    {
+     "name": "grant",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "is_zero_u32"
+     },
+     "type": "u32"
     }
    ],
    "serde": {}
@@ -5425,6 +5464,11 @@
      "name": "entity",
      "serde": {},
      "type": "EntityView"
+    },
+    {
+     "name": "resolved_from",
+     "serde": {},
+     "type": "Vec<[u8; 16]>"
     }
    ],
    "serde": {}
@@ -6277,7 +6321,16 @@
    "serde": {}
   },
   "GetCapabilitiesRequest": {
-   "fields": [],
+   "fields": [
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
    "serde": {}
   },
   "GetCapabilitiesResponse": {
@@ -7492,6 +7545,14 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<String>"
+    },
+    {
+     "name": "retention",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<DurationAst>"
     }
    ],
    "serde": {}
@@ -8032,6 +8093,13 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {
+      "default": true
+     },
+     "type": "RecallScopeWire"
     }
    ],
    "serde": {}
@@ -9022,6 +9090,86 @@
    ],
    "serde": {}
   },
+  "SchemaDropRequest": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "target_kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "target_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "force",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "SchemaDropResponse": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "target_kind",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "target_name",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "dropped",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "live_rows",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "validation_errors",
+     "serde": {},
+     "type": "Vec<SchemaValidationErrorWire>"
+    }
+   ],
+   "serde": {}
+  },
   "SchemaGetRequest": {
    "fields": [
     {
@@ -9033,6 +9181,14 @@
      "name": "version",
      "serde": {},
      "type": "u32"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9113,6 +9269,14 @@
      "name": "cursor",
      "serde": {},
      "type": "Vec<u8>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9165,6 +9329,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9242,6 +9414,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -9282,6 +9462,14 @@
      "name": "schema_document",
      "serde": {},
      "type": "String"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -10191,6 +10379,16 @@
      "name": "include_tombstoned",
      "serde": {},
      "type": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "cursor",
+     "serde": {},
+     "type": "Vec<u8>"
     }
    ],
    "serde": {}
@@ -10213,6 +10411,11 @@
      "name": "total_versions",
      "serde": {},
      "type": "u32"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {},
+     "type": "Vec<u8>"
     },
     {
      "name": "is_final",
@@ -10946,6 +11149,14 @@
      "name": "timeout_seconds",
      "serde": {},
      "type": "u32"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}

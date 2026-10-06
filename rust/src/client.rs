@@ -10,7 +10,7 @@
 //! makes the resend idempotent server-side.
 
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::net::TcpStream;
 
@@ -31,27 +31,27 @@ use crate::wire::types::{
     GraphFetchRequest, GraphFetchResponseFrame, GraphNode, HelloCapabilities, HelloPayload,
     InferenceStep, LinkRequest, LinkResponse, MaterializeProceduralRequest,
     MaterializeProceduralResponse, MemoryInspectRequest, MemoryInspectResponse, MemoryListItem,
-    MemoryListRequest, MemoryListResponseFrame, MemoryResult, MtlsClaim, PlanRequest,
-    PlanResponseFrame, PlanStep, QueryExplainRequest, QueryExplainResponse, QueryTraceRequest,
-    QueryTraceResponse, ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame,
-    RelationCreateRequest, RelationCreateResponse, RelationGetRequest, RelationGetResponse,
-    RelationListFromRequest, RelationListFromResponseFrame, RelationListToRequest,
-    RelationListToResponseFrame, RelationSupersedeRequest, RelationSupersedeResponse,
-    RelationTombstoneRequest, RelationTombstoneResponse, RelationTraverseRequest,
-    RelationTraverseResponseFrame, RelationView, SchemaGetRequest, SchemaGetResponse,
-    SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame, SchemaReplaceRequest,
-    SchemaReplaceResponse, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
-    SchemaValidateResponse, ServerFeatures, SessionCreateRequest, SessionCreateResponse,
-    SessionDeleteRequest, SessionDeleteResponse, SessionListRequest, SessionListResponse,
-    SpaceCreateRequest, SpaceCreateResponse, SpaceDeleteRequest, SpaceDeleteResponse,
-    SpaceListRequest, SpaceListResponse, SpacePermissions, StatementCreateRequest,
-    StatementCreateResponse, StatementGetRequest, StatementGetResponse, StatementHistoryRequest,
-    StatementHistoryResponseFrame, StatementListRequest, StatementListResponseFrame,
-    StatementRetractRequest, StatementRetractResponse, StatementSupersedeRequest,
-    StatementSupersedeResponse, StatementTombstoneRequest, StatementTombstoneResponse,
-    StatementView, SubscribeRequest, TraversalPathWire, TxnAbortRequest, TxnAbortResponse,
-    TxnBeginRequest, TxnBeginResponse, TxnCommitRequest, TxnCommitResponse, UnlinkRequest,
-    UnlinkResponse,
+    MemoryListRequest, MemoryListResponseFrame, MemoryResult, MtlsClaim, PingRequest, PlanRequest,
+    PlanResponseFrame, PlanStep, PongResponse, QueryExplainRequest, QueryExplainResponse,
+    QueryTraceRequest, QueryTraceResponse, ReasonRequest, ReasonResponseFrame, RecallRequest,
+    RecallResponseFrame, RelationCreateRequest, RelationCreateResponse, RelationGetRequest,
+    RelationGetResponse, RelationListFromRequest, RelationListFromResponseFrame,
+    RelationListToRequest, RelationListToResponseFrame, RelationSupersedeRequest,
+    RelationSupersedeResponse, RelationTombstoneRequest, RelationTombstoneResponse,
+    RelationTraverseRequest, RelationTraverseResponseFrame, RelationView, SchemaDropRequest,
+    SchemaDropResponse, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
+    SchemaListResponseFrame, SchemaReplaceRequest, SchemaReplaceResponse, SchemaUploadRequest,
+    SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse, ServerFeatures,
+    SessionCreateRequest, SessionCreateResponse, SessionDeleteRequest, SessionDeleteResponse,
+    SessionListRequest, SessionListResponse, SpaceCreateRequest, SpaceCreateResponse,
+    SpaceDeleteRequest, SpaceDeleteResponse, SpaceListRequest, SpaceListResponse, SpacePermissions,
+    StatementCreateRequest, StatementCreateResponse, StatementGetRequest, StatementGetResponse,
+    StatementHistoryRequest, StatementHistoryResponseFrame, StatementListRequest,
+    StatementListResponseFrame, StatementRetractRequest, StatementRetractResponse,
+    StatementSupersedeRequest, StatementSupersedeResponse, StatementTombstoneRequest,
+    StatementTombstoneResponse, StatementView, SubscribeRequest, TraversalPathWire,
+    TxnAbortRequest, TxnAbortResponse, TxnBeginRequest, TxnBeginResponse, TxnCommitRequest,
+    TxnCommitResponse, UnlinkRequest, UnlinkResponse,
 };
 
 /// Default `client_id` advertised in HELLO.
@@ -259,6 +259,13 @@ impl BrainClient {
             server_features: welcome.server_features,
         };
         Ok(Self { conn, connection })
+    }
+
+    /// Whether this connection is dead (the server closed it, e.g. on
+    /// restart, or the socket failed). Requests on it fail at once; reconnect.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.conn.is_closed()
     }
 
     /// The negotiated connection.
@@ -817,6 +824,53 @@ impl BrainClient {
             request,
         )
         .await
+    }
+
+    /// Drop a single declared predicate or relation_type (SCHEMA_DROP).
+    ///
+    /// The surgical counterpart to [`Self::replace_schema`]: it narrows the
+    /// active schema by one type rather than swapping the whole namespace.
+    /// Existing rows on the dropped type survive as orphans, readable as plain
+    /// memories but no longer enriched from the typed-graph tables.
+    ///
+    /// `force` is required only when the target still has live rows; the server
+    /// rejects `false` in that case with `Conflict` and mutates nothing. The
+    /// SDK does not default it, so the destructive intent is written at the
+    /// call site.
+    pub async fn drop_schema(&self, request: &SchemaDropRequest) -> Result<SchemaDropResponse> {
+        self.unary(
+            Opcode::SchemaDropReq,
+            Opcode::SchemaDropResp,
+            "SCHEMA_DROP_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Client-initiated liveness probe (PING → PONG).
+    ///
+    /// Distinct from the server's idle-timer SERVER_PING keepalive, which the
+    /// mux auto-answers with CLIENT_PONG: this is an on-demand round-trip whose
+    /// PONG routes back by stream id through the normal unary path.
+    /// `client_timestamp_unix_nanos` defaults to the current wall clock when
+    /// `None`; the PONG echoes it back alongside the server's timestamp, so the
+    /// caller can measure RTT.
+    pub async fn ping(&self, client_timestamp_unix_nanos: Option<u64>) -> Result<PongResponse> {
+        let ts = client_timestamp_unix_nanos.unwrap_or_else(|| {
+            // Saturating rather than `as`: nanos since the epoch is a u128 and
+            // the cast would silently wrap. A clock before the epoch, or past
+            // u64 nanos (year 2554), yields a clamped stamp instead of a
+            // nonsense one — this is an RTT marker the server echoes back, so
+            // a clamped value is harmless and a wrapped one is misleading.
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+        });
+        let request = PingRequest {
+            client_timestamp_unix_nanos: ts,
+        };
+        self.unary(Opcode::Ping, Opcode::Pong, "PONG", &request)
+            .await
     }
 
     /// Cancel an in-flight stream (CANCEL_STREAM).

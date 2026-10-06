@@ -17,6 +17,7 @@ import {
   type ForgetRequest,
   type MemoryKindWire,
   type RecallRequest,
+  type RecallScopeWire,
   WaitMode,
 } from "./wire/types.js";
 
@@ -99,6 +100,7 @@ export class RecallBuilder {
   private includeText = true;
   private traceEnabled = false;
   private actAsIdentity: ActAs | null = null;
+  private scopeValue: RecallScopeWire = "Space";
 
   constructor(private readonly cueText: string) {}
 
@@ -169,6 +171,14 @@ export class RecallBuilder {
     return this;
   }
 
+  /** Set the recall scope. `"Space"` (default) searches the caller's own space;
+   * `"Namespace"` fans out across every space in the caller's namespace (never
+   * crossing namespaces). */
+  scope(scope: RecallScopeWire): this {
+    this.scopeValue = scope;
+    return this;
+  }
+
   /** Finish into a wire `RecallRequest`, minting a fresh `requestId`. */
   build(): RecallRequest {
     return {
@@ -188,6 +198,7 @@ export class RecallBuilder {
       txnId: null,
       trace: this.traceEnabled,
       actAs: this.actAsIdentity,
+      scope: this.scopeValue,
     };
   }
 }

@@ -83,6 +83,10 @@ async fn supersede_builds_a_history_chain() {
         .statement_history(&StatementHistoryRequest {
             anchor_id: first.statement_id,
             include_tombstoned: true,
+            // `0` is not "server default" — STATEMENT_HISTORY rejects it with
+            // "limit must be in 1..=1000". Matches the Python SDK's default.
+            limit: 100,
+            cursor: Vec::new(),
         })
         .await
         .expect("history");

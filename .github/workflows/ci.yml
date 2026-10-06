@@ -1,10 +1,22 @@
 name: CI
 
+# Mirrors brain-db's flow: feature -> dev -> main, with the dev -> main PR as
+# the release gate. `pull_request` covers both hops; `push` is main-only and
+# deliberately excludes dev. In brain-db, having dev as a push trigger while it
+# was also the head of the standing dev -> main PR made every merge into dev
+# raise two runs of this workflow on one commit — 71 minutes of wall-clock
+# burned across three such collisions before it was caught.
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
+
+# Cancel a superseded PR run; never cancel a push to main, where a half-run
+# release check is worse than a slightly stale one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,7 +25,7 @@ env:
 jobs:
   protocol:
     name: Protocol types
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,7 +48,7 @@ jobs:
 
   rust:
     name: Rust SDK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: rust
@@ -54,17 +66,29 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test (incl. conformance corpus)
         run: cargo test --all-targets
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Audit dependencies
+        run: cargo audit
 
   python:
     name: Python SDK (${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
-        # pyproject claims requires-python = ">=3.9"; testing only 3.12 meant
+        # pyproject claims requires-python = ">=3.10"; testing only 3.12 meant
         # that claim was never checked. The ends are what matter -- the floor we
         # advertise and the newest release -- plus one in between.
-        python-version: ["3.9", "3.11", "3.13"]
+        #
+        # The floor was 3.9 until 2026-10-07, when the ubuntu-26.04 runner image
+        # stopped shipping it (3.9 reached EOL in October 2025) and this job
+        # began dying at setup-python before running a single test. Advertising
+        # a floor that CI cannot install is an unverifiable claim, so the floor
+        # moved up to what we can actually prove.
+        python-version: ["3.10", "3.11", "3.13"]
     defaults:
       run:
         working-directory: python
@@ -86,7 +110,7 @@ jobs:
 
   typescript:
     name: TypeScript SDK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: typescript

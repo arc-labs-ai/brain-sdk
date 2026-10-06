@@ -6,7 +6,7 @@
  * each request — three round-robin encodes must touch all three.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as net from "node:net";
 
 import { newId } from "../src/client.js";
@@ -166,5 +166,48 @@ describe("connection pool", () => {
       caught = e;
     }
     expect(caught).toBeInstanceOf(ProtocolError);
+  });
+});
+
+describe("pool reconnect (getHealthy)", () => {
+  it("replaces a member the server dropped", async () => {
+    const size = 2;
+    const server = net.createServer();
+    const sockets: net.Socket[] = [];
+    let accepted = 0;
+    server.on("connection", (sock) => {
+      sockets.push(sock);
+      const tag = BigInt(accepted);
+      accepted += 1;
+      void serveMember(sock, tag);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as net.AddressInfo).port;
+
+    try {
+      const pool = await Pool.connect("127.0.0.1", port, size, { auth: TEST_AUTH });
+      const openedBefore = accepted;
+
+      // Drop one connection from the SERVER side — what a restart looks like
+      // to the client. A graceful client-side close() is not a failure and
+      // deliberately does not mark the connection closed.
+      sockets[0]!.destroy();
+      await vi.waitFor(() => {
+        expect(pool.get().isClosed || pool.get().isClosed).toBe(true);
+      });
+
+      // A full round must now hand back only live connections, having dialled
+      // a replacement rather than re-serving the dead socket.
+      for (let i = 0; i < size * 2; i += 1) {
+        const member = await pool.getHealthy();
+        expect(member.isClosed).toBe(false);
+      }
+      expect(accepted).toBeGreaterThan(openedBefore);
+
+      await pool.close();
+    } finally {
+      server.close();
+      for (const s of sockets) s.destroy();
+    }
   });
 });

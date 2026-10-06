@@ -554,7 +554,8 @@ class ActAs:
     ``space_id`` is the human-readable structured space string (e.g.
     ``"support-bot:user123"``) and encodes as a CBOR text string; the server
     derives the 16-byte storage id from ``(namespace, space_id)``. An empty
-    string selects the key-bound space.
+    string selects the key-bound space. ``grant`` carries optional delegated
+    schema/admin capability bits and is omitted when zero.
 
     Honored server-side only when the connection principal holds
     ``can_act_as`` and ``namespace`` lies within its granted allowlist —
@@ -564,13 +565,17 @@ class ActAs:
 
     namespace: str
     space_id: str
+    grant: int = 0
 
     def to_map(self) -> dict[str, Any]:
-        return {"namespace": self.namespace, "space_id": self.space_id}
+        m: dict[str, Any] = {"namespace": self.namespace, "space_id": self.space_id}
+        if self.grant:
+            m["grant"] = self.grant
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> ActAs:
-        return cls(m["namespace"], m["space_id"])
+        return cls(m["namespace"], m["space_id"], int(m.get("grant", 0)))
 
 
 # ===========================================================================
@@ -1241,6 +1246,19 @@ class AnswerKind:
     NONE = "None"
 
 
+class RecallScope:
+    """RECALL scope selector. Encoded as the variant-name string on the wire,
+    and always present (never skipped) — a plain recall carries ``"Space"``.
+
+      * ``Space``     — the caller's single ``(namespace, space)`` (default).
+      * ``Namespace`` — every space in the caller's namespace (cross-shard
+        fan-out + merge); never crosses namespaces.
+    """
+
+    SPACE = "Space"
+    NAMESPACE = "Namespace"
+
+
 @dataclass
 class RecallRequest:
     """RECALL (``0x0021``). Cue-driven memory retrieval: the cue text and subject, result and confidence bounds, temporal/kind filters, and enrichment toggles."""
@@ -1266,6 +1284,10 @@ class RecallRequest:
     # Effective identity this recall runs as. Omitted from the CBOR map when
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
+    # Recall scope — the caller's single space (default) or every space in its
+    # namespace. Always present on the wire (a ``RecallScope`` variant-name
+    # string); a plain recall carries ``"Space"``.
+    scope: str = RecallScope.SPACE
 
     def to_map(self) -> dict[str, Any]:
         m: dict[str, Any] = {
@@ -1287,6 +1309,7 @@ class RecallRequest:
         }
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
+        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -1309,6 +1332,7 @@ class RecallRequest:
             m["txn_id"],
             bool(m.get("trace", False)),
             None if act_as is None else ActAs.from_map(act_as),
+            m.get("scope", RecallScope.SPACE),
         )
 
 
@@ -2636,18 +2660,29 @@ class SchemaUploadRequest:
     dry_run: bool
     allow_breaking: bool
     request_id: bytes
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {
+        m = {
             "schema_document": self.schema_document,
             "dry_run": self.dry_run,
             "allow_breaking": self.allow_breaking,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaUploadRequest:
-        return cls(m["schema_document"], m["dry_run"], m["allow_breaking"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(
+            m["schema_document"],
+            m["dry_run"],
+            m["allow_breaking"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -2676,6 +2711,105 @@ class SchemaValidationError:
         return cls(m["code"], m["message"], m["line"], m["column"], m["length"], m["severity"])
 
 
+# Target kinds for :class:`SchemaDropRequest`. ``target_kind`` MUST be one of
+# these; the server rejects any other discriminant with ``InvalidRequest``.
+# Entity types are deliberately absent: they are global in the v1 storage model,
+# so dropping one would race rows in other namespaces referencing the same shared
+# type — the same reason SCHEMA_REPLACE never drops them.
+SCHEMA_DROP_TARGET_PREDICATE: int = 0
+SCHEMA_DROP_TARGET_RELATION_TYPE: int = 1
+
+
+@dataclass
+class SchemaDropRequest:
+    """SCHEMA_DROP (``0x0125``). Surgical narrow of a single declared type.
+
+    The per-type counterpart to the namespace-wide :class:`SchemaReplaceRequest`:
+    removes one declared predicate or relation_type from the active schema set,
+    then bumps the namespace to a new version whose document no longer declares
+    it. Existing rows on the dropped type survive as orphans — readable as plain
+    memories, no longer enriched from the typed-graph tables.
+
+    ``force`` is required only when the target still has live (non-tombstoned)
+    rows: ``False`` with live rows present is rejected with ``Conflict`` and
+    mutates nothing. A type with no live rows drops without ``force``.
+    """
+
+    namespace: str
+    target_kind: int
+    target_name: str
+    force: bool
+    request_id: bytes
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict[str, Any]:
+        m = {
+            "namespace": self.namespace,
+            "target_kind": self.target_kind,
+            "target_name": self.target_name,
+            "force": self.force,
+            "request_id": self.request_id,
+        }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> SchemaDropRequest:
+        act_as = m.get("act_as")
+        return cls(
+            m["namespace"],
+            m["target_kind"],
+            m["target_name"],
+            m["force"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
+
+
+@dataclass
+class SchemaDropResponse:
+    """SCHEMA_DROP_RESP (``0x01A5``).
+
+    ``schema_version`` is the new active version after the narrow, or ``0`` when
+    nothing was dropped or the drop was rejected. ``dropped`` is ``True`` only
+    when a declared row was actually removed. ``live_rows`` is the count of live
+    rows found referencing the target — non-zero with ``dropped == False`` means
+    the drop was refused for lack of ``force``.
+    """
+
+    namespace: str
+    schema_version: int
+    target_kind: int
+    target_name: str
+    dropped: bool
+    live_rows: int
+    validation_errors: list[SchemaValidationError]
+
+    def to_map(self) -> dict[str, Any]:
+        return {
+            "namespace": self.namespace,
+            "schema_version": self.schema_version,
+            "target_kind": self.target_kind,
+            "target_name": self.target_name,
+            "dropped": self.dropped,
+            "live_rows": self.live_rows,
+            "validation_errors": [e.to_map() for e in self.validation_errors],
+        }
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> SchemaDropResponse:
+        return cls(
+            m["namespace"],
+            m["schema_version"],
+            m["target_kind"],
+            m["target_name"],
+            m["dropped"],
+            m["live_rows"],
+            [SchemaValidationError.from_map(e) for e in m.get("validation_errors", [])],
+        )
+
+
 @dataclass
 class SchemaReplaceRequest:
     """SCHEMA_REPLACE (``0x0127``). Destructive namespace swap.
@@ -2693,17 +2827,27 @@ class SchemaReplaceRequest:
     schema_document: str
     force_drop_existing: bool
     request_id: bytes
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {
+        m = {
             "schema_document": self.schema_document,
             "force_drop_existing": self.force_drop_existing,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaReplaceRequest:
-        return cls(m["schema_document"], m["force_drop_existing"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(
+            m["schema_document"],
+            m["force_drop_existing"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -3908,13 +4052,29 @@ class TxnBeginRequest:
 
     txn_id: bytes
     timeout_seconds: int
+    # Effective identity every write buffered in this transaction commits as.
+    # Delegation is fixed at begin and applies to the whole txn; TXN_COMMIT
+    # carries no act_as of its own. Omitted from the CBOR map when None so the
+    # common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {"txn_id": self.txn_id, "timeout_seconds": self.timeout_seconds}
+        m: dict[str, Any] = {
+            "txn_id": self.txn_id,
+            "timeout_seconds": self.timeout_seconds,
+        }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> TxnBeginRequest:
-        return cls(m["txn_id"], m["timeout_seconds"])
+        act_as = m.get("act_as")
+        return cls(
+            m["txn_id"],
+            m["timeout_seconds"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -4704,17 +4864,17 @@ class UnsubscribeResponse:
 
 @dataclass
 class GetCapabilitiesRequest:
-    """Empty request — capabilities are server-side state. Encodes as an empty
-    CBOR map, matching every other request body."""
+    """Capability request, optionally scoped to a delegated identity."""
+
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {}
+        return {} if self.act_as is None else {"act_as": self.act_as.to_map()}
 
     @classmethod
-    def from_map(cls, m: dict[str, Any]) -> GetCapabilitiesRequest:  # noqa: ARG003
-        # Empty body; the parameter exists so every payload's `from_map` has
-        # one signature.
-        return cls()
+    def from_map(cls, m: dict[str, Any]) -> GetCapabilitiesRequest:
+        act_as = m.get("act_as")
+        return cls(None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -4929,16 +5089,33 @@ class EntityGetRequest:
 
 @dataclass
 class EntityGetResponse:
-    """ENTITY_GET_RESP (``0x01B1``). The requested entity's view."""
+    """ENTITY_GET_RESP (``0x01B1``). The requested entity's view plus the
+    merge-redirect chain that was walked to reach it."""
 
     entity: EntityView
+    # Merge audit trail: the redirect ids the GET walked through to reach
+    # ``entity`` (the survivor), in order, EXCLUDING the survivor. Empty on a
+    # direct hit. For ``A -> B -> C``, ``ENTITY_GET(A)`` returns ``entity = C``
+    # and ``resolved_from = [A, B]``. Each id is a 16-byte ``bytes`` like every
+    # other uuid in this SDK, but — unlike every other id on the wire — this
+    # field carries NO ``serde_bytes`` server-side, so each id encodes as a
+    # CBOR array of 16 ints (major type 4), not a byte string. So, exactly like
+    # ``attributes_blob``, ``to_map`` spreads each id to a ``list[int]`` and
+    # ``from_map`` reassembles the bytes.
+    resolved_from: list[bytes]
 
     def to_map(self) -> dict[str, Any]:
-        return {"entity": self.entity.to_map()}
+        return {
+            "entity": self.entity.to_map(),
+            "resolved_from": [list(x) for x in self.resolved_from],
+        }
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityGetResponse:
-        return cls(EntityView.from_map(m["entity"]))
+        return cls(
+            EntityView.from_map(m["entity"]),
+            [bytes(x) for x in m["resolved_from"]],
+        )
 
 
 @dataclass
@@ -5561,13 +5738,18 @@ class SchemaGetRequest:
 
     namespace: str
     version: int  # 0 = active version
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {"namespace": self.namespace, "version": self.version}
+        m = {"namespace": self.namespace, "version": self.version}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaGetRequest:
-        return cls(m["namespace"], m["version"])
+        act_as = m.get("act_as")
+        return cls(m["namespace"], m["version"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -5610,17 +5792,27 @@ class SchemaListRequest:
     namespace: str
     limit: int  # 0 = unlimited (server-capped)
     cursor: list[int]  # Vec<u8> -> array of ints
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {
+        m = {
             "namespace": self.namespace,
             "limit": self.limit,
             "cursor": list(self.cursor),
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaListRequest:
-        return cls(m["namespace"], m["limit"], list(m["cursor"]))
+        act_as = m.get("act_as")
+        return cls(
+            m["namespace"],
+            m["limit"],
+            list(m["cursor"]),
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -5685,13 +5877,18 @@ class SchemaValidateRequest:
     """SCHEMA_VALIDATE (``0x0123``). Validate a schema document without uploading it."""
 
     schema_document: str
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {"schema_document": self.schema_document}
+        m: dict[str, Any] = {"schema_document": self.schema_document}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaValidateRequest:
-        return cls(m["schema_document"])
+        act_as = m.get("act_as")
+        return cls(m["schema_document"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6105,13 +6302,29 @@ class StatementHistoryRequest:
 
     anchor_id: bytes
     include_tombstoned: bool
+    # Keyset page size (``1..=1000``).
+    limit: int = 100
+    # Opaque keyset cursor — empty on the first page, then the ``next_cursor``
+    # echoed from the previous response. A plain byte vector (``Vec<u8>``), so
+    # it encodes as a CBOR array of unsigned ints, NOT a byte string.
+    cursor: list[int] = field(default_factory=list)
 
     def to_map(self) -> dict[str, Any]:
-        return {"anchor_id": self.anchor_id, "include_tombstoned": self.include_tombstoned}
+        return {
+            "anchor_id": self.anchor_id,
+            "include_tombstoned": self.include_tombstoned,
+            "limit": self.limit,
+            "cursor": list(self.cursor),
+        }
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StatementHistoryRequest:
-        return cls(m["anchor_id"], m["include_tombstoned"])
+        return cls(
+            m["anchor_id"],
+            m["include_tombstoned"],
+            m["limit"],
+            list(m["cursor"]),
+        )
 
 
 @dataclass
@@ -6121,6 +6334,10 @@ class StatementHistoryResponseFrame:
     items: list[StatementView]
     chain_root: bytes
     total_versions: int
+    # Opaque keyset token to resume from — empty when the chain is exhausted.
+    # A plain byte vector (``Vec<u8>``), so it encodes as a CBOR array of
+    # unsigned ints, NOT a byte string.
+    next_cursor: list[int]
     is_final: bool
 
     def to_map(self) -> dict[str, Any]:
@@ -6128,6 +6345,7 @@ class StatementHistoryResponseFrame:
             "items": [i.to_map() for i in self.items],
             "chain_root": self.chain_root,
             "total_versions": self.total_versions,
+            "next_cursor": list(self.next_cursor),
             "is_final": self.is_final,
         }
 
@@ -6137,6 +6355,7 @@ class StatementHistoryResponseFrame:
             [StatementView.from_map(x) for x in m["items"]],
             m["chain_root"],
             m["total_versions"],
+            list(m["next_cursor"]),
             m["is_final"],
         )
 
@@ -6593,8 +6812,13 @@ class SpaceListRequest:
 
 @dataclass
 class SpaceListResponse:
-    """SPACE_LIST_RESP (``0x00F1``). ``cross_shard_complete`` is False when the
-    listing covers only the caller-shard's spaces (v1 behavior)."""
+    """SPACE_LIST_RESP (``0x00F1``).
+
+    ``cross_shard_complete`` says whether this listing covers the whole
+    deployment. A shard only reads its own data, so it is True on a
+    single-shard deployment and False above one, where the listing covers
+    only the caller-shard's spaces until cross-shard scatter-gather lands.
+    """
 
     spaces: list[SpaceView]
     cross_shard_complete: bool

@@ -163,7 +163,7 @@ fn check_vector_payload(name: &str) {
 fn check_vector_frame(name: &str) {
     let bin = read_bin(name);
     let (frame, rest) = Frame::decode(&bin).expect("decode frame");
-    assert!(rest.is_empty());
+    assert_eq!(rest, &[] as &[u8]);
 
     let (mut req, consumed): (EncodeVectorDirectRequest, usize) =
         from_cbor_prefix(&frame.payload).expect("cbor prefix");
@@ -322,10 +322,18 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("req_schema_list", SchemaListRequest);
     payload!("req_schema_validate", SchemaValidateRequest);
     payload!("req_schema_replace", SchemaReplaceRequest);
+    payload!("req_schema_drop", SchemaDropRequest);
+    payload!("req_schema_upload_act_as_grant", SchemaUploadRequest);
+    payload!("req_schema_get_act_as", SchemaGetRequest);
+    payload!("req_schema_list_act_as", SchemaListRequest);
+    payload!("req_schema_validate_act_as", SchemaValidateRequest);
+    payload!("req_schema_replace_act_as_grant", SchemaReplaceRequest);
+    payload!("req_schema_drop_act_as_grant", SchemaDropRequest);
     payload!("resp_schema_get", SchemaGetResponse);
     payload!("resp_schema_list", SchemaListResponseFrame);
     payload!("resp_schema_validate", SchemaValidateResponse);
     payload!("resp_schema_replace", SchemaReplaceResponse);
+    payload!("resp_schema_drop", SchemaDropResponse);
     payload!("req_txn_begin", TxnBeginRequest);
     payload!("req_txn_commit", TxnCommitRequest);
     payload!("req_txn_abort", TxnAbortRequest);
@@ -337,6 +345,7 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("req_bye", ByeRequest);
     payload!("req_cancel_stream", CancelStreamRequest);
     payload!("req_get_capabilities", GetCapabilitiesRequest);
+    payload!("req_get_capabilities_act_as", GetCapabilitiesRequest);
     payload!("req_link", LinkRequest);
     payload!("req_unlink", UnlinkRequest);
     payload!("resp_unlink", UnlinkResponse);
