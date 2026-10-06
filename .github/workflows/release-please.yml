@@ -52,7 +52,7 @@ jobs:
       # Falls back to GITHUB_TOKEN so the Release PR is still managed if the
       # secret is absent — but then the tag will NOT publish and release.yml
       # must be run by hand.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
