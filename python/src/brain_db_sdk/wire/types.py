@@ -166,6 +166,15 @@ class ErrorCode:
     # allowlist).
     ACT_AS_DENIED = 0x0033
 
+    # BYOK credential codes (category is assigned by the numeric block:
+    # 0x006x = Conflict / terminal, 0x009x = Unavailable / retryable).
+    # The write's namespace has no usable LLM provider credential. Terminal:
+    # retrying cannot create a key, the tenant must register one.
+    LLM_CREDENTIAL_MISSING = 0x0066
+    # The namespace's credential could not be resolved right now (broker
+    # unreachable or timing out). Retryable.
+    LLM_CREDENTIAL_UNAVAILABLE = 0x0095
+
 
 # ===========================================================================
 # Handshake.
@@ -338,8 +347,14 @@ class SpacePermissions:
             m["can_reason"],
             m["can_forget"],
             m["can_admin"],
-            # Tolerate older servers that don't emit the field yet.
-            m.get("can_act_as", False),
+            # REQUIRED, not defaulted. This read `m.get("can_act_as", False)`
+            # to tolerate a server that predates the field — but every server
+            # emits it now (`brain-protocol` declares it `pub can_act_as:
+            # bool`, no default), so the tolerance only fires on a malformed
+            # frame, and `False` is a legitimate-looking value: the SDK would
+            # silently decide the connection may not act-as instead of saying
+            # the handshake was unreadable. Rust has always read it strictly.
+            m["can_act_as"],
         )
 
 
@@ -428,8 +443,11 @@ class AuthOkPayload:
             m["space_id"],
             m["bound_shard_id"],
             SpacePermissions.from_map(m["permissions"]),
-            # Tolerate older servers that don't emit the field yet.
-            m.get("namespace", ""),
+            # REQUIRED, same reasoning as `can_act_as` above: the server
+            # declares `pub namespace: String` with no default, and an empty
+            # string is a plausible-looking namespace rather than an obvious
+            # failure.
+            m["namespace"],
             m["server_time_unix_nanos"],
         )
 
@@ -1380,6 +1398,12 @@ class EnrichedStatement:
     # When the statement's EVENT happened, in unix nanos. Omitted from the
     # wire map for a statement with no event time.
     event_at_unix_nanos: Optional[int] = None
+    # The object's entity id when the object IS an entity; None for a literal
+    # value. `object_label` alone cannot answer "is this an entity?" — it
+    # stringifies both cases — so a consumer had to guess by matching the
+    # label against known entity names, and that guess is wrong exactly when a
+    # literal's text equals an entity's name. Absent means "no entity object".
+    object_entity_id: Optional[bytes] = None
 
     def to_map(self) -> dict[str, Any]:
         m: dict[str, Any] = {
@@ -1391,6 +1415,8 @@ class EnrichedStatement:
         }
         if self.event_at_unix_nanos is not None:
             m["event_at_unix_nanos"] = self.event_at_unix_nanos
+        if self.object_entity_id is not None:
+            m["object_entity_id"] = self.object_entity_id
         return m
 
     @classmethod
@@ -1402,6 +1428,7 @@ class EnrichedStatement:
             m["object_label"],
             m["confidence"],
             m.get("event_at_unix_nanos"),
+            m.get("object_entity_id"),
         )
 
 

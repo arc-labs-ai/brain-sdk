@@ -5,7 +5,7 @@
 
 use std::env;
 
-use brain_db_sdk::http::{BrainHttpClient, EncodeInput, ForgetInput, MemoryListQuery, RecallInput};
+use brain_db_sdk::http::{BrainHttpClient, HttpRetryPolicy, EncodeInput, ForgetInput, MemoryListQuery, RecallInput};
 
 fn client() -> Option<BrainHttpClient> {
     let base_url = env::var("BRAIN_SDK_IT_HTTP").ok();
@@ -13,7 +13,18 @@ fn client() -> Option<BrainHttpClient> {
         .or_else(|_| env::var("BRAIN_SDK_IT_API_KEY"))
         .ok();
     match (base_url, api_key) {
-        (Some(base_url), Some(api_key)) => Some(BrainHttpClient::new(api_key, base_url)),
+        // Live suites run against a rate-limited plan, so the client is
+        // patient: the Free ceiling is 60 requests/minute and the server
+        // answers 429 with `Retry-After`, which the default policy clamps to
+        // 2s — far short of a 60s window. Raising the cap past the window
+        // turns throttling into a pause instead of a failure.
+        (Some(base_url), Some(api_key)) => Some(
+            BrainHttpClient::new(api_key, base_url).with_retry_policy(HttpRetryPolicy::new(
+                4,
+                std::time::Duration::from_millis(500),
+                std::time::Duration::from_secs(70),
+            )),
+        ),
         _ if env::var("BRAIN_SDK_IT_REQUIRED").as_deref() == Ok("1") => {
             panic!("live edge tests require BRAIN_SDK_IT_HTTP and BRAIN_SDK_IT_HTTP_KEY");
         }
@@ -50,7 +61,7 @@ async fn live_edge_memory_lifecycle() {
         .recall(&RecallInput {
             query: text,
             max_results: Some(5),
-            subject: None,
+            ..Default::default()
         })
         .await
         .expect("recall");

@@ -38,6 +38,8 @@ export {
   VersionMismatch,
   isRetryable,
   isActAsDenied,
+  isLlmCredentialMissing,
+  isLlmCredentialUnavailable,
 } from "./errors.js";
 
 // HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).

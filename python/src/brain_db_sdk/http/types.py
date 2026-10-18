@@ -59,12 +59,20 @@ class MemoryHit:
 class RecallResult:
     answer_kind: str
     memories: list[MemoryHit]
+    #: Brain's read-pipeline trace — which retrievers ran, how they were
+    #: fused, what the filter chain dropped, what the reranker moved — as a
+    #: JSON **string**, present only when ``include_trace`` was asked for and
+    #: the server supports it. A string rather than a parsed object because
+    #: its ids are 128-bit integers that a JSON number would round; parse it
+    #: with a big-integer-safe reader.
+    trace: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> RecallResult:
         return cls(
             answer_kind=d["answer_kind"],
             memories=[MemoryHit.from_dict(m) for m in d.get("memories", [])],
+            trace=d.get("trace"),
         )
 
 
@@ -266,11 +274,17 @@ class ListEntitiesResult:
     entities: list[EntityDetail]
     count: int
 
+    #: Present when more rows follow; pass it back as ``cursor``. Served by
+    #: the cloud gateway's keyset pagination; a server without it omits the
+    #: field and the page is the whole result.
+    next_cursor: Optional[str] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ListEntitiesResult:
         return cls(
             entities=[EntityDetail.from_dict(e) for e in d.get("entities", [])],
             count=d["count"],
+            next_cursor=d.get("next_cursor"),
         )
 
 
@@ -320,6 +334,13 @@ class TraversalStep:
     relation_type: str
     depth: int
 
+    #: The server resolves these so a caller does not have to; without
+    #: them every consumer re-queries each id just to print a name.
+    #: Display name of ``from_``; absent when it could not be resolved.
+    from_name: Optional[str] = None
+    #: Display name of ``to``; absent when it could not be resolved.
+    to_name: Optional[str] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> TraversalStep:
         return cls(
@@ -328,6 +349,8 @@ class TraversalStep:
             to=d["to"],
             relation_type=d["relation_type"],
             depth=d["depth"],
+            from_name=d.get("from_name"),
+            to_name=d.get("to_name"),
         )
 
 
@@ -370,6 +393,13 @@ class RelationDetail:
     is_symmetric: bool
     tombstoned: bool
 
+    #: The server resolves these so a caller does not have to; without
+    #: them every consumer re-queries each id just to print a name.
+    #: Display name of ``from_entity``; absent when it could not be resolved.
+    from_name: Optional[str] = None
+    #: Display name of ``to_entity``; absent when it could not be resolved.
+    to_name: Optional[str] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> RelationDetail:
         return cls(
@@ -382,6 +412,8 @@ class RelationDetail:
             valid_to_unix_nanos=d["valid_to_unix_nanos"],
             is_symmetric=d["is_symmetric"],
             tombstoned=d["tombstoned"],
+            from_name=d.get("from_name"),
+            to_name=d.get("to_name"),
         )
 
 
@@ -390,11 +422,17 @@ class ListRelationsResult:
     relations: list[RelationDetail]
     count: int
 
+    #: Present when more rows follow; pass it back as ``cursor``. Served by
+    #: the cloud gateway's keyset pagination; a server without it omits the
+    #: field and the page is the whole result.
+    next_cursor: Optional[str] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ListRelationsResult:
         return cls(
             relations=[RelationDetail.from_dict(r) for r in d.get("relations", [])],
             count=d["count"],
+            next_cursor=d.get("next_cursor"),
         )
 
 
@@ -475,6 +513,13 @@ class StatementDetail:
     valid_to_unix_nanos: int
     tombstoned: bool
 
+    #: The server resolves these so a caller does not have to; without
+    #: them every consumer re-queries each id just to print a name.
+    #: Display name of ``subject``; absent when it could not be resolved.
+    subject_name: Optional[str] = None
+    #: Display name of an entity object (absent for values); absent when it could not be resolved.
+    object_name: Optional[str] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> StatementDetail:
         return cls(
@@ -488,6 +533,8 @@ class StatementDetail:
             valid_from_unix_nanos=d["valid_from_unix_nanos"],
             valid_to_unix_nanos=d["valid_to_unix_nanos"],
             tombstoned=d["tombstoned"],
+            subject_name=d.get("subject_name"),
+            object_name=d.get("object_name"),
         )
 
 
@@ -496,11 +543,17 @@ class ListStatementsResult:
     statements: list[StatementDetail]
     count: int
 
+    #: Present when more rows follow; pass it back as ``cursor``. Served by
+    #: the cloud gateway's keyset pagination; a server without it omits the
+    #: field and the page is the whole result.
+    next_cursor: Optional[str] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ListStatementsResult:
         return cls(
             statements=[StatementDetail.from_dict(s) for s in d.get("statements", [])],
             count=d["count"],
+            next_cursor=d.get("next_cursor"),
         )
 
 

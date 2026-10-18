@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 
-from brain_db_sdk.http import BrainHttpClient
+from brain_db_sdk.http import BrainHttpClient, HttpRetryPolicy
 
 
 def _client() -> BrainHttpClient:
@@ -25,7 +25,16 @@ def _client() -> BrainHttpClient:
         if os.environ.get("BRAIN_SDK_IT_REQUIRED") == "1":
             pytest.fail(message)
         pytest.skip(message)
-    return BrainHttpClient(api_key, base_url)
+    # Live suites run against a rate-limited plan, so the client is patient:
+    # the Free ceiling is 60 requests/minute and the server answers 429 with
+    # ``Retry-After``, which the default policy clamps to 2s — far short of a
+    # 60s window. Raising the cap past the window turns throttling into a
+    # pause instead of a failure.
+    return BrainHttpClient(
+        api_key,
+        base_url,
+        retry=HttpRetryPolicy(max_attempts=4, base_delay=0.5, max_delay=70.0),
+    )
 
 
 def test_edge_identity_and_capabilities() -> None:

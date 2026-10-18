@@ -13,7 +13,16 @@ function clientOrSkip(skip: () => void): BrainHttpClient {
     if (process.env.BRAIN_SDK_IT_REQUIRED === "1") throw new Error(message);
     skip();
   }
-  return new BrainHttpClient({ apiKey: apiKey!, baseUrl: baseUrl! });
+  // live suites run against a rate-limited plan, so the client is
+  // patient: the Free ceiling is 60 requests/minute and the server answers 429
+  // with `Retry-After`, which the default policy clamps to 2s — far short of a
+  // 60s window. Raising the cap past the window turns throttling into a pause
+  // instead of a failure.
+  return new BrainHttpClient({
+    apiKey: apiKey!,
+    baseUrl: baseUrl!,
+    retry: { maxAttempts: 4, baseDelayMs: 500, maxDelayMs: 70_000 },
+  });
 }
 
 describe("live Brain HTTP edge", () => {

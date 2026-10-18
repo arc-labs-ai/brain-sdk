@@ -36,9 +36,17 @@ class HttpRetryPolicy:
 
     @staticmethod
     def is_retryable_status(status: int) -> bool:
-        """Transport/timeout (``0``) or a server ``503``; every other status
-        — including all ``4xx`` — is terminal."""
-        return status in (0, 503)
+        """Transport/timeout (``0``), a server ``503``, or a ``429``.
+
+        ``429`` is a "slow down", not a refusal: an idempotent call is safe to
+        repeat once the server's ``Retry-After`` has passed, and
+        :meth:`backoff` already honours that hint. It was excluded here while
+        the TypeScript client retried it — so the same rate-limited read was
+        absorbed by one SDK and raised at the caller by this one. Every other
+        ``4xx`` stays terminal: retrying a 400 or a 409 cannot change the
+        answer.
+        """
+        return status in (0, 429, 503)
 
     def should_retry(self, attempt: int, err: BrainHttpError) -> bool:
         """Whether to retry after ``attempt`` (1-based) produced ``err``."""

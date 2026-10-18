@@ -59,6 +59,9 @@ tokio = { version = "1", features = [
   "io-util",
   "macros",
   "net",
+  # The live suites serialise themselves with an async mutex held across
+  # awaits; a std::sync guard there is the hazard clippy names.
+  "sync",
   "time",
 ] }
 # proptest  = "1"           # frame round-trip + CRC-rejection properties (build phase)

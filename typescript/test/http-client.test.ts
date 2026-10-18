@@ -466,10 +466,13 @@ describe("idempotency of the new routes", () => {
     });
   }
 
+  // A PURE READ IS RETRYABLE, whatever its method. `traverse` moved out of
+  // the list below: it is a POST only because its filters need a body, and it
+  // changes nothing — the same reasoning that always applied to
+  // `validateSchema`, which is a dry run.
   const notRetried: Array<[string, () => Promise<unknown>]> = [
     ["createEntity", () => client.createEntity({ entityTypeId: 1, canonicalName: "Ada" })],
     ["resolveEntity", () => client.resolveEntity({ candidateName: "Ada", allowCreate: true })],
-    ["traverse", () => client.traverseRelations("e1")],
     ["uploadSchema", () => client.uploadSchema({ schemaDocument: "x" })],
     // Destructive: a replay could drop against a schema the first attempt
     // already replaced.
@@ -534,15 +537,28 @@ describe("retry", () => {
     expect(seen, "a 503 on an idempotent GET must be retried").toHaveLength(2);
   });
 
-  it("never retries a non-idempotent verb", async () => {
-    // The whole point of the idempotent flag: retrying a non-idempotent verb
-    // after a 503 risks applying it twice.
+  it("never retries a state-creating verb", async () => {
+    // This used to use `recall` on the reasoning that a POST "risks applying
+    // it twice" — but recall applies nothing. The line is not the method, it
+    // is whether the call CREATES something: `link` mints an edge and has no
+    // request id to collapse a repeat, so it runs exactly once.
+    replies = [
+      [503, { error: { code: "unavailable", message: "shard restarting" } }],
+      [200, {}],
+    ];
+    await expect(
+      client.link({ source: "1", target: "2", kind: "caused" }),
+    ).rejects.toBeInstanceOf(BrainHttpError);
+    expect(seen, "a state-creating verb must run exactly once").toHaveLength(1);
+  });
+
+  it("retries a pure read even though it is a POST", async () => {
     replies = [
       [503, { error: { code: "unavailable", message: "shard restarting" } }],
       [200, { answer_kind: "none", memories: [] }],
     ];
-    await expect(client.recall({ query: "anything" })).rejects.toBeInstanceOf(BrainHttpError);
-    expect(seen, "a non-idempotent verb must run exactly once").toHaveLength(1);
+    await client.recall({ query: "anything" });
+    expect(seen, "recall changes nothing, so a 503 is worth asking again").toHaveLength(2);
   });
 
   it("gives up after maxAttempts", async () => {
@@ -599,19 +615,18 @@ describe("cloud gateway wire shapes", () => {
     expect(err.fieldErrors).toEqual([]);
   });
 
-  it("normalizes the gateway's permission bitset into flags", async () => {
-    replies.push([200, { namespace: "n", space_id: "s", permissions: 3 }]);
+  /*
+   * `permissions` is an object of named flags, full stop. The gateway used to
+   * send its internal `u32` bitset here and this client carried a converter
+   * for it; the gateway sends flags now, so the converter was translating a
+   * shape no server emits and it is gone. A server old enough to send a
+   * number is simply not supported.
+   */
+  it("reads whoami's named permission flags", async () => {
+    replies.push([200, WHOAMI]);
     const me = await client.whoami();
-    expect(me.permissions).toEqual({
-      canRecall: true,
-      canEncode: true,
-      canForget: false,
-      canPlan: false,
-      canReason: false,
-      canAdmin: false,
-    });
-    replies.push([200, { namespace: "n", space_id: "s", permissions: 0 }]);
-    expect((await client.whoami()).permissions.canAdmin).toBe(true);
+    expect(me.permissions.canEncode).toBe(true);
+    expect(me.namespace).toBe("ns");
   });
 
   it("sends one Idempotency-Key per encode, reused across its retries", async () => {
@@ -633,7 +648,9 @@ describe("cloud gateway wire shapes", () => {
       { code: "rate_limited", title: "Too many requests" },
       { "retry-after": "0" },
     ]);
-    replies.push([200, { namespace: "n", space_id: "s", permissions: 1 }]);
+    // The body is incidental here — this test is about the retry — but it
+    // still has to be a body a server actually sends.
+    replies.push([200, WHOAMI]);
     await client.whoami();
     expect(seen).toHaveLength(2);
   });

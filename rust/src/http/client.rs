@@ -131,14 +131,20 @@ impl BrainHttpClient {
     }
 
     /// Recall memories for a cue.
+    // A PURE READ IS RETRYABLE, whatever its method.
+    // `recall`, `plan`, `reason` and `traverse` are POSTs only because their filters need a body; none of them changes anything, so a transient 503/429 should be absorbed rather than raised at the caller.
+    // `validate_schema` already worked this way — it is a dry run — and the other four were left behind.
+    // What stays single-shot is what CREATES state: link, create_entity, resolve_entity (it can create), and the schema upload/replace.
     pub async fn recall(&self, input: &RecallInput) -> Result<RecallResult, BrainHttpError> {
-        self.send(reqwest::Method::POST, "/v1/recall", Some(input), false)
+        self.send(reqwest::Method::POST, "/v1/recall", Some(input), true)
             .await
     }
 
     /// Forget a memory.
     pub async fn forget(&self, input: &ForgetInput) -> Result<ForgetResult, BrainHttpError> {
-        self.send(reqwest::Method::DELETE, "/v1/memories", Some(input), false)
+        // A DELETE whose result type MODELS the repeat is safe to retry: `forget` answers `was_already_forgotten` and `unlink` answers `removed: false` when there was nothing there.
+        // Repeating one reaches the same end state, so a transient 503/429 on a cleanup path should be absorbed rather than raised at the caller.
+        self.send(reqwest::Method::DELETE, "/v1/memories", Some(input), true)
             .await
     }
 
@@ -150,19 +156,21 @@ impl BrainHttpClient {
 
     /// Remove a directed edge (idempotent).
     pub async fn unlink(&self, input: &UnlinkInput) -> Result<UnlinkResult, BrainHttpError> {
-        self.send(reqwest::Method::DELETE, "/v1/links", Some(input), false)
+        // Idempotent for the same reason `forget` is: `removed: false` is the
+        // documented answer when the edge was not there.
+        self.send(reqwest::Method::DELETE, "/v1/links", Some(input), true)
             .await
     }
 
     /// Plan a path from a start state to a goal state.
     pub async fn plan(&self, input: &PlanInput) -> Result<PlanResult, BrainHttpError> {
-        self.send(reqwest::Method::POST, "/v1/plan", Some(input), false)
+        self.send(reqwest::Method::POST, "/v1/plan", Some(input), true)
             .await
     }
 
     /// Infer over the graph from an observation.
     pub async fn reason(&self, input: &ReasonInput) -> Result<ReasonResult, BrainHttpError> {
-        self.send(reqwest::Method::POST, "/v1/reason", Some(input), false)
+        self.send(reqwest::Method::POST, "/v1/reason", Some(input), true)
             .await
     }
 
@@ -420,7 +428,7 @@ impl BrainHttpClient {
             reqwest::Method::POST,
             &format!("/v1/entities/{id}/traverse"),
             Some(input),
-            false,
+            true,
         )
         .await
     }

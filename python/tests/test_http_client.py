@@ -715,17 +715,35 @@ def test_an_idempotent_verb_retries_a_503_and_succeeds(edge) -> None:
     assert len(rec.requests) == 2, "a 503 on an idempotent GET must be retried"
 
 
-def test_a_non_idempotent_verb_is_never_retried(edge) -> None:
-    """The whole point of the idempotent flag. RECALL is a POST, and retrying a
-    non-idempotent verb after a 503 risks applying it twice."""
+def test_a_state_creating_verb_is_never_retried(edge) -> None:
+    """The whole point of the idempotent flag.
+
+    This used to use `recall` as its example, on the reasoning that a POST
+    "risks applying it twice" — but recall applies nothing. The line is not
+    the HTTP method, it is whether the call CREATES something: `link` mints an
+    edge and has no request id to collapse a repeat, so it runs exactly once.
+    Pure reads expressed as POST (recall, plan, reason, traverse) are retried.
+    """
+    client, rec = edge
+    rec.responses = [
+        (503, {"error": {"code": "unavailable", "message": "shard restarting"}}, {}),
+        (200, _minimal_body_for("/v1/links"), {}),
+    ]
+    with pytest.raises(BrainHttpError):
+        client.link("1", "2", "caused")
+    assert len(rec.requests) == 1, "a state-creating verb must run exactly once"
+
+
+def test_a_pure_read_is_retried_even_though_it_is_a_post(edge) -> None:
+    """`recall` changes nothing, so a transient 503 is the server asking to be
+    asked again — not something to hand to the caller."""
     client, rec = edge
     rec.responses = [
         (503, {"error": {"code": "unavailable", "message": "shard restarting"}}, {}),
         (200, {"answer_kind": "none", "memories": []}, {}),
     ]
-    with pytest.raises(BrainHttpError):
-        client.recall("anything")
-    assert len(rec.requests) == 1, "a non-idempotent verb must run exactly once"
+    assert client.recall("anything").answer_kind == "none"
+    assert len(rec.requests) == 2
 
 
 def test_retry_gives_up_after_max_attempts(edge) -> None:
@@ -756,3 +774,100 @@ def test_a_server_retry_after_overrides_the_computed_backoff() -> None:
     assert policy.backoff(2, None) == 2.0, "exponential without a server hint"
     assert policy.backoff(1, 7.0) == 7.0, "a Retry-After hint wins"
     assert policy.backoff(1, 900.0) == 30.0, "but is still capped by max_delay"
+
+
+def test_recall_omits_include_trace_unless_asked(edge) -> None:
+    """The trace is several KB per call, so it is opt-in and the field is not
+    even sent otherwise — the body a hot path puts on the wire is unchanged."""
+    client, rec = edge
+    rec.responses = [(200, {"answer_kind": "none", "memories": []}, {})]
+    client.recall("anything")
+    assert "include_trace" not in rec.requests[0]["body"]
+
+
+def test_recall_sends_include_trace_and_reads_the_trace_back(edge) -> None:
+    """Parity with the TypeScript client, which had `includeTrace` while this
+    one did not: the field existed on the gateway and two of the three SDKs
+    could not ask for it. The trace comes back as a JSON STRING — its ids are
+    128-bit and a JSON number would round them — so it is handed over
+    unparsed."""
+    client, rec = edge
+    rec.responses = [(200, {"answer_kind": "single", "memories": [], "trace": '{"stages":[]}'}, {})]
+    out = client.recall("what colour", include_trace=True)
+    assert rec.requests[0]["body"]["include_trace"] is True
+    assert out.trace == '{"stages":[]}'
+
+
+def test_recall_trace_is_none_when_the_server_omits_it(edge) -> None:
+    """A server that does not support the flag simply returns no trace; that
+    is not an error and must not raise on the way out."""
+    client, rec = edge
+    rec.responses = [(200, {"answer_kind": "none", "memories": []}, {})]
+    assert client.recall("x", include_trace=True).trace is None
+
+
+def test_a_rate_limit_is_retried_on_an_idempotent_verb(edge) -> None:
+    """429 is a "slow down", not a refusal.
+
+    The server sends `Retry-After` and the policy already honoured it in
+    `backoff()` — but 429 was excluded from `is_retryable_status`, so the hint
+    was parsed and then thrown away. TypeScript retried the same response.
+    """
+    client, rec = edge
+    rec.responses = [
+        (429, {"error": {"code": "rate_limited", "message": "slow down"}}, {"retry-after": "0"}),
+        (200, _minimal_body_for("/v1/whoami"), {}),
+    ]
+    assert client.whoami().namespace == "ns"
+    assert len(rec.requests) == 2, "the 429 should have been retried once"
+
+
+def test_a_rate_limit_is_not_retried_on_a_state_creating_verb(edge) -> None:
+    """`create_entity` runs exactly once whatever the status.
+
+    The retry decision belongs to the policy, but only verbs that are safe to
+    repeat are offered to it. `encode` IS offered — it carries a stable
+    server-side request id, so a repeat cannot double-write — while minting an
+    entity has no such key and a blind repeat is a second entity.
+    """
+    client, rec = edge
+    rec.responses = [
+        (429, {"error": {"code": "rate_limited", "message": "slow down"}}, {"retry-after": "0"}),
+    ]
+    with pytest.raises(BrainHttpError) as excinfo:
+        client.create_entity(entity_type_id=1, canonical_name="x")
+    assert excinfo.value.status == 429
+    assert len(rec.requests) == 1
+
+
+def test_a_rate_limited_encode_is_retried_because_it_is_idempotent(edge) -> None:
+    """`encode` carries a stable request id, so the server collapses a repeat
+    — which is what makes retrying it safe."""
+    client, rec = edge
+    rec.responses = [
+        (429, {"error": {"code": "rate_limited", "message": "slow down"}}, {"retry-after": "0"}),
+        (
+            200,
+            {
+                "memory_id": "42",
+                "was_deduplicated": False,
+                "salience": 0.5,
+                "kind": 0,
+                "created_at_unix_nanos": 1,
+                "auto_edges_added": 0,
+            },
+            {},
+        ),
+    ]
+    client.encode("x")
+    assert len(rec.requests) == 2
+
+
+def test_a_client_error_is_never_retried(edge) -> None:
+    """Retrying a 400 or a 409 cannot change the answer, so it must not spend
+    the caller's latency budget discovering that three times."""
+    client, rec = edge
+    rec.responses = [(409, {"error": {"code": "conflict", "message": "duplicate"}}, {})]
+    with pytest.raises(BrainHttpError):
+        client.whoami()
+    assert len(rec.requests) == 1

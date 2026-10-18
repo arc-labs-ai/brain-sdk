@@ -180,6 +180,18 @@ fn sdk_types() -> Types {
 
 #[test]
 fn shared_wire_types_agree_with_brain_protocol() {
+    // Differences that are correct. Keep the reason with the entry.
+    //
+    // `ErrorCodeWire::Unknown` is an SDK-ONLY catch-all and must stay one.
+    // Decoding is total here on purpose: a code this build does not know maps
+    // to `Unknown` rather than failing the frame, so an ERROR frame from a
+    // newer server is still readable. Without it a single unrecognised code
+    // made the whole frame undecodable and the client reported a parse
+    // failure instead of the server's actual error — and the other two SDKs
+    // never had that problem. The server has no reason to declare a variant
+    // that only a client uses.
+    const SDK_ONLY: &[(&str, &str)] = &[("ErrorCodeWire", "Unknown")];
+
     let Some(server) = server_types() else {
         eprintln!(
             "brain not checked out at {} — skipping protocol drift check",
@@ -219,6 +231,7 @@ fn shared_wire_types_agree_with_brain_protocol() {
         let only_sdk: Vec<&String> = sdk_members
             .iter()
             .filter(|m| !srv_members.contains(m))
+            .filter(|m| !SDK_ONLY.contains(&(name.as_str(), m.as_str())))
             .collect();
         if !only_server.is_empty() || !only_sdk.is_empty() {
             drift.push(format!(

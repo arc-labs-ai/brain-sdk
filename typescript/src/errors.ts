@@ -129,6 +129,37 @@ export function isRetryable(err: unknown): boolean {
  * the fix is a differently-scoped credential, not a repeat. Lets a pooled
  * multi-tenant caller distinguish this from an ordinary permission denial.
  */
+/**
+ * Whether the failure is a missing BYOK provider credential
+ * (`LlmCredentialMissing`, `0x0066`): the write's namespace has no LLM
+ * provider key registered.
+ *
+ * **Never retryable** — retrying cannot create a key. Brain refuses the write
+ * rather than storing a memory it cannot ground, because HyPE and extraction
+ * are mandatory; an admitted write would land as text with no questions,
+ * entities or statements and recall would quietly degrade. Surface this to the
+ * operator as "register a provider key", not as a transient failure.
+ */
+export function isLlmCredentialMissing(err: unknown): boolean {
+  // See `isActAsDenied` for why `code` is compared as a plain number.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
+  return err instanceof ServerError && err.code === WireErrorCode.LlmCredentialMissing;
+}
+
+/**
+ * Whether the failure is a transient BYOK credential-resolution failure
+ * (`LlmCredentialUnavailable`, `0x0095`): the credential broker was
+ * unreachable or timed out.
+ *
+ * **Retryable**, unlike {@link isLlmCredentialMissing}. Treating the two the
+ * same would either hammer an endpoint that can never succeed, or permanently
+ * fail a write whose tenant has a perfectly good key.
+ */
+export function isLlmCredentialUnavailable(err: unknown): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
+  return err instanceof ServerError && err.code === WireErrorCode.LlmCredentialUnavailable;
+}
+
 export function isActAsDenied(err: unknown): boolean {
   // `code` is deliberately `number`, not `WireErrorCode`: a newer server may
   // send a code this SDK does not declare, and typing the field as the enum

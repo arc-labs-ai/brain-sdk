@@ -351,6 +351,12 @@ export interface TraversalStep {
   to: string;
   relationType: string;
   depth: number;
+  /** Display name of `from`; absent when it could not be resolved.
+   *
+   * The server resolves these so a caller does not have to; without them every consumer re-queries each id just to print a name. */
+  fromName?: string;
+  /** Display name of `to`; absent when it could not be resolved. */
+  toName?: string;
 }
 export interface TraversalPath {
   steps: TraversalStep[];
@@ -400,6 +406,12 @@ export interface RelationDetail {
   validToUnixNanos: number;
   isSymmetric: boolean;
   tombstoned: boolean;
+  /** Display name of `fromEntity`; absent when it could not be resolved.
+   *
+   * The server resolves these so a caller does not have to; without them every consumer re-queries each id just to print a name. */
+  fromName?: string;
+  /** Display name of `toEntity`; absent when it could not be resolved. */
+  toName?: string;
 }
 export interface ListRelationsResult {
   relations: RelationDetail[];
@@ -474,6 +486,12 @@ export interface StatementDetail {
   /** `0` = still valid. */
   validToUnixNanos: number;
   tombstoned: boolean;
+  /** Display name of `subject`; absent when it could not be resolved.
+   *
+   * The server resolves these so a caller does not have to; without them every consumer re-queries each id just to print a name. */
+  subjectName?: string;
+  /** Display name of an entity object (absent for values); absent when it could not be resolved. */
+  objectName?: string;
 }
 export interface ListStatementsResult {
   statements: StatementDetail[];

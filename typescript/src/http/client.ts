@@ -235,14 +235,23 @@ export class BrainHttpClient {
     });
   }
 
+  /* A PURE READ IS RETRYABLE, whatever its method.
+   * `recall`, `plan`, `reason` and `traverse` are POSTs only because their filters need a body; none of them changes anything, so a transient 503/429 should be absorbed rather than raised at the caller.
+   * `validate_schema` already worked this way — it is a dry run — and the other four were left behind.
+   * What stays single-shot is what CREATES state: link, create_entity, resolve_entity (it can create), and the schema upload/replace. */
   /** Recall memories for a cue. */
   recall(input: RecallInput): Promise<RecallResult> {
-    return this.requestOnce("POST", "/v1/recall", input);
+    return this.requestWithRetry("POST", "/v1/recall", input);
   }
 
-  /** Forget a memory. */
+  /** Forget a memory.
+   *
+   * Retried like the reads: this DELETE's result type MODELS the repeat —
+   * `wasAlreadyForgotten` is the documented answer the second time — so
+   * repeating reaches the same end state, and a transient 503/429 on a
+   * cleanup path should be absorbed rather than raised at the caller. */
   forget(input: ForgetInput): Promise<ForgetResult> {
-    return this.requestOnce("DELETE", "/v1/memories", input);
+    return this.requestWithRetry("DELETE", "/v1/memories", input);
   }
 
   /** Create/overwrite a directed edge between two memories. */
@@ -250,24 +259,27 @@ export class BrainHttpClient {
     return this.requestOnce("POST", "/v1/links", input);
   }
 
-  /** Remove a directed edge (idempotent). */
+  /** Remove a directed edge (idempotent).
+   *
+   * Retried for the same reason as `forget`: `removed: false` is the
+   * documented answer when the edge was not there. */
   unlink(input: UnlinkInput): Promise<UnlinkResult> {
-    return this.requestOnce("DELETE", "/v1/links", input);
+    return this.requestWithRetry("DELETE", "/v1/links", input);
   }
 
   /** Plan a path from a start state to a goal state. */
   plan(input: PlanInput): Promise<PlanResult> {
-    return this.requestOnce("POST", "/v1/plan", input);
+    return this.requestWithRetry("POST", "/v1/plan", input);
   }
 
   /** Infer over the graph from an observation. */
   reason(input: ReasonInput): Promise<ReasonResult> {
-    return this.requestOnce("POST", "/v1/reason", input);
+    return this.requestWithRetry("POST", "/v1/reason", input);
   }
 
   /** The identity Brain resolves from the credential. Idempotent GET — retried. */
   whoami(): Promise<Whoami> {
-    return this.requestWithRetry<WireWhoami>("GET", "/v1/whoami").then(normalizeWhoami);
+    return this.requestWithRetry<Whoami>("GET", "/v1/whoami");
   }
 
   /** What the connected shard supports. Idempotent GET — retried. */
@@ -310,7 +322,7 @@ export class BrainHttpClient {
 
   /** Walk the relation graph out from one entity. Not retried. */
   traverseRelations(entityId: string, input: TraverseInput = {}): Promise<TraverseResult> {
-    return this.requestOnce("POST", `/v1/entities/${pathId(entityId)}/traverse`, input);
+    return this.requestWithRetry("POST", `/v1/entities/${pathId(entityId)}/traverse`, input);
   }
 
   /** Relations anchored on one entity. Idempotent GET — retried. */
@@ -531,29 +543,3 @@ function parseErrorBody(
   return { code, message, fieldErrors };
 }
 
-/** `/v1/whoami` as either server sends it: brain-edge's permission flags, or
- * the gateway's bitset (1 recall · 2 encode · 4 forget; 0 = unrestricted). */
-type WireWhoami = Omit<Whoami, "permissions"> & { permissions: Permissions | number };
-
-const PERM_RECALL = 1;
-const PERM_ENCODE = 2;
-const PERM_FORGET = 4;
-
-function normalizeWhoami(w: WireWhoami): Whoami {
-  if (typeof w.permissions !== "number") return w as Whoami;
-  const bits = w.permissions;
-  const all = bits === 0;
-  return {
-    ...w,
-    permissions: {
-      canRecall: all || (bits & PERM_RECALL) !== 0,
-      canEncode: all || (bits & PERM_ENCODE) !== 0,
-      canForget: all || (bits & PERM_FORGET) !== 0,
-      // The bitset carries no plan / reason / admin bits: only an
-      // unrestricted key grants them.
-      canPlan: all,
-      canReason: all,
-      canAdmin: all,
-    },
-  };
-}
