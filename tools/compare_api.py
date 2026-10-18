@@ -173,6 +173,109 @@ SURFACES = [
 MINIMUM = {"BrainClient (wire)": 40, "BrainHttpClient (HTTP)": 15}
 
 
+# ── Field-level parity for the HTTP DTOs ────────────────────────────────────
+#
+# WHY A SECOND CHECK. The verb check above compares METHOD NAMES, and it has
+# been green while three real gaps sat in the types those methods take and
+# return: `include_trace` on recall, and `cursor` / `next_cursor` on the
+# entity, relation and statement list endpoints — all present in TypeScript,
+# all absent from Python and Rust. Every one of them is a feature the cloud
+# gateway serves that two of the three SDKs could not ask for. "Same verbs"
+# was never the claim worth making; "same arguments and same results" is.
+#
+# This parses the declared fields of every DTO that all three SDKs name, and
+# compares them snake-cased. It is deliberately dumb about types — a field
+# that exists in one language and not another is the drift that has actually
+# happened here; a `u32` against a `number` is not.
+
+FIELD_SOURCES = {
+    "rust": "rust/src/http/types.rs",
+    "python": "python/src/brain_db_sdk/http/types.py",
+    "typescript": "typescript/src/http/types.ts",
+}
+
+# Differences that are correct. Keep the reason with the entry.
+FIELD_LOCAL = {
+    # `from` is a Python keyword, so the dataclass cannot use it. The wire
+    # name is unaffected: `from_dict` reads `d["from"]`.
+    ("TraversalStep", "from"),
+    ("TraversalStep", "from_"),
+}
+
+# A floor, for the same reason MINIMUM exists above: an extractor that matches
+# nothing reports "no differences", which reads exactly like success.
+MINIMUM_SHARED_DTOS = 25
+
+
+def rust_struct_fields(text: str) -> dict[str, set[str]]:
+    return {
+        m.group(1): set(re.findall(r"^\s*pub (\w+):", m.group(2), re.M))
+        for m in re.finditer(r"pub struct (\w+)\s*\{(.*?)\n\}", text, re.S)
+    }
+
+
+def python_dataclass_fields(text: str) -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for m in re.finditer(r"^class (\w+):\n(.*?)(?=\n\nclass |\n\n@|\Z)", text, re.S | re.M):
+        fields = set()
+        for line in m.group(2).split("\n"):
+            if re.match(r"^    def |^    @", line):
+                break  # past the attribute block, into methods
+            fm = re.match(r"^    (\w+)\s*:", line)
+            if fm:
+                fields.add(fm.group(1))
+        out[m.group(1)] = fields
+    return out
+
+
+def ts_interface_fields(text: str) -> dict[str, set[str]]:
+    return {
+        m.group(1): {camel_to_snake(f) for f in re.findall(r"^\s*(\w+)\??:", m.group(2), re.M)}
+        for m in re.finditer(r"export interface (\w+)\s*\{(.*?)\n\}", text, re.S)
+    }
+
+
+def compare_fields() -> bool:
+    """True on drift."""
+    per_lang = {
+        "rust": rust_struct_fields((ROOT / FIELD_SOURCES["rust"]).read_text()),
+        "python": python_dataclass_fields((ROOT / FIELD_SOURCES["python"]).read_text()),
+        "typescript": ts_interface_fields((ROOT / FIELD_SOURCES["typescript"]).read_text()),
+    }
+    shared = sorted(set.intersection(*(set(d) for d in per_lang.values())))
+
+    print("── HTTP DTO fields")
+    print(f"   {len(shared)} type(s) declared in all three")
+    if len(shared) < MINIMUM_SHARED_DTOS:
+        print(
+            f"   ! only {len(shared)} shared types (< {MINIMUM_SHARED_DTOS}); the parser "
+            "is not seeing these files — treat the result as unusable",
+            file=sys.stderr,
+        )
+        return True
+
+    drifted = 0
+    for name in shared:
+        sets = {lang: per_lang[lang][name] for lang in per_lang}
+        everywhere = set.intersection(*sets.values())
+        anywhere = set.union(*sets.values())
+        missing = sorted(f for f in anywhere - everywhere if (name, f) not in FIELD_LOCAL)
+        if not missing:
+            continue
+        drifted += 1
+        print(f"   {name}:")
+        for field in missing:
+            have = sorted(l for l, f in sets.items() if field in f)
+            lack = sorted(l for l, f in sets.items() if field not in f)
+            print(f"     {field:28} in {'+'.join(have):24} missing from {'+'.join(lack)}")
+    if drifted:
+        print(f"   {drifted} type(s) with field drift")
+    else:
+        print("   every shared type declares the same fields in all three")
+    print()
+    return drifted > 0
+
+
 def main() -> int:
     failed = False
     for label, get_rust, get_py, get_ts in SURFACES:
@@ -210,11 +313,14 @@ def main() -> int:
             print(f"   all {len(everywhere)} verbs present in all three")
         print()
 
+    if compare_fields():
+        failed = True
+
     if failed:
         print(
-            "API surface drift: a verb reachable from one SDK is not reachable from\n"
+            "API surface drift: something reachable from one SDK is not reachable from\n"
             "another. Either add it, or -- if it is genuinely language-local --\n"
-            "add the name to LANGUAGE_LOCAL with a reason.",
+            "add the name to LANGUAGE_LOCAL / FIELD_LOCAL with a reason.",
             file=sys.stderr,
         )
         return 1
