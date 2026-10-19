@@ -23,6 +23,14 @@ KNOWN_LOCAL_FIELDS: dict[tuple[str, str], str] = {
     ("EncodeVectorDirectRequest", "vector"): "rides the payload's raw f32 trailer, not the CBOR",
 }
 
+# Enum variants the SDK is allowed to carry that the server's enum does not,
+# because they are decoder-local and never appear on the wire. Same bargain as
+# KNOWN_LOCAL_FIELDS: narrow, and each one carries its reason.
+KNOWN_LOCAL_VARIANTS: dict[tuple[str, str], str] = {
+    ("ErrorCodeWire", "Unknown"): "0xFFFF catch-all so one unrecognised code cannot "
+    "make a whole ERROR frame undecodable; the server never sends it",
+}
+
 # SDK-local types that happen to share a name with a server type but are not the
 # same thing. Narrow and reasoned on purpose: a blanket skip list would hide the
 # very drift this tool exists to find.
@@ -125,7 +133,11 @@ def compare(server: dict, sdk: dict) -> list[str]:
         srv_v = {v["name"]: v for v in srv["variants"]}
         own_v = {v["name"]: v for v in e_def["variants"]}
         missing = [n for n in srv_v if n not in own_v]
-        extra = [n for n in own_v if n not in srv_v]
+        extra = [
+            n
+            for n in own_v
+            if n not in srv_v and (name, n) not in KNOWN_LOCAL_VARIANTS
+        ]
         if missing:
             problems.append(f"ENUM {name}: MISSING variants {missing}")
         if extra:

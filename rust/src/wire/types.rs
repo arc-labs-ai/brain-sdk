@@ -1660,6 +1660,9 @@ pub enum ErrorCodeWire {
     StreamIdInUse = 0x0063,
     SubscriptionLsnTooOld = 0x0064,
     CardinalityViolation = 0x0065,
+    /// The write's namespace has no usable LLM provider credential.
+    /// **Terminal** — do not retry; the tenant must register a key.
+    LlmCredentialMissing = 0x0066,
     // Resource exhausted.
     OutOfSlots = 0x0070,
     OutOfDisk = 0x0071,
@@ -1682,6 +1685,9 @@ pub enum ErrorCodeWire {
     Restarting = 0x0092,
     Maintenance = 0x0093,
     RetrieverDegraded = 0x0094,
+    /// The namespace's LLM credential could not be resolved right now —
+    /// broker unreachable, timed out, or transiently failing. **Retryable.**
+    LlmCredentialUnavailable = 0x0095,
     // Typed-graph.
     SchemaInvalid = 0x0120,
     SchemaMigrationRequired = 0x0121,
@@ -1697,14 +1703,6 @@ pub enum ErrorCodeWire {
     ExtractorDisabled = 0x0170,
     ExtractorBudgetExceeded = 0x0171,
     ExtractionFailed = 0x0172,
-    // BYOK credential codes. The block assigns the category:
-    // 0x006x = Conflict (terminal), 0x009x = Unavailable (retryable).
-    /// The write's namespace has no usable LLM provider credential.
-    /// **Terminal** — do not retry; the tenant must register a key.
-    LlmCredentialMissing = 0x0066,
-    /// The namespace's LLM credential could not be resolved right now.
-    /// **Retryable.**
-    LlmCredentialUnavailable = 0x0095,
     /// A code this build does not recognise. See the type docs: decoding is
     /// total so a newer server cannot make an ERROR frame unreadable.
     Unknown = 0xFFFF,

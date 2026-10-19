@@ -46,6 +46,13 @@ jobs:
       - name: Check API surface parity
         run: python3 tools/compare_api.py
 
+      # Route-level parity let an SDK speak all 25 routes while dropping half
+      # the fields on each — which is what had happened. This checks parity at
+      # the field level, against brain-edge's manifest and the gateway's DTOs
+      # both, since the gateway adds fields brain-edge never sends.
+      - name: Check HTTP field parity
+        run: python3 tools/check_http_fields.py
+
   rust:
     name: Rust SDK
     runs-on: ubuntu-26.04
