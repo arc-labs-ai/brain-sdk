@@ -187,9 +187,15 @@ ignore = [
 ]
 
 [tool.pytest.ini_options]
-# importlib import mode lets the feature folders (tests/encode/, tests/recall/,
-# …) each carry a `test_<feature>.py` without basename collisions against the
-# flat offline suites (e.g. tests/test_handshake.py vs tests/handshake/…).
+# Every test lives in a topic folder — `tests/<topic>/test_<topic>.py` — and
+# `conftest.py` is the only file at the tests root. importlib import mode is
+# what makes that legal: without it, two folders carrying the same basename
+# (`tests/handshake/test_handshake.py` and
+# `tests/handshake_roundtrip/test_handshake.py`) collide on module name.
+#
+# The folders separate the two kinds of suite, which are gated differently:
+# integration tests need a real server (`BRAIN_SDK_IT_DATA`, see
+# `scripts/it-server.sh`) and skip without one; offline tests always run.
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
 markers = [
