@@ -5,7 +5,9 @@
 
 use std::env;
 
-use brain_db_sdk::http::{BrainHttpClient, HttpRetryPolicy, EncodeInput, ForgetInput, MemoryListQuery, RecallInput};
+use brain_db_sdk::http::{
+    BrainHttpClient, EncodeInput, ForgetInput, HttpRetryPolicy, MemoryListQuery, RecallInput,
+};
 
 fn client() -> Option<BrainHttpClient> {
     let base_url = env::var("BRAIN_SDK_IT_HTTP").ok();

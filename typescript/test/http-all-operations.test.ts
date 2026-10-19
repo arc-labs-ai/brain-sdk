@@ -220,9 +220,7 @@ describe.skipIf(!configured)("every HTTP operation, live", () => {
     const statements = await c.listStatements({ limit: 5 });
     expect(Array.isArray(statements.statements)).toBe(true);
     for (const statement of statements.statements.slice(0, 1)) {
-      expect((await c.getStatement(statement.statementId)).statementId).toBe(
-        statement.statementId,
-      );
+      expect((await c.getStatement(statement.statementId)).statementId).toBe(statement.statementId);
     }
   });
 

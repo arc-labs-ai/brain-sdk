@@ -2167,9 +2167,7 @@ function decodeGraph(value: unknown): GraphEnrichment {
           : null,
         // Absent means "the object is a literal, not an entity" — which is
         // the safe reading, and the question `objectLabel` cannot answer.
-        objectEntityId: s.has("object_entity_id")
-          ? asBytes(field(s, "object_entity_id"))
-          : null,
+        objectEntityId: s.has("object_entity_id") ? asBytes(field(s, "object_entity_id")) : null,
       };
     }),
     relations: asArray(field(m, "relations")).map((v) => {

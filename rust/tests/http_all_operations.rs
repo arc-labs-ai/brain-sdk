@@ -275,7 +275,11 @@ async fn forget_is_idempotent() {
                 .expect("forget")
         }
     };
-    assert!(!forget(created.memory_id.clone()).await.was_already_forgotten);
+    assert!(
+        !forget(created.memory_id.clone())
+            .await
+            .was_already_forgotten
+    );
     assert!(forget(created.memory_id).await.was_already_forgotten);
 }
 
@@ -366,7 +370,10 @@ async fn list_entities_pages_with_a_cursor() {
             .expect("list next page");
         for entity in &next.entities {
             assert!(
-                !page.entities.iter().any(|e| e.entity_id == entity.entity_id),
+                !page
+                    .entities
+                    .iter()
+                    .any(|e| e.entity_id == entity.entity_id),
                 "the second page repeated a row from the first"
             );
         }

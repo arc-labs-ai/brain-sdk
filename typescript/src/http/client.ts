@@ -54,7 +54,6 @@ import type {
   TraverseResult,
   UnlinkInput,
   UnlinkResult,
-  Permissions,
   Whoami,
 } from "./types.js";
 
@@ -542,4 +541,3 @@ function parseErrorBody(
   }
   return { code, message, fieldErrors };
 }
-

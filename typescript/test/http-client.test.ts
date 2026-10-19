@@ -546,9 +546,9 @@ describe("retry", () => {
       [503, { error: { code: "unavailable", message: "shard restarting" } }],
       [200, {}],
     ];
-    await expect(
-      client.link({ source: "1", target: "2", kind: "caused" }),
-    ).rejects.toBeInstanceOf(BrainHttpError);
+    await expect(client.link({ source: "1", target: "2", kind: "caused" })).rejects.toBeInstanceOf(
+      BrainHttpError,
+    );
     expect(seen, "a state-creating verb must run exactly once").toHaveLength(1);
   });
 
