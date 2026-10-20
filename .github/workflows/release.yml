@@ -92,6 +92,31 @@ jobs:
           test "$TAG" = "$CRATE" || { echo "::error::tag $TAG != crate version $CRATE"; exit 1; }
       - name: Test
         run: cargo test --all-targets
+      # release-please bumps `rust/Cargo.toml` through `extra-files`, but it has
+      # no updater that can bump `rust/Cargo.lock`, so at tag time the lock
+      # still records the PREVIOUS version of this crate. The `Test` step above
+      # is what notices: cargo re-resolves and rewrites the lock, which leaves
+      # the working tree dirty, and `cargo publish` then refuses to package a
+      # dirty tree. v0.2.0 reached npm and PyPI and never reached crates.io for
+      # exactly this reason.
+      #
+      # Commit that one file inside the runner's throwaway checkout so the lock
+      # agrees with the manifest and the tree is clean. Nothing is ever pushed.
+      #
+      # Scoping the commit to Cargo.lock is deliberate: `--allow-dirty` would
+      # also wave through a stray uncommitted source file, whereas this leaves
+      # publish's dirty-tree check doing its real job on everything else.
+      - name: Reconcile the lockfile the manifest bump left behind
+        run: |
+          if git diff --quiet -- Cargo.lock; then
+            echo "lockfile already matches the manifest; nothing to reconcile"
+          else
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit --quiet -m 'chore: sync Cargo.lock to the tagged version' \
+                -- Cargo.lock
+            echo "committed the regenerated lockfile locally (never pushed)"
+          fi
       # Exchanges the GitHub OIDC token for a short-lived crates.io token.
       - name: Authenticate to crates.io (OIDC)
         id: auth
