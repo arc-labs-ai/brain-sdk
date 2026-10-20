@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0](https://github.com/arc-labs-ai/brain-sdk/compare/v0.1.0...v0.2.0) (2026-10-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **http:** `normalizeWhoami` and `WireWhoami` are removed from the TypeScript SDK. `whoami` now reports named permission booleans — `can_encode`, `can_recall`, `can_plan`, `can_reason`, `can_forget`, `can_admin`, `can_act_as` — decoded from the server's bitset, which Python and Rust had been exposing as a raw integer with no documented way to read it. No compatibility shim ships: a bitset left reachable is how a bitset comes back.
+
+### Features
+
+* **http:** match the gateway's field, error and retry contract ([0bb9d89](https://github.com/arc-labs-ai/brain-sdk/commit/0bb9d895f916e44fd492fa26f77d360e056d3f91))
+* **wire:** vendor brain-db 0.2.0's protocol and enforce it in CI ([6195096](https://github.com/arc-labs-ai/brain-sdk/commit/61950960c10780d992af8bf90fa8d5026fe70ee1))
+
+
+### Tests and verification
+
+* **byok:** pin the credential error contract in all three SDKs ([a21115c](https://github.com/arc-labs-ai/brain-sdk/commit/a21115cfe9323bab094074b95a4d95288ebf9e0b))
+* exercise all 25 operations live in every SDK ([d8a4d2a](https://github.com/arc-labs-ai/brain-sdk/commit/d8a4d2afba8ec3500511a2f2dc667614730b72b6))
+* give every suite a topic folder, leaving the test root bare ([4b23fd8](https://github.com/arc-labs-ai/brain-sdk/commit/4b23fd88d1e621f3165ffa11b15496728171648e))
+
+
+### Build and tooling
+
+* check HTTP field parity against brain-edge and the gateway ([3d2e75d](https://github.com/arc-labs-ai/brain-sdk/commit/3d2e75d221fadc1d9b36595328fa3165e1b5f319))
+* **deps:** clear the SDK's audit gate ([d655c22](https://github.com/arc-labs-ai/brain-sdk/commit/d655c220b687848797ffdac8fa4b21e790e57b11))
+
 ## 0.1.0 (2026-10-06)
 
 

@@ -1,6 +1,6 @@
 {
   "name": "@brain-db/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Hand-written client SDK for the Brain memory database. Speaks Brain's BRN0 wire protocol directly over TCP.",
   "license": "Apache-2.0",
   "author": "Niraj Georgian",
