@@ -197,6 +197,19 @@ export enum WireErrorCode {
   AdminPermissionRequired = 0x0031,
   WrongShard = 0x0032,
   ActAsDenied = 0x0033,
+  /**
+   * The write's namespace has no usable LLM provider credential (BYOK).
+   * Terminal — retrying cannot create a key; the tenant must register one.
+   * Category `Conflict`, so it is not retryable.
+   */
+  LlmCredentialMissing = 0x0066,
+  /**
+   * The namespace's LLM credential could not be resolved right now (broker
+   * unreachable or timing out). Category `Unavailable` — retryable.
+   * Deliberately distinct from {@link WireErrorCode.LlmCredentialMissing}:
+   * collapsing them would make a broker blip look like an unconfigured tenant.
+   */
+  LlmCredentialUnavailable = 0x0095,
 }
 
 // ---------------------------------------------------------------------------
@@ -454,10 +467,17 @@ export function decodeAuthOk(bytes: Uint8Array): AuthOkPayload {
       canForget: asBool(field(perm, "can_forget")),
       canAdmin: asBool(field(perm, "can_admin")),
       // Tolerate older servers that predate the act-as grant bit.
-      canActAs: perm.has("can_act_as") ? asBool(field(perm, "can_act_as")) : false,
+      // REQUIRED, not defaulted. This fell back to `false` for a server that
+      // predates the field; every server emits it now, so the fallback only
+      // fires on a malformed frame — and `false` is a legitimate-looking
+      // value, so the SDK would silently decide the connection may not
+      // act-as rather than report an unreadable handshake.
+      canActAs: asBool(field(perm, "can_act_as")),
     },
     // Tolerate older servers that don't emit the field yet.
-    namespace: m.has("namespace") ? asStr(field(m, "namespace")) : "",
+    // REQUIRED, same reasoning: an empty string is a plausible-looking
+    // namespace rather than an obvious failure.
+    namespace: asStr(field(m, "namespace")),
     serverTimeUnixNanos: asBig(field(m, "server_time_unix_nanos")),
   };
 }
@@ -1978,6 +1998,13 @@ export interface EnrichedStatement {
   subjectName: string;
   predicate: string;
   objectLabel: string;
+  /** The object's entity id when the object IS an entity; `null` for a
+   * literal value. `objectLabel` alone cannot answer "is this an entity?" —
+   * it stringifies both cases — so a consumer had to guess by matching the
+   * label against known entity names, and that guess is wrong exactly when a
+   * literal's text equals an entity's name. Absent from the wire map means
+   * "no entity object". */
+  objectEntityId: Uint8Array | null;
   confidence: number;
   /** When the statement's EVENT happened, in unix nanos — the reified Time
    * slot of an Event-kind statement. `null` when the statement has no event
@@ -2031,6 +2058,9 @@ function encodeGraph(g: GraphEnrichment): Map<string, unknown> {
           ["confidence", f32(s.confidence)],
         ]);
         if (s.eventAtUnixNanos != null) sm.set("event_at_unix_nanos", s.eventAtUnixNanos);
+        // Omitted when null, matching the server's `skip_serializing_if`: a
+        // literal object carries no entity id at all rather than a null one.
+        if (s.objectEntityId != null) sm.set("object_entity_id", s.objectEntityId);
         return sm;
       }),
     ],
@@ -2135,6 +2165,9 @@ function decodeGraph(value: unknown): GraphEnrichment {
         eventAtUnixNanos: s.has("event_at_unix_nanos")
           ? asBig(field(s, "event_at_unix_nanos"))
           : null,
+        // Absent means "the object is a literal, not an entity" — which is
+        // the safe reading, and the question `objectLabel` cannot answer.
+        objectEntityId: s.has("object_entity_id") ? asBytes(field(s, "object_entity_id")) : null,
       };
     }),
     relations: asArray(field(m, "relations")).map((v) => {

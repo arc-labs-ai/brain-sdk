@@ -85,10 +85,36 @@ class ActAsDenied(ServerError):
     namespace is outside its allowlist (wire code ``0x0033``)."""
 
 
+class LlmCredentialMissing(ServerError):
+    """The write's namespace has no usable LLM provider credential — BYOK is
+    configured but this tenant has not registered a key (wire code ``0x0066``).
+
+    **Terminal.** Retrying cannot create a key; the fix is to register one.
+    Brain refuses the write rather than storing a memory it cannot ground:
+    HyPE and extraction are mandatory, so an admitted write would land as text
+    with no questions, entities or statements and recall would quietly degrade.
+
+    Carries category ``Conflict``, so :func:`is_retryable` returns ``False``.
+    """
+
+
+class LlmCredentialUnavailable(ServerError):
+    """The namespace's LLM credential could not be resolved right now — the
+    credential broker is unreachable, timed out, or returned a transient error
+    (wire code ``0x0095``).
+
+    **Retryable**, and deliberately distinct from :class:`LlmCredentialMissing`:
+    collapsing the two would make a broker blip look like a permanently
+    unconfigured tenant and fail writes that should have succeeded on retry.
+    """
+
+
 # Wire error code -> ServerError subclass. Codes not listed here surface as the
 # base ``ServerError``.
 _CODE_TO_ERROR: dict[int, type[ServerError]] = {
     ErrorCode.ACT_AS_DENIED: ActAsDenied,
+    ErrorCode.LLM_CREDENTIAL_MISSING: LlmCredentialMissing,
+    ErrorCode.LLM_CREDENTIAL_UNAVAILABLE: LlmCredentialUnavailable,
 }
 
 
@@ -110,6 +136,8 @@ __all__ = [
     "BrainError",
     "BrainTimeout",
     "ConnectionClosed",
+    "LlmCredentialMissing",
+    "LlmCredentialUnavailable",
     "ProtocolError",
     "ServerError",
     "VersionMismatch",

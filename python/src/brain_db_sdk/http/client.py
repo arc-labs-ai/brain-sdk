@@ -96,15 +96,36 @@ class BrainHttpClient:
         query: str,
         max_results: Optional[int] = None,
         subject: Optional[str] = None,
+        include_trace: Optional[bool] = None,
     ) -> RecallResult:
-        """Recall memories for a cue."""
-        body = _compact({"query": query, "max_results": max_results, "subject": subject})
-        return RecallResult.from_dict(self._request("POST", "/v1/recall", body))
+        """Recall memories for a cue.
+
+        ``include_trace`` returns Brain's read pipeline alongside the hits as
+        :attr:`RecallResult.trace` — which retrievers ran, how they were
+        fused, what the filter chain dropped, what the reranker did. It is
+        several KB per call, so leave it off in hot paths and switch it on
+        when chasing a bad answer. The cloud gateway serves it; a server that
+        does not support it ignores the field and returns no trace.
+        """
+        body = _compact(
+            {
+                "query": query,
+                "max_results": max_results,
+                "subject": subject,
+                "include_trace": include_trace,
+            }
+        )
+        return RecallResult.from_dict(self._request("POST", "/v1/recall", body, idempotent=True))
 
     def forget(self, memory_id: str, hard: bool = False) -> ForgetResult:
         """Forget a memory."""
         return ForgetResult.from_dict(
-            self._request("DELETE", "/v1/memories", {"memory_id": memory_id, "hard": hard})
+            self._request(
+                "DELETE",
+                "/v1/memories",
+                {"memory_id": memory_id, "hard": hard},
+                idempotent=True,
+            )
         )
 
     def link(
@@ -121,7 +142,7 @@ class BrainHttpClient:
     def unlink(self, source: str, target: str, kind: str) -> UnlinkResult:
         """Remove a directed edge (idempotent)."""
         body = {"source": source, "target": target, "kind": kind}
-        return UnlinkResult.from_dict(self._request("DELETE", "/v1/links", body))
+        return UnlinkResult.from_dict(self._request("DELETE", "/v1/links", body, idempotent=True))
 
     def plan(
         self,
@@ -146,7 +167,7 @@ class BrainHttpClient:
                 "strategy": strategy,
             }
         )
-        return PlanResult.from_dict(self._request("POST", "/v1/plan", body))
+        return PlanResult.from_dict(self._request("POST", "/v1/plan", body, idempotent=True))
 
     def reason(
         self,
@@ -169,7 +190,7 @@ class BrainHttpClient:
                 "budget_wall_time_ms": budget_wall_time_ms,
             }
         )
-        return ReasonResult.from_dict(self._request("POST", "/v1/reason", body))
+        return ReasonResult.from_dict(self._request("POST", "/v1/reason", body, idempotent=True))
 
     def whoami(self) -> Whoami:
         """The identity Brain resolves from the credential."""
@@ -221,8 +242,13 @@ class BrainHttpClient:
         include_tombstoned: Optional[bool] = None,
         include_merged: Optional[bool] = None,
         limit: Optional[int] = None,
+        cursor: Optional[str] = None,
     ) -> ListEntitiesResult:
-        """Entities in the space, optionally filtered."""
+        """Entities in the space, optionally filtered.
+        ``cursor`` resumes after a previous page's ``next_cursor``; keep the
+        other filters identical across pages, because the cursor is bound to
+        them.
+        """
         query = _compact(
             {
                 "type_id": type_id,
@@ -231,6 +257,7 @@ class BrainHttpClient:
                 "include_tombstoned": include_tombstoned,
                 "include_merged": include_merged,
                 "limit": limit,
+                "cursor": cursor,
             }
         )
         return ListEntitiesResult.from_dict(
@@ -298,7 +325,12 @@ class BrainHttpClient:
             }
         )
         return TraverseResult.from_dict(
-            self._request("POST", f"/v1/entities/{_seg(entity_id)}/traverse", body)
+            self._request(
+                "POST",
+                f"/v1/entities/{_seg(entity_id)}/traverse",
+                body,
+                idempotent=True,
+            )
         )
 
     # --- relations --------------------------------------------------------
@@ -311,12 +343,17 @@ class BrainHttpClient:
         include_superseded: Optional[bool] = None,
         include_tombstoned: Optional[bool] = None,
         limit: Optional[int] = None,
+        cursor: Optional[str] = None,
     ) -> ListRelationsResult:
         """Relations touching one entity.
 
         ``relation_type`` goes on the wire as ``type`` — the edge's query struct
         renames it, because ``type`` is a Rust keyword there just as it is a
         builtin here.
+
+        ``cursor`` resumes after a previous page's ``next_cursor``; keep the
+        other filters identical across pages, because the cursor is bound to
+        them.
         """
         query = _compact(
             {
@@ -325,6 +362,7 @@ class BrainHttpClient:
                 "include_superseded": include_superseded,
                 "include_tombstoned": include_tombstoned,
                 "limit": limit,
+                "cursor": cursor,
             }
         )
         return ListRelationsResult.from_dict(
@@ -358,8 +396,13 @@ class BrainHttpClient:
         only_current: Optional[bool] = None,
         include_tombstoned: Optional[bool] = None,
         limit: Optional[int] = None,
+        cursor: Optional[str] = None,
     ) -> ListStatementsResult:
-        """Statements in the space, optionally filtered."""
+        """Statements in the space, optionally filtered.
+        ``cursor`` resumes after a previous page's ``next_cursor``; keep the
+        other filters identical across pages, because the cursor is bound to
+        them.
+        """
         query = _compact(
             {
                 "subject": subject,
@@ -369,6 +412,7 @@ class BrainHttpClient:
                 "only_current": only_current,
                 "include_tombstoned": include_tombstoned,
                 "limit": limit,
+                "cursor": cursor,
             }
         )
         return ListStatementsResult.from_dict(

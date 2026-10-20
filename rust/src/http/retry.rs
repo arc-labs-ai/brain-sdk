@@ -64,7 +64,14 @@ impl HttpRetryPolicy {
     /// terminal verdict.
     #[must_use]
     pub(crate) fn is_retryable_status(status: u16) -> bool {
-        status == 0 || status == 503
+        // 429 is a "slow down", not a refusal: an idempotent call is safe to
+        // repeat once the server's `Retry-After` has passed, and `backoff`
+        // already honours that hint. It was excluded here while the
+        // TypeScript client retried it, so the same rate-limited read was
+        // absorbed by one SDK and raised at the caller by this one. Every
+        // other 4xx stays terminal — retrying a 400 or a 409 cannot change
+        // the answer.
+        status == 0 || status == 429 || status == 503
     }
 
     /// Whether to retry after `attempt` (1-based) produced `err`.
@@ -99,10 +106,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_503_and_transport_are_retryable() {
+    fn byok_missing_credential_status_is_not_retryable() {
+        // The BYOK contract maps "this namespace has no provider key" to HTTP
+        // 409. That choice is load-bearing: a tenant without a key cannot
+        // acquire one by retrying, so if it were mapped to 503 every client
+        // would hammer the endpoint forever. The transient counterpart
+        // (credential broker unreachable) is 503 and SHOULD retry.
+        // A rate limit is a "slow down", not a refusal. The server sends
+        // Retry-After and `backoff` honours it; excluding 429 here made the
+        // same throttled read terminal in Rust and absorbed in TypeScript.
+        assert!(
+            HttpRetryPolicy::is_retryable_status(429),
+            "429 carries Retry-After and an idempotent call is safe to repeat"
+        );
+        assert!(
+            !HttpRetryPolicy::is_retryable_status(400),
+            "retrying a malformed request cannot change the answer"
+        );
+        assert!(
+            !HttpRetryPolicy::is_retryable_status(409),
+            "llm_credential.missing (409) is terminal — retrying cannot create a key"
+        );
+        assert!(
+            HttpRetryPolicy::is_retryable_status(503),
+            "llm_credential.unavailable (503) is transient — it must retry"
+        );
+    }
+
+    #[test]
+    fn transport_503_and_429_are_retryable_and_nothing_else_is() {
         assert!(HttpRetryPolicy::is_retryable_status(0));
         assert!(HttpRetryPolicy::is_retryable_status(503));
-        for s in [400, 401, 404, 409, 429, 500, 502, 504] {
+        // 429 moved into this set: the server sends Retry-After, `backoff`
+        // honours it, and an idempotent call is safe to repeat once it has
+        // passed. It was terminal here while TypeScript retried it.
+        assert!(HttpRetryPolicy::is_retryable_status(429));
+        // 500/502/504 stay terminal on purpose: unlike 503 they carry no
+        // "try again" contract, and a blind repeat of a write-adjacent fault
+        // is how one failure becomes several.
+        for s in [400, 401, 404, 409, 500, 502, 504] {
             assert!(
                 !HttpRetryPolicy::is_retryable_status(s),
                 "{s} must not retry"

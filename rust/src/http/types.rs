@@ -54,6 +54,13 @@ pub struct RecallInput {
     pub max_results: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+    /// Return Brain's read-pipeline trace as [`RecallResult::trace`] — which
+    /// retrievers ran, how they were fused, what the filter chain dropped,
+    /// what the reranker moved. Several KB per call, so leave it off in hot
+    /// paths and switch it on when chasing a bad answer. Served by the cloud
+    /// gateway; a server without it ignores the field and returns no trace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_trace: Option<bool>,
 }
 
 /// One recalled memory.
@@ -73,6 +80,12 @@ pub struct MemoryHit {
 pub struct RecallResult {
     pub answer_kind: String,
     pub memories: Vec<MemoryHit>,
+    /// The read-pipeline trace as a JSON **string**, present only when
+    /// `include_trace` was asked for and the server supports it. A string
+    /// rather than a parsed value because its ids are 128-bit integers that a
+    /// JSON number would round; parse it with a big-integer-safe reader.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace: Option<String>,
 }
 
 // --- forget ----------------------------------------------------------------
@@ -390,6 +403,10 @@ pub struct ListEntitiesQuery {
     pub include_merged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Resume after the previous page (its `next_cursor`). Keep the other
+    /// filters identical across pages — the cursor is bound to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
 }
 
 /// One entity, as the edge projects it.
@@ -411,6 +428,11 @@ pub struct EntityDetail {
 pub struct ListEntitiesResult {
     pub entities: Vec<EntityDetail>,
     pub count: usize,
+    /// Present when more rows follow; pass it back as `cursor`. Served by the
+    /// cloud gateway's keyset pagination; a server without it omits the field
+    /// and the page is the whole result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// `create_entity` input. `aliases` is omitted when empty.
@@ -475,6 +497,15 @@ pub struct TraversalStep {
     pub to: String,
     pub relation_type: String,
     pub depth: u32,
+    /// Display name of `from` (absent when it could not be resolved).
+    ///
+    /// The server resolves these so a caller does not have to.
+    /// Without them every consumer re-queries each id just to print a name — which is the second call the field exists to remove.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_name: Option<String>,
+    /// Display name of `to` (absent when it could not be resolved).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_name: Option<String>,
 }
 
 /// One path the traversal found, as an ordered list of steps.
@@ -508,6 +539,10 @@ pub struct ListRelationsQuery {
     pub include_tombstoned: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Resume after the previous page (its `next_cursor`). Keep the other
+    /// filters identical across pages — the cursor is bound to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
 }
 
 /// One relation, as the edge projects it.
@@ -522,6 +557,15 @@ pub struct RelationDetail {
     pub valid_to_unix_nanos: u64,
     pub is_symmetric: bool,
     pub tombstoned: bool,
+    /// Display name of `from_entity` (absent when it could not be resolved).
+    ///
+    /// The server resolves these so a caller does not have to.
+    /// Without them every consumer re-queries each id just to print a name — which is the second call the field exists to remove.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_name: Option<String>,
+    /// Display name of `to_entity` (absent when it could not be resolved).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_name: Option<String>,
 }
 
 /// `list_relations` result.
@@ -529,6 +573,11 @@ pub struct RelationDetail {
 pub struct ListRelationsResult {
     pub relations: Vec<RelationDetail>,
     pub count: usize,
+    /// Present when more rows follow; pass it back as `cursor`. Served by the
+    /// cloud gateway's keyset pagination; a server without it omits the field
+    /// and the page is the whole result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// `get_relation` query. `follow_supersession` defaults to `true` on the edge:
@@ -560,6 +609,10 @@ pub struct ListStatementsQuery {
     pub include_tombstoned: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Resume after the previous page (its `next_cursor`). Keep the other
+    /// filters identical across pages — the cursor is bound to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
 }
 
 /// Deserialize an `f64` by way of `serde_json::Number`.
@@ -633,6 +686,15 @@ pub struct StatementDetail {
     pub valid_from_unix_nanos: u64,
     pub valid_to_unix_nanos: u64,
     pub tombstoned: bool,
+    /// Display name of `subject` (absent when it could not be resolved).
+    ///
+    /// The server resolves these so a caller does not have to.
+    /// Without them every consumer re-queries each id just to print a name — which is the second call the field exists to remove.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_name: Option<String>,
+    /// Display name of an entity object (absent for values / unresolved).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_name: Option<String>,
 }
 
 /// `list_statements` result.
@@ -640,6 +702,11 @@ pub struct StatementDetail {
 pub struct ListStatementsResult {
     pub statements: Vec<StatementDetail>,
     pub count: usize,
+    /// Present when more rows follow; pass it back as `cursor`. Served by the
+    /// cloud gateway's keyset pagination; a server without it omits the field
+    /// and the page is the whole result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// `get_statement` query. Same defaulting as [`GetRelationQuery`]: absent means
@@ -782,4 +849,56 @@ pub struct SchemaReplaceResult {
     pub schema_version: u32,
     pub dropped_count: u32,
     pub validation_errors: Vec<SchemaError>,
+}
+
+#[cfg(test)]
+mod recall_trace_tests {
+    use super::{RecallInput, RecallResult};
+
+    /// The trace is several KB per call, so the field is opt-in AND absent
+    /// from the body when it is not asked for — a hot path's request is
+    /// byte-identical to what it was before the field existed.
+    #[test]
+    fn include_trace_is_omitted_unless_set() {
+        let body = serde_json::to_string(&RecallInput {
+            query: "x".into(),
+            max_results: Some(5),
+            ..Default::default()
+        })
+        .expect("serialize");
+        assert!(!body.contains("include_trace"), "{body}");
+    }
+
+    #[test]
+    fn include_trace_is_sent_when_set() {
+        let body = serde_json::to_string(&RecallInput {
+            query: "x".into(),
+            include_trace: Some(true),
+            ..Default::default()
+        })
+        .expect("serialize");
+        assert!(body.contains(r#""include_trace":true"#), "{body}");
+    }
+
+    /// Parity with the TypeScript client, which carried `includeTrace` while
+    /// this one did not. The trace arrives as a JSON STRING — its ids are
+    /// 128-bit and a JSON number would round them — so it is handed over
+    /// unparsed.
+    #[test]
+    fn trace_round_trips_as_an_opaque_string() {
+        let r: RecallResult = serde_json::from_str(
+            r#"{"answer_kind":"single","memories":[],"trace":"{\"stages\":[]}"}"#,
+        )
+        .expect("deserialize");
+        assert_eq!(r.trace.as_deref(), Some(r#"{"stages":[]}"#));
+    }
+
+    /// A server without the flag returns no trace at all. That is not an
+    /// error, and it must not fail deserialization.
+    #[test]
+    fn a_missing_trace_is_none_not_an_error() {
+        let r: RecallResult =
+            serde_json::from_str(r#"{"answer_kind":"none","memories":[]}"#).expect("deserialize");
+        assert!(r.trace.is_none());
+    }
 }

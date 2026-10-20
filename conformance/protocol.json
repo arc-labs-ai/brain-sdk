@@ -540,6 +540,9 @@
      "name": "CardinalityViolation"
     },
     {
+     "name": "LlmCredentialMissing"
+    },
+    {
      "name": "OutOfSlots"
     },
     {
@@ -595,6 +598,9 @@
     },
     {
      "name": "RetrieverDegraded"
+    },
+    {
+     "name": "LlmCredentialUnavailable"
     },
     {
      "name": "SchemaInvalid"
@@ -826,6 +832,10 @@
      "name": "CardinalityViolation"
     },
     {
+     "discriminant": 102,
+     "name": "LlmCredentialMissing"
+    },
+    {
      "discriminant": 112,
      "name": "OutOfSlots"
     },
@@ -900,6 +910,10 @@
     {
      "discriminant": 148,
      "name": "RetrieverDegraded"
+    },
+    {
+     "discriminant": 149,
+     "name": "LlmCredentialUnavailable"
     },
     {
      "discriminant": 288,
@@ -3425,6 +3439,26 @@
     }
    ]
   },
+  "SubjectTypeDecl": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {},
+   "variants": [
+    {
+     "name": "Entity",
+     "struct": [
+      {
+       "name": "entity_type",
+       "serde": {},
+       "type": "String"
+      }
+     ]
+    },
+    {
+     "name": "Any"
+    }
+   ]
+  },
   "TemporalModelAst": {
    "encoding": "tagged",
    "repr": null,
@@ -4560,6 +4594,21 @@
    ],
    "serde": {}
   },
+  "DeclaredContext": {
+   "fields": [
+    {
+     "name": "entity_types",
+     "serde": {},
+     "type": "Vec<String>"
+    },
+    {
+     "name": "relation_types",
+     "serde": {},
+     "type": "Vec<String>"
+    }
+   ],
+   "serde": {}
+  },
   "DurationAst": {
    "fields": [
     {
@@ -5340,6 +5389,14 @@
      "name": "object_label",
      "serde": {},
      "type": "String"
+    },
+    {
+     "name": "object_entity_id",
+     "serde": {
+      "default": true,
+      "with": "opt_byte_array16"
+     },
+     "type": "Option<[u8; 16]>"
     },
     {
      "name": "confidence",
@@ -7524,6 +7581,14 @@
      "name": "kind",
      "serde": {},
      "type": "StatementKindAst"
+    },
+    {
+     "name": "subject",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<SubjectTypeDecl>"
     },
     {
      "name": "object",

@@ -892,6 +892,16 @@ pub struct EnrichedStatement {
     pub subject_name: String,
     pub predicate: String,
     pub object_label: String,
+    /// The object's entity id when the object IS an entity; `None` for a
+    /// literal value.
+    ///
+    /// `object_label` alone cannot answer "is this an entity?" — it
+    /// stringifies both cases — so a consumer had to guess by matching the
+    /// label against known entity names, and that guess is wrong exactly when
+    /// a literal's text equals an entity's name. Optional on the wire, so a
+    /// peer that omits it still decodes; absent means "no entity object".
+    #[serde(default, with = "crate::wire::cbor::opt_byte_array16")]
+    pub object_entity_id: Option<[u8; 16]>,
     pub confidence: f32,
     /// When the statement's EVENT happened, in unix nanos — the reified
     /// Time slot of an Event-kind statement. Absent from the wire map for
@@ -1579,9 +1589,24 @@ pub enum ErrorCategoryWire {
 
 /// Wire error code (`u16`). Carried in an ERROR frame; the integer value
 /// is the stable programmatic handle.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+/// Fine-grained wire error code.
+///
+/// ## Forward compatibility
+///
+/// Decoding is **total**: a code this build does not know maps to
+/// [`ErrorCodeWire::Unknown`] rather than failing the frame. That matters
+/// because the server adds codes over time, and the Python and TypeScript
+/// SDKs both model `code` as a plain integer — so a newer server's ERROR
+/// frame is readable there. Before this, Rust derived `Deserialize_repr` with
+/// no catch-all, so a single unrecognised code made the whole ERROR frame
+/// undecodable and the client reported a parse failure instead of the
+/// server's actual error. That is a divergence from the other two SDKs, not a
+/// deliberate choice.
+///
+/// `Unknown` deliberately carries no payload so the enum keeps its `repr(u16)`
+/// and every `as u16` cast still works. Callers that need to distinguish an
+/// unrecognised code use [`ErrorResponse::code_is_unknown`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u16)]
 pub enum ErrorCodeWire {
     // Protocol.
@@ -1635,6 +1660,9 @@ pub enum ErrorCodeWire {
     StreamIdInUse = 0x0063,
     SubscriptionLsnTooOld = 0x0064,
     CardinalityViolation = 0x0065,
+    /// The write's namespace has no usable LLM provider credential.
+    /// **Terminal** — do not retry; the tenant must register a key.
+    LlmCredentialMissing = 0x0066,
     // Resource exhausted.
     OutOfSlots = 0x0070,
     OutOfDisk = 0x0071,
@@ -1657,6 +1685,9 @@ pub enum ErrorCodeWire {
     Restarting = 0x0092,
     Maintenance = 0x0093,
     RetrieverDegraded = 0x0094,
+    /// The namespace's LLM credential could not be resolved right now —
+    /// broker unreachable, timed out, or transiently failing. **Retryable.**
+    LlmCredentialUnavailable = 0x0095,
     // Typed-graph.
     SchemaInvalid = 0x0120,
     SchemaMigrationRequired = 0x0121,
@@ -1672,6 +1703,108 @@ pub enum ErrorCodeWire {
     ExtractorDisabled = 0x0170,
     ExtractorBudgetExceeded = 0x0171,
     ExtractionFailed = 0x0172,
+    /// A code this build does not recognise. See the type docs: decoding is
+    /// total so a newer server cannot make an ERROR frame unreadable.
+    Unknown = 0xFFFF,
+}
+
+impl ErrorCodeWire {
+    /// Map a raw wire value to a known code, or [`Self::Unknown`].
+    ///
+    /// Exhaustive over every code this build knows; anything else is
+    /// `Unknown`, which is what makes decoding total.
+    #[must_use]
+    pub fn from_raw(raw: u16) -> Self {
+        match raw {
+            0x0001 => Self::BadMagic,
+            0x0002 => Self::BadHeaderCrc,
+            0x0003 => Self::BadPayloadCrc,
+            0x0004 => Self::BadOpcode,
+            0x0005 => Self::BadVersion,
+            0x0006 => Self::BadFrame,
+            0x0007 => Self::OversizePayload,
+            0x0008 => Self::ReservedFieldNonZero,
+            0x0009 => Self::BadFlagCombination,
+            0x000A => Self::MalformedPayload,
+            0x000B => Self::MalformedVector,
+            0x0020 => Self::VersionNotSupported,
+            0x0021 => Self::NoSuchAuthMethod,
+            0x0022 => Self::Unauthenticated,
+            0x0023 => Self::NotAuthenticated,
+            0x0024 => Self::AuthBackendUnavailable,
+            0x0025 => Self::SessionExpired,
+            0x0030 => Self::PermissionDenied,
+            0x0031 => Self::AdminPermissionRequired,
+            0x0032 => Self::WrongShard,
+            0x0033 => Self::ActAsDenied,
+            0x0040 => Self::InvalidArgument,
+            0x0041 => Self::MissingRequiredField,
+            0x0042 => Self::TextTooLarge,
+            0x0043 => Self::TextEmpty,
+            0x0044 => Self::BadSessionId,
+            0x0045 => Self::BadMemoryKind,
+            0x0046 => Self::BadEdgeKind,
+            0x0047 => Self::BadStrategyHint,
+            0x0048 => Self::TopKOutOfRange,
+            0x0049 => Self::BudgetTooLarge,
+            0x004A => Self::BadModelFingerprint,
+            0x004B => Self::PredicateNotInSchema,
+            0x004C => Self::RelationTypeNotInSchema,
+            0x0050 => Self::MemoryNotFound,
+            0x0051 => Self::ContextNotFound,
+            0x0052 => Self::SubscriptionNotFound,
+            0x0053 => Self::SnapshotNotFound,
+            0x0054 => Self::TxnNotFound,
+            0x0060 => Self::IdempotencyConflict,
+            0x0061 => Self::TransactionConflict,
+            0x0062 => Self::TransactionTimeout,
+            0x0063 => Self::StreamIdInUse,
+            0x0064 => Self::SubscriptionLsnTooOld,
+            0x0065 => Self::CardinalityViolation,
+            0x0070 => Self::OutOfSlots,
+            0x0071 => Self::OutOfDisk,
+            0x0072 => Self::OutOfMemory,
+            0x0073 => Self::RateLimited,
+            0x0074 => Self::StreamLimitExceeded,
+            0x0075 => Self::ConnectionLimitExceeded,
+            0x0076 => Self::TransactionLimitExceeded,
+            0x0077 => Self::TransactionTooLarge,
+            0x0080 => Self::Internal,
+            0x0081 => Self::StorageError,
+            0x0082 => Self::IndexError,
+            0x0083 => Self::EmbeddingError,
+            0x0084 => Self::MetadataError,
+            0x0085 => Self::Cancelled,
+            0x0090 => Self::ShardUnavailable,
+            0x0091 => Self::Overloaded,
+            0x0092 => Self::Restarting,
+            0x0093 => Self::Maintenance,
+            0x0094 => Self::RetrieverDegraded,
+            0x0120 => Self::SchemaInvalid,
+            0x0121 => Self::SchemaMigrationRequired,
+            0x0130 => Self::EntityNotFound,
+            0x0131 => Self::EntityTypeMismatch,
+            0x0132 => Self::EntityAmbiguous,
+            0x0133 => Self::EntityMergeConflict,
+            0x0140 => Self::StatementNotFound,
+            0x0141 => Self::StatementObjectTypeMismatch,
+            0x0142 => Self::StatementContradictsExisting,
+            0x0160 => Self::QueryTimeout,
+            0x0161 => Self::QueryOverBudget,
+            0x0170 => Self::ExtractorDisabled,
+            0x0171 => Self::ExtractorBudgetExceeded,
+            0x0172 => Self::ExtractionFailed,
+            0x0066 => Self::LlmCredentialMissing,
+            0x0095 => Self::LlmCredentialUnavailable,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ErrorCodeWire {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u16::deserialize(d)?))
+    }
 }
 
 /// Structured detail attached to an error.
@@ -1690,6 +1823,16 @@ pub struct ErrorResponse {
     pub message: String,
     pub details: Option<ErrorDetails>,
     pub retry_after_ms: Option<u32>,
+}
+
+impl ErrorResponse {
+    /// True when the server sent a code this build does not know. Callers
+    /// should fall back to [`Self::category`], which is the field the wire
+    /// contract guarantees is always meaningful.
+    #[must_use]
+    pub fn code_is_unknown(&self) -> bool {
+        self.code == ErrorCodeWire::Unknown
+    }
 }
 
 // ===========================================================================
@@ -3609,4 +3752,56 @@ pub struct QueryTraceRequest {
 pub struct QueryTraceResponse {
     pub trace_text: String,
     pub total_latency_ms: f64,
+}
+
+#[cfg(test)]
+mod error_code_forward_compat_tests {
+    use super::*;
+
+    #[test]
+    fn known_codes_round_trip_through_from_raw() {
+        assert_eq!(
+            ErrorCodeWire::from_raw(0x0033),
+            ErrorCodeWire::ActAsDenied,
+            "an existing code must still decode to its own variant"
+        );
+        assert_eq!(
+            ErrorCodeWire::from_raw(0x0066),
+            ErrorCodeWire::LlmCredentialMissing
+        );
+        assert_eq!(
+            ErrorCodeWire::from_raw(0x0095),
+            ErrorCodeWire::LlmCredentialUnavailable
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_code_decodes_to_unknown_instead_of_failing() {
+        // The defect this closes: `Deserialize_repr` with no catch-all made a
+        // single unrecognised code fail the WHOLE ErrorResponse, so a client
+        // talking to a newer server reported a parse error instead of the
+        // server's actual error. Python and TypeScript both model `code` as a
+        // plain integer and never had this problem.
+        assert_eq!(ErrorCodeWire::from_raw(0xDEAD), ErrorCodeWire::Unknown);
+        assert_eq!(ErrorCodeWire::from_raw(0x7FFF), ErrorCodeWire::Unknown);
+    }
+
+    #[test]
+    fn an_error_response_carrying_an_unknown_code_still_decodes() {
+        // End-to-end: the frame must remain readable, and `category` — the
+        // field the wire contract guarantees is always meaningful — must
+        // survive so the client can still decide whether to retry.
+        let json = serde_json::json!({
+            "code": 0xDEAD_u16,
+            "category": 8,
+            "message": "from a newer server",
+            "details": null,
+            "retry_after_ms": null,
+        });
+        let decoded: ErrorResponse =
+            serde_json::from_value(json).expect("an unknown code must not break the frame");
+        assert!(decoded.code_is_unknown());
+        assert_eq!(decoded.category, ErrorCategoryWire::Unavailable);
+        assert_eq!(decoded.message, "from a newer server");
+    }
 }
