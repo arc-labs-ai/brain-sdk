@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/arc-labs-ai/brain-sdk/compare/v0.3.0...v0.3.1) (2026-10-21)
+
+
+### Fixes
+
+* **release:** match the Cargo.lock entry the way release-please parses it ([ddcdd23](https://github.com/arc-labs-ai/brain-sdk/commit/ddcdd23cbaa56cfca26e875d809a9f8114aa7b03))
+
 ## [0.3.0](https://github.com/arc-labs-ai/brain-sdk/compare/v0.2.1...v0.3.0) (2026-10-21)
 
 
