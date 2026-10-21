@@ -677,10 +677,17 @@ function decodeActAs(value: unknown): ActAs {
  */
 function requestMapWithActAs(
   entries: [string, unknown][],
-  actAs: ActAs | null,
+  // `undefined` as well as `null`: `actAs` is optional on every request type,
+  // so an omitted field arrives here as `undefined` and means the same thing.
+  actAs: ActAs | null | undefined,
 ): Map<string, unknown> {
   const map = new Map<string, unknown>(entries);
-  if (actAs !== null) map.set("act_as", encodeActAs(actAs));
+  // `!= null` deliberately, not `!== null`: a JavaScript caller (no compiler
+  // enforcing the type) that simply omits `actAs` passes `undefined`, which
+  // slipped past a `!== null` check and crashed inside `encodeActAs` with a
+  // TypeError about an unrelated field. Absent and explicitly-null both mean
+  // "no act_as", so both must omit the key.
+  if (actAs != null) map.set("act_as", encodeActAs(actAs));
   return map;
 }
 
@@ -745,7 +752,7 @@ export interface SpaceCreateRequest {
   requestId: WireUuid;
   /** Effective identity this create runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a SPACE_CREATE (`0x0070`) request. */
@@ -811,7 +818,7 @@ export interface SpaceListRequest {
   limit: number;
   /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a SPACE_LIST (`0x0071`) request. */
@@ -866,7 +873,7 @@ export interface SpaceDeleteRequest {
   requestId: WireUuid;
   /** Effective identity this delete runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a SPACE_DELETE (`0x0072`) request. */
@@ -964,7 +971,7 @@ export interface SessionCreateRequest {
   requestId: WireUuid;
   /** Effective identity this create runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a SESSION_CREATE (`0x0073`) request. */
@@ -1031,7 +1038,7 @@ export interface SessionListRequest {
   limit: number;
   /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a SESSION_LIST (`0x0074`) request. */
@@ -1085,7 +1092,7 @@ export interface SessionDeleteRequest {
   requestId: WireUuid;
   /** Effective identity this delete runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a SESSION_DELETE (`0x0075`) request. */
@@ -1197,7 +1204,7 @@ export interface EncodeRequest {
   /** Effective identity this encode runs as, on behalf of the connection
    * principal. `null` (the common case, CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
   /** Write-completion mode (default {@link WaitMode.Ack}). `Derived` blocks
    * until async derivation completes and the ENCODE response carries a
    * populated `trace: EncodeTrace`. Omitted from the CBOR map when `Ack` /
@@ -1822,7 +1829,7 @@ export interface MemoryInspectRequest {
   memoryId: Uint8Array;
   /** Effective identity this read runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a MEMORY_INSPECT (`0x0028`) request. `act_as` trails when present. */
@@ -1848,6 +1855,38 @@ export interface MemoryInspectResponse {
   memoryId: Uint8Array;
   text: string;
   artifact: EncodeStageArtifact;
+  /**
+   * Memory-to-memory edges anchored at this memory, both directions.
+   *
+   * NOT the same as `artifact.graph`, which is the extractor's write-time
+   * knowledge graph — an edge asserted later with LINK never appears there.
+   * Empty when the server does not send the field, so an older server decodes
+   * as "no edges" rather than throwing.
+   */
+  edges: MemoryEdge[];
+}
+
+/** Which way an edge points relative to the memory being inspected. */
+export enum EdgeDirectionWire {
+  Outgoing = 0,
+  Incoming = 1,
+}
+
+/**
+ * One memory-to-memory edge from MEMORY_INSPECT.
+ *
+ * `direction` is relative to the inspected memory, which `peer` alone cannot
+ * express: without it "this caused that" and "that caused this" are the same
+ * row.
+ */
+export interface MemoryEdge {
+  kind: EdgeKindWire;
+  direction: EdgeDirectionWire;
+  /** The memory at the other end, as the 128-bit id. */
+  peer: bigint;
+  weight: number;
+  createdAtUnixNanos: bigint;
+  annotation: string | null;
 }
 
 /** Encode a MEMORY_INSPECT_RESP (`0x00A8`) payload. */
@@ -1858,6 +1897,20 @@ export function encodeMemoryInspectResponse(p: MemoryInspectResponse): Uint8Arra
       ["memory_id", p.memoryId],
       ["text", p.text],
       ["artifact", encodeStageArtifact(p.artifact)],
+      [
+        "edges",
+        p.edges.map(
+          (e) =>
+            new Map<string, unknown>([
+              ["kind", e.kind],
+              ["direction", e.direction],
+              ["peer", e.peer],
+              ["weight", f32(e.weight)],
+              ["created_at_unix_nanos", e.createdAtUnixNanos],
+              ["annotation", e.annotation],
+            ]),
+        ),
+      ],
     ]),
   );
 }
@@ -1870,6 +1923,21 @@ export function decodeMemoryInspectResponse(bytes: Uint8Array): MemoryInspectRes
     memoryId: asBytes(field(m, "memory_id")),
     text: asStr(field(m, "text")),
     artifact: decodeStageArtifact(field(m, "artifact")),
+    // Absent rather than empty on a server that predates the field.
+    edges: m.has("edges") ? asArray(m.get("edges")).map(decodeMemoryEdge) : [],
+  };
+}
+
+function decodeMemoryEdge(value: unknown): MemoryEdge {
+  const m = asMap(value);
+  const annotation = m.get("annotation");
+  return {
+    kind: asNum(field(m, "kind")) as EdgeKindWire,
+    direction: asNum(field(m, "direction")) as EdgeDirectionWire,
+    peer: asBig(field(m, "peer")),
+    weight: asNum(field(m, "weight")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    annotation: typeof annotation === "string" ? annotation : null,
   };
 }
 
@@ -1919,7 +1987,7 @@ export interface RecallRequest {
   trace: boolean;
   /** Effective identity this recall runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
   /** Recall scope: the caller's single space (`"Space"`, default) or every
    * space in its namespace (`"Namespace"`). Always serialized, exactly as the
    * server does — a plain recall carries `"Space"`. Positioned last, after
@@ -1945,12 +2013,12 @@ export function encodeRecall(p: RecallRequest): Uint8Array {
       ["include_text", p.includeText],
       ["request_id", p.requestId],
       ["txn_id", p.txnId],
-      ["trace", p.trace],
+      ["trace", p.trace ?? false],
     ],
     p.actAs,
   );
   // `scope` follows `act_as`, always present (never skipped).
-  map.set("scope", p.scope);
+  map.set("scope", p.scope ?? "Space");
   return toCbor(map);
 }
 
@@ -2572,7 +2640,7 @@ export interface ForgetRequest {
   txnId: WireUuid | null;
   /** Effective identity this forget runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a FORGET (`0x0024`) request. */
@@ -2834,7 +2902,7 @@ export interface EntityCreateRequest {
   requestId: WireUuid;
   /** Effective identity this entity create runs as. `null` (CBOR-omitted)
    * runs as the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_CREATE (`0x0130`) request. */
@@ -2901,7 +2969,7 @@ export interface StatementCreateRequest {
   requestId: WireUuid;
   /** Effective identity this statement create runs as. `null` (CBOR-omitted)
    * runs as the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** The CBOR map for a STATEMENT_CREATE payload — shared so STATEMENT_SUPERSEDE
@@ -3002,7 +3070,7 @@ export interface RelationCreateRequest {
   requestId: WireUuid;
   /** Effective identity this relation create runs as. `null` (CBOR-omitted)
    * runs as the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** The CBOR map for a RELATION_CREATE payload — shared so RELATION_SUPERSEDE
@@ -3706,7 +3774,7 @@ export interface LinkRequest {
   txnId: WireUuid | null;
   /** Effective identity this link runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a LINK (`0x0025`) request. */
@@ -3787,7 +3855,7 @@ export interface UnlinkRequest {
   txnId: WireUuid | null;
   /** Effective identity this unlink runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode an UNLINK (`0x0026`) request. */
@@ -3909,7 +3977,7 @@ export interface MemoryListRequest {
   textContains: string;
   /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a MEMORY_LIST (`0x0027`) request. `act_as` trails when present. */
@@ -4142,7 +4210,7 @@ export interface GraphFetchRequest {
   includeTombstoned: boolean;
   /** Effective identity this export runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a GRAPH_FETCH (`0x0163`) request. `act_as` trails when present. */
@@ -4306,7 +4374,7 @@ export interface PlanRequest {
   trace: boolean;
   /** Effective identity this plan runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a PLAN (`0x0022`) request. */
@@ -4321,7 +4389,7 @@ export function encodePlan(p: PlanRequest): Uint8Array {
         ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
-        ["trace", p.trace],
+        ["trace", p.trace ?? false],
       ],
       p.actAs,
     ),
@@ -4585,7 +4653,7 @@ export interface ReasonRequest {
   trace: boolean;
   /** Effective identity this reason runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a REASON (`0x0023`) request. */
@@ -4601,7 +4669,7 @@ export function encodeReason(p: ReasonRequest): Uint8Array {
         ["budget_wall_time_ms", p.budgetWallTimeMs],
         ["request_id", p.requestId],
         ["txn_id", p.txnId],
-        ["trace", p.trace],
+        ["trace", p.trace ?? false],
       ],
       p.actAs,
     ),
@@ -5005,7 +5073,7 @@ export interface TxnBeginRequest {
    * applies to the whole txn; TXN_COMMIT carries no `act_as` of its own.
    * `null` (the common case, CBOR-omitted) commits as the connection's own
    * key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a TXN_BEGIN (`0x0040`) request. `act_as` follows `timeout_seconds`
@@ -5368,7 +5436,7 @@ export interface EntityGetRequest {
   /** Effective identity this get runs as, on behalf of the connection
    * principal. `null` (the common case, CBOR-omitted) runs as the connection's
    * own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_GET (`0x0131`) request. */
@@ -5433,7 +5501,7 @@ export interface EntityListRequest {
   /** Effective identity this list runs as, on behalf of the connection
    * principal. `null` (the common case, CBOR-omitted) runs as the connection's
    * own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_LIST (`0x0137`) request. */
@@ -5526,7 +5594,7 @@ export interface EntityResolveRequest {
    * principal. `null` (the common case, CBOR-omitted) runs as the
    * connection's own key-bound identity. Resolution is scoped to the
    * effective `(namespace, space)`. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_RESOLVE (`0x0136`) request. */
@@ -5694,7 +5762,7 @@ export interface StatementGetRequest {
   /** Effective identity this get runs as, on behalf of the connection
    * principal. `null` (the common case, CBOR-omitted) runs as the connection's
    * own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a STATEMENT_GET (`0x0141`) request. */
@@ -5761,7 +5829,7 @@ export interface StatementListRequest {
   /** Effective identity this list runs as, on behalf of the connection
    * principal. `null` (the common case, CBOR-omitted) runs as the connection's
    * own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a STATEMENT_LIST (`0x0146`) request. */
@@ -5919,7 +5987,7 @@ export interface RelationListFromRequest {
   cursor: Uint8Array;
   /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a RELATION_LIST_FROM (`0x0154`) request. */
@@ -6000,7 +6068,7 @@ export interface RelationListToRequest {
   cursor: Uint8Array;
   /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a RELATION_LIST_TO (`0x0155`) request. */
@@ -6081,7 +6149,7 @@ export interface RelationGetRequest {
   followSupersession: boolean;
   /** Effective identity this get runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a RELATION_GET (`0x0151`) request. */
@@ -6299,7 +6367,7 @@ export interface RelationTraverseRequest {
    * principal. `null` (the common case, CBOR-omitted) runs as the connection's
    * own key-bound identity. The walk is scoped to the effective
    * `(namespace, space)`. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a RELATION_TRAVERSE (`0x0156`) request. */
@@ -6912,7 +6980,7 @@ export interface SubscribeRequest {
   maxInflight: number;
   /** Effective identity this subscription runs as. `null` (CBOR-omitted) runs as
    * the connection's own key-bound identity. */
-  actAs: ActAs | null;
+  actAs?: ActAs | null;
 }
 
 /** Encode a SUBSCRIBE (`0x0030`) request. */

@@ -1216,6 +1216,52 @@ class MemoryInspectRequest:
         )
 
 
+class EdgeDirectionWire:
+    """Which way an edge points relative to the memory being inspected.
+    Encoded as the integer discriminant, matching the server."""
+
+    OUTGOING = 0
+    INCOMING = 1
+
+
+@dataclass(frozen=True)
+class MemoryEdge:
+    """One memory-to-memory edge as returned by MEMORY_INSPECT.
+
+    ``direction`` is relative to the inspected memory: ``0`` (outgoing) means
+    the inspected memory is the edge's source. ``peer`` alone cannot express
+    that, so an edge read without it is ambiguous.
+    """
+
+    kind: int
+    direction: int
+    peer: int
+    weight: float
+    created_at_unix_nanos: int
+    annotation: Optional[str] = None
+
+    def to_map(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "direction": self.direction,
+            "peer": self.peer,
+            "weight": round_f32(self.weight),
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "annotation": self.annotation,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> MemoryEdge:
+        return cls(
+            m["kind"],
+            m["direction"],
+            m["peer"],
+            m["weight"],
+            m["created_at_unix_nanos"],
+            m.get("annotation"),
+        )
+
+
 @dataclass
 class MemoryInspectResponse:
     """MEMORY_INSPECT_RESP (``0x00A8``). The durable per-memory artifact bundle
@@ -1226,6 +1272,14 @@ class MemoryInspectResponse:
     memory_id: bytes  # 16-byte byte string
     text: str
     artifact: EncodeStageArtifact
+    edges: list[MemoryEdge] = field(default_factory=list)
+    """Memory-to-memory edges anchored at this memory, both directions.
+
+    Not the same as ``artifact.graph``, which is the extractor's write-time
+    knowledge graph and never contains an edge asserted later with ``LINK``.
+    Defaults to empty so a server that does not send the field decodes as
+    "no edges" rather than raising.
+    """
 
     def to_map(self) -> dict[str, Any]:
         return {
@@ -1233,6 +1287,7 @@ class MemoryInspectResponse:
             "memory_id": self.memory_id,
             "text": self.text,
             "artifact": self.artifact.to_map(),
+            "edges": [e.to_map() for e in self.edges],
         }
 
     @classmethod
@@ -1242,6 +1297,7 @@ class MemoryInspectResponse:
             m["memory_id"],
             m["text"],
             EncodeStageArtifact.from_map(m["artifact"]),
+            [MemoryEdge.from_map(e) for e in m.get("edges", [])],
         )
 
 

@@ -568,6 +568,43 @@ pub struct MemoryInspectResponse {
     pub memory_id: [u8; 16],
     pub text: String,
     pub artifact: EncodeStageArtifact,
+    /// Memory↔memory edges anchored at this memory, both directions.
+    ///
+    /// Not the same as `artifact.graph`, which is the extractor's write-time
+    /// view and never contains an edge asserted later with `LINK`. Before
+    /// this field existed, `LINK`/`UNLINK` were write-only: a client could
+    /// assert an edge and no operation could read it back.
+    ///
+    /// `#[serde(default)]` so a server that does not send the field decodes
+    /// as "no edges" instead of failing the whole response.
+    #[serde(default)]
+    pub edges: Vec<MemoryEdgeWire>,
+}
+
+/// One memory↔memory edge from `MEMORY_INSPECT`.
+///
+/// `direction` is relative to the inspected memory: `Outgoing` means the
+/// inspected memory is the edge's source. `peer` alone cannot express that.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MemoryEdgeWire {
+    pub kind: EdgeKindWire,
+    pub direction: EdgeDirectionWire,
+    /// The memory at the other end.
+    pub peer: WireMemoryId,
+    pub weight: f32,
+    pub created_at_unix_nanos: u64,
+    #[serde(default)]
+    pub annotation: Option<String>,
+}
+
+/// Which way an edge points relative to the memory being inspected.
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum EdgeDirectionWire {
+    Outgoing = 0,
+    Incoming = 1,
 }
 
 // ===========================================================================
