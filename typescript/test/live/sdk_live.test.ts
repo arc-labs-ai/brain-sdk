@@ -21,7 +21,14 @@ async function client() {
   });
 }
 const enc = (c: any, text: string) =>
-  c.encode({ text, sessionId: 1n, requestId: rid(), txnId: null, occurredAtUnixNanos: null, actAs: null });
+  c.encode({
+    text,
+    sessionId: 1n,
+    requestId: rid(),
+    txnId: null,
+    occurredAtUnixNanos: null,
+    actAs: null,
+  });
 
 describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
   it("exercises sizes, context recall, relations and failures", async () => {
@@ -37,9 +44,16 @@ describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
       const r = await enc(c, text);
       note(`encode ${label}`, "ok", `id=${r.memoryId} dedup=${r.wasDeduplicated}`);
     }
-    for (const [label, text] of [["empty", ""], ["2MB", "x".repeat(2_000_000)]] as const) {
-      try { await enc(c, text); note(`encode ${label}`, "UNEXPECTED ok"); }
-      catch (e) { note(`encode ${label}`, "rejected", String(e).slice(0, 90)); }
+    for (const [label, text] of [
+      ["empty", ""],
+      ["2MB", "x".repeat(2_000_000)],
+    ] as const) {
+      try {
+        await enc(c, text);
+        note(`encode ${label}`, "UNEXPECTED ok");
+      } catch (e) {
+        note(`encode ${label}`, "rejected", String(e).slice(0, 90));
+      }
     }
 
     // context recall
@@ -47,10 +61,25 @@ describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
     await enc(c, `Omar teaches cello to beginners. ${N}`);
     await new Promise((r) => setTimeout(r, 2000));
     const recall = (cue: string) =>
-      c.recall({ cueText: cue, subjectName: "", maxResults: 5, confidenceThreshold: 0,
-        sessionFilter: null, ageBoundUnixNanos: null, asOfRecordTimeUnixNanos: null,
-        kindFilter: null, salienceFloor: 0, includeEdges: true, includeGraph: false,
-        includeText: true, requestId: rid(), txnId: null, trace: false, actAs: null, scope: "Space" as const });
+      c.recall({
+        cueText: cue,
+        subjectName: "",
+        maxResults: 5,
+        confidenceThreshold: 0,
+        sessionFilter: null,
+        ageBoundUnixNanos: null,
+        asOfRecordTimeUnixNanos: null,
+        kindFilter: null,
+        salienceFloor: 0,
+        includeEdges: true,
+        includeGraph: false,
+        includeText: true,
+        requestId: rid(),
+        txnId: null,
+        trace: false,
+        actAs: null,
+        scope: "Space" as const,
+      });
     for (const [cue, want] of [
       ["What does Nadia restore?", "motorcycles"],
       ["Who teaches cello?", "Omar"],
@@ -59,31 +88,68 @@ describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
       const ans: any = await recall(cue);
       const texts = (ans.memories ?? []).map((m: any) => m.text ?? "").join(" | ");
       const hit = want === null ? ans.answerKind === "None" : texts.includes(want);
-      note(`recall: ${cue.slice(0, 26)}`, hit ? "HIT" : "MISS", `${ans.answerKind} ${texts.slice(0, 70)}`);
+      note(
+        `recall: ${cue.slice(0, 26)}`,
+        hit ? "HIT" : "MISS",
+        `${ans.answerKind} ${texts.slice(0, 70)}`,
+      );
     }
 
     // relations + the new read-back
     const b = await enc(c, `Pia sails the Baltic each June. ${N}`);
     for (const k of [EdgeKindWire.Caused, EdgeKindWire.Supports]) {
-      await c.link({ source: a.memoryId, target: b.memoryId, kind: k, weight: 1, requestId: rid(), txnId: null });
+      await c.link({
+        source: a.memoryId,
+        target: b.memoryId,
+        kind: k,
+        weight: 1,
+        requestId: rid(),
+        txnId: null,
+      });
     }
     const idBytes = (v: bigint) => {
       const out = new Uint8Array(16);
-      for (let i = 15; i >= 0; i--) { out[i] = Number(v & 0xffn); v >>= 8n; }
+      for (let i = 15; i >= 0; i--) {
+        out[i] = Number(v & 0xffn);
+        v >>= 8n;
+      }
       return out;
     };
     const insp: any = await c.memoryInspect({ memoryId: idBytes(a.memoryId), actAs: null });
-    note("edges read back", `n=${insp.edges.length}`, `kinds=${[...new Set(insp.edges.map((e: any) => e.kind))]}`);
+    note(
+      "edges read back",
+      `n=${insp.edges.length}`,
+      `kinds=${[...new Set(insp.edges.map((e: any) => e.kind))]}`,
+    );
     note("peer matches target", String(insp.edges.some((e: any) => e.peer === b.memoryId)));
 
-    await c.unlink({ source: a.memoryId, target: b.memoryId, kind: EdgeKindWire.Caused, requestId: rid(), txnId: null });
+    await c.unlink({
+      source: a.memoryId,
+      target: b.memoryId,
+      kind: EdgeKindWire.Caused,
+      requestId: rid(),
+      txnId: null,
+    });
     const after: any = await c.memoryInspect({ memoryId: idBytes(a.memoryId), actAs: null });
-    const stillCaused = after.edges.some((e: any) => e.kind === EdgeKindWire.Caused && e.peer === b.memoryId);
+    const stillCaused = after.edges.some(
+      (e: any) => e.kind === EdgeKindWire.Caused && e.peer === b.memoryId,
+    );
     note("after unlink", stillCaused ? "STILL THERE" : "removed", `n=${after.edges.length}`);
 
     // failures
-    try { await c.link({ source: a.memoryId, target: 99999999999n, kind: 0, weight: 1, requestId: rid(), txnId: null }); note("link unknown target", "UNEXPECTED ok"); }
-    catch (e) { note("link unknown target", "rejected", String(e).slice(0, 80)); }
+    try {
+      await c.link({
+        source: a.memoryId,
+        target: 99999999999n,
+        kind: 0,
+        weight: 1,
+        requestId: rid(),
+        txnId: null,
+      });
+      note("link unknown target", "UNEXPECTED ok");
+    } catch (e) {
+      note("link unknown target", "rejected", String(e).slice(0, 80));
+    }
     const miss: any = await c.memoryInspect({ memoryId: idBytes(12345n), actAs: null });
     note("inspect unknown id", `found=${miss.found}`);
 

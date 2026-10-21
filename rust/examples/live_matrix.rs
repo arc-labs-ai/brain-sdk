@@ -2,8 +2,8 @@
 //! and the failure paths. Run against a live server:
 //!   KEYFILE=... cargo run --example live_matrix
 use brain_db_sdk::wire::types::{
-    EdgeKindWire, EncodeRequest, LinkRequest, MemoryInspectRequest, RecallRequest,
-    RecallScopeWire, UnlinkRequest,
+    EdgeKindWire, EncodeRequest, LinkRequest, MemoryInspectRequest, RecallRequest, RecallScopeWire,
+    UnlinkRequest,
 };
 use brain_db_sdk::{Auth, BrainClient};
 
@@ -54,10 +54,14 @@ fn recall_req(cue: &str, threshold: f32) -> RecallRequest {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let key = std::fs::read_to_string(std::env::var("KEYFILE")?)?.trim().to_string();
+    let key = std::fs::read_to_string(std::env::var("KEYFILE")?)?
+        .trim()
+        .to_string();
     let c = BrainClient::connect("127.0.0.1:18092".parse()?, Auth::Token(key.into_bytes())).await?;
     println!("connected: namespace={}", c.connection().namespace);
-    let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos();
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
 
     // ---- sizes ----------------------------------------------------------
     let mut ids = vec![];
@@ -67,24 +71,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("large 200KB", format!("Rust large {n}. ").repeat(13000)),
     ] {
         match c.encode(&enc_req(text)).await {
-            Ok(r) => { println!("{:<22} ok        id={} dedup={}", label, r.memory_id, r.was_deduplicated); ids.push(r.memory_id); }
+            Ok(r) => {
+                println!(
+                    "{:<22} ok        id={} dedup={}",
+                    label, r.memory_id, r.was_deduplicated
+                );
+                ids.push(r.memory_id);
+            }
             Err(e) => println!("{label:<22} ERR       {e}"),
         }
     }
     for (label, text) in [("empty", String::new()), ("2MB", "x".repeat(2_000_000))] {
         match c.encode(&enc_req(text)).await {
             Ok(_) => println!("{label:<22} UNEXPECTED ok"),
-            Err(e) => println!("{:<22} rejected  {}", label, e.to_string().chars().take(78).collect::<String>()),
+            Err(e) => println!(
+                "{:<22} rejected  {}",
+                label,
+                e.to_string().chars().take(78).collect::<String>()
+            ),
         }
     }
 
     // ---- context recall across thresholds --------------------------------
-    c.encode(&enc_req(format!("Rafael brews kombucha in a Porto garage. {n}"))).await?;
+    c.encode(&enc_req(format!(
+        "Rafael brews kombucha in a Porto garage. {n}"
+    )))
+    .await?;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     for cue in ["What does Rafael brew?", "How deep is the Mariana Trench?"] {
         for thr in [0.0f32, 0.7] {
             let a = c.recall(&recall_req(cue, thr)).await?;
-            println!("recall thr={thr:<4} {:<34} {:?} n={}", &cue[..cue.len().min(34)], a.answer_kind, a.memories.len());
+            println!(
+                "recall thr={thr:<4} {:<34} {:?} n={}",
+                &cue[..cue.len().min(34)],
+                a.answer_kind,
+                a.memories.len()
+            );
         }
     }
 
@@ -92,26 +114,85 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if ids.len() >= 2 {
         let (a, b) = (ids[0], ids[1]);
         for kind in [EdgeKindWire::Caused, EdgeKindWire::DerivedFrom] {
-            let r = c.link(&LinkRequest { source: a, target: b, kind, weight: 1.0, request_id: rid(), txn_id: None, act_as: None }).await?;
-            println!("link {:<17?} ok        already_existed={}", kind, r.already_existed);
+            let r = c
+                .link(&LinkRequest {
+                    source: a,
+                    target: b,
+                    kind,
+                    weight: 1.0,
+                    request_id: rid(),
+                    txn_id: None,
+                    act_as: None,
+                })
+                .await?;
+            println!(
+                "link {:<17?} ok        already_existed={}",
+                kind, r.already_existed
+            );
         }
-        let insp = c.memory_inspect(&MemoryInspectRequest { memory_id: a.to_be_bytes(), act_as: None }).await?;
-        println!("edges read back        n={} kinds={:?}", insp.edges.len(),
-                 insp.edges.iter().map(|e| e.kind).collect::<Vec<_>>());
+        let insp = c
+            .memory_inspect(&MemoryInspectRequest {
+                memory_id: a.to_be_bytes(),
+                act_as: None,
+            })
+            .await?;
+        println!(
+            "edges read back        n={} kinds={:?}",
+            insp.edges.len(),
+            insp.edges.iter().map(|e| e.kind).collect::<Vec<_>>()
+        );
         let peer_ok = insp.edges.iter().any(|e| e.peer == b);
         println!("peer matches target    {peer_ok}");
 
-        c.unlink(&UnlinkRequest { source: a, target: b, kind: EdgeKindWire::Caused, request_id: rid(), txn_id: None, act_as: None }).await?;
-        let after = c.memory_inspect(&MemoryInspectRequest { memory_id: a.to_be_bytes(), act_as: None }).await?;
-        let gone = !after.edges.iter().any(|e| e.kind == EdgeKindWire::Caused && e.peer == b);
-        println!("after unlink           caused_gone={gone} n={}", after.edges.len());
+        c.unlink(&UnlinkRequest {
+            source: a,
+            target: b,
+            kind: EdgeKindWire::Caused,
+            request_id: rid(),
+            txn_id: None,
+            act_as: None,
+        })
+        .await?;
+        let after = c
+            .memory_inspect(&MemoryInspectRequest {
+                memory_id: a.to_be_bytes(),
+                act_as: None,
+            })
+            .await?;
+        let gone = !after
+            .edges
+            .iter()
+            .any(|e| e.kind == EdgeKindWire::Caused && e.peer == b);
+        println!(
+            "after unlink           caused_gone={gone} n={}",
+            after.edges.len()
+        );
 
-        match c.link(&LinkRequest { source: a, target: 99_999_999_999, kind: EdgeKindWire::Caused, weight: 1.0, request_id: rid(), txn_id: None, act_as: None }).await {
+        match c
+            .link(&LinkRequest {
+                source: a,
+                target: 99_999_999_999,
+                kind: EdgeKindWire::Caused,
+                weight: 1.0,
+                request_id: rid(),
+                txn_id: None,
+                act_as: None,
+            })
+            .await
+        {
             Ok(_) => println!("link unknown target    UNEXPECTED ok"),
-            Err(e) => println!("link unknown target    rejected  {}", e.to_string().chars().take(70).collect::<String>()),
+            Err(e) => println!(
+                "link unknown target    rejected  {}",
+                e.to_string().chars().take(70).collect::<String>()
+            ),
         }
     }
-    let miss = c.memory_inspect(&MemoryInspectRequest { memory_id: 12345u128.to_be_bytes(), act_as: None }).await?;
+    let miss = c
+        .memory_inspect(&MemoryInspectRequest {
+            memory_id: 12345u128.to_be_bytes(),
+            act_as: None,
+        })
+        .await?;
     println!("inspect unknown id     found={}", miss.found);
     Ok(())
 }
