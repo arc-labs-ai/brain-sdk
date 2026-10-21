@@ -260,6 +260,21 @@
     }
    ]
   },
+  "EdgeDirectionWire": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Outgoing"
+    },
+    {
+     "discriminant": 1,
+     "name": "Incoming"
+    }
+   ]
+  },
   "EdgeKindWire": {
    "encoding": "int",
    "repr": "u8",
@@ -6901,6 +6916,43 @@
    ],
    "serde": {}
   },
+  "MemoryEdgeWire": {
+   "fields": [
+    {
+     "name": "kind",
+     "serde": {},
+     "type": "EdgeKindWire"
+    },
+    {
+     "name": "direction",
+     "serde": {},
+     "type": "EdgeDirectionWire"
+    },
+    {
+     "name": "peer",
+     "serde": {},
+     "type": "u128"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "type": "f32"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "annotation",
+     "serde": {
+      "default": true
+     },
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
   "MemoryInspectRequest": {
    "fields": [
     {
@@ -6944,6 +6996,13 @@
      "name": "artifact",
      "serde": {},
      "type": "EncodeStageArtifact"
+    },
+    {
+     "name": "edges",
+     "serde": {
+      "default": true
+     },
+     "type": "Vec<MemoryEdgeWire>"
     }
    ],
    "serde": {}
