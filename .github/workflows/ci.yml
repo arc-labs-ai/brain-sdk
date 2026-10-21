@@ -67,6 +67,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+      # Cargo.lock must agree with Cargo.toml.
+      #
+      # release-please bumps `rust/Cargo.toml` through `extra-files`, and the
+      # `simple` strategy has no updater that can reach `rust/Cargo.lock`.
+      # (`release-type: "rust"` is the strategy that would — it is NOT usable
+      # here: it reads `package.version` at the package path, and this package
+      # is `"."`, the root of a polyglot monorepo with no Cargo.toml in it.
+      # brain-db tried that switch and its release broke outright, cutting no
+      # PR at all. Do not "fix" the lockfile by changing the strategy.)
+      #
+      # Left unchecked this is silent: the lock keeps naming the PREVIOUS
+      # version, `cargo --locked` fails for anyone who uses it, and at publish
+      # time `cargo publish` re-resolves, finds the tree dirty and refuses —
+      # which is how v0.2.0 reached npm and PyPI but not crates.io.
+      #
+      # So the release PR carries a manual `Cargo.lock` bump, and this step is
+      # what makes forgetting it loud instead of silent.
+      - name: Lockfile agrees with the manifest
+        run: cargo metadata --locked --format-version 1 > /dev/null
       - name: Format check
         run: cargo fmt --all -- --check
       - name: Clippy

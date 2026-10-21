@@ -47,9 +47,20 @@ on:
   # Escape hatch. The tag these jobs key off is created by release-please; if
   # that tag's run is lost, fails partway, or never fires at all, there is
   # otherwise no way to publish without deleting and re-pushing a published
-  # tag. This republishes any existing version tag by hand. Registries reject
-  # a version they already hold, so re-running after a partial success is a
-  # no-op for whatever already shipped.
+  # tag. This republishes any existing version tag by hand.
+  #
+  # Re-running after a PARTIAL success is safe but NOT quiet, and the
+  # difference matters when you are reading the result:
+  #
+  #   crates.io  rejects the duplicate, job FAILS  ("already exists on the index")
+  #   npm        rejects the duplicate, job FAILS  ("cannot publish over ...")
+  #   PyPI       skips the duplicate,   job PASSES (skip-existing)
+  #
+  # So a red job on a re-run usually means "this one already shipped", which
+  # looks exactly like "this one failed to ship". Read the log line, not the
+  # colour — and confirm against the registry itself. v0.2.0 shipped to npm and
+  # PyPI but not crates.io, and the npm job on the repair run went red for the
+  # harmless reason while crates.io went green for the real one.
   workflow_dispatch:
     inputs:
       tag:
