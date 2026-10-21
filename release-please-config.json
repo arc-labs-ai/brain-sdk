@@ -17,7 +17,7 @@
         {
           "type": "toml",
           "path": "rust/Cargo.lock",
-          "jsonpath": "$.package[?(@.name === 'brain-db-sdk')].version"
+          "jsonpath": "$.package[?(@.name.value === 'brain-db-sdk')].version"
         },
         "python/pyproject.toml",
         {
