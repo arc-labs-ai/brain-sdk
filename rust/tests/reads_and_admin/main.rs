@@ -227,6 +227,9 @@ async fn serve(mut sock: TcpStream) {
                 graph: Some(EncodeStageGraph::default()),
                 ..Default::default()
             },
+            // No LINK-asserted edges in this fixture; the field is
+            // still carried so the golden pins its presence.
+            edges: Vec::new(),
         },
     )
     .await;
