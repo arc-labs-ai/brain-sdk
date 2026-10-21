@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1](https://github.com/arc-labs-ai/brain-sdk/compare/v0.2.0...v0.2.1) (2026-10-21)
+
+
+### Fixes
+
+* **release:** reconcile the lockfile before publishing to crates.io ([151ef0f](https://github.com/arc-labs-ai/brain-sdk/commit/151ef0fb815dd40275d34e5eee7c9d211b19c0e3))
+
+
+### Build and tooling
+
+* **deps:** clear the audit gate ([9a2aa0c](https://github.com/arc-labs-ai/brain-sdk/commit/9a2aa0c225869e6f3d8797260aa94f22afbf7559))
+* **release:** make a stale lockfile loud, and correct the re-run comment ([c81434b](https://github.com/arc-labs-ai/brain-sdk/commit/c81434be67e5bd07bd3c40d5add0c976a35ac86c))
+* **release:** make a stale lockfile loud, and correct the re-run comment ([ac2707d](https://github.com/arc-labs-ai/brain-sdk/commit/ac2707d4c5ff941712c112954a73b03ad4345d66))
+
 ## [0.2.0](https://github.com/arc-labs-ai/brain-sdk/compare/v0.1.0...v0.2.0) (2026-10-20)
 
 
