@@ -52,6 +52,10 @@ fn recall_req(cue: &str, threshold: f32) -> RecallRequest {
     }
 }
 
+// `c`, `n`, `a`, `b` read fine in a flat script whose whole point is the
+// sequence of calls; renaming them to satisfy the lint would add noise, not
+// clarity. Scoped to this example, not the library.
+#[allow(clippy::many_single_char_names)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::fs::read_to_string(std::env::var("KEYFILE")?)?
