@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/arc-labs-ai/brain-sdk/compare/v0.2.1...v0.3.0) (2026-10-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **wire:** `MemoryInspectResponse` gains `edges`. Decoding stays backward compatible, but anything constructing the struct positionally must supply it.
+
+### Features
+
+* **wire:** mirror MEMORY_INSPECT edges across all three SDKs ([a972c46](https://github.com/arc-labs-ai/brain-sdk/commit/a972c4699c113bc88ecfe9bebf14f95ef804be23))
+
 ## [0.2.1](https://github.com/arc-labs-ai/brain-sdk/compare/v0.2.0...v0.2.1) (2026-10-21)
 
 
