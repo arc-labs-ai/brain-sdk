@@ -64,6 +64,290 @@
     }
    ]
   },
+  "CreateRelationBody": {
+   "fields": [
+    {
+     "name": "relation_type",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "from_entity",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "to_entity",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "confidence",
+     "serde": {
+      "default": "default_confidence"
+     },
+     "shape": "float"
+    },
+    {
+     "name": "valid_from_unix_nanos",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "valid_to_unix_nanos",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "extractor_id",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "session_id",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "evidence",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    },
+    {
+     "name": "properties",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "CreateRelationResponseDto": {
+   "fields": [
+    {
+     "name": "relation_id",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "CreateSessionBody": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "title",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "CreateSpaceBody": {
+   "fields": [
+    {
+     "name": "metadata",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "CreateStatementBody": {
+   "fields": [
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "subject",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "object",
+     "serde": {},
+     "shape": "StatementObjectDto"
+    },
+    {
+     "name": "confidence",
+     "serde": {
+      "default": "default_confidence"
+     },
+     "shape": "float"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "valid_from_unix_nanos",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "valid_to_unix_nanos",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "extractor_id",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "schema_version",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "session_id",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "evidence",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    }
+   ]
+  },
+  "CreateStatementResponseDto": {
+   "fields": [
+    {
+     "name": "statement_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "auto_superseded",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "chain_root",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "DeleteLlmCredentialDto": {
+   "fields": [
+    {
+     "name": "deleted",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "DeleteSessionQuery": {
+   "fields": [
+    {
+     "name": "hard",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    }
+   ]
+  },
+  "EdgeEventDto": {
+   "fields": [
+    {
+     "name": "from_kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "from_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "to_kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "to_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "edge_kind_tag",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "edge_kind_byte",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "relation_type_id",
+     "serde": {},
+     "shape": "opt(int)"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "relation_id",
+     "serde": {},
+     "shape": "opt(string)"
+    },
+    {
+     "name": "superseded_relation_id",
+     "serde": {},
+     "shape": "opt(string)"
+    },
+    {
+     "name": "origin",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
   "EncodeBody": {
    "fields": [
     {
@@ -81,6 +365,7 @@
     {
      "name": "occurred_at",
      "serde": {
+      "alias": "occurred_at_unix_nanos",
       "default": true
      },
      "shape": "opt(int)"
@@ -118,6 +403,53 @@
      "name": "auto_edges_added",
      "serde": {},
      "shape": "int"
+    }
+   ]
+  },
+  "EncodeVectorBody": {
+   "fields": [
+    {
+     "name": "text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "vector",
+     "serde": {},
+     "shape": "list(float)"
+    },
+    {
+     "name": "model_fingerprint",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "session",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "kind",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "salience_hint",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(float)"
+    },
+    {
+     "name": "deduplicate",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
     }
    ]
   },
@@ -162,6 +494,13 @@
      "shape": "list(string)"
     },
     {
+     "name": "attributes",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
      "name": "mention_count",
      "serde": {},
      "shape": "int"
@@ -180,6 +519,45 @@
      "name": "merged_into",
      "serde": {},
      "shape": "opt(string)"
+    },
+    {
+     "name": "resolved_from",
+     "serde": {},
+     "shape": "list(string)"
+    }
+   ]
+  },
+  "ExtractorDto": {
+   "fields": [
+    {
+     "name": "extractor_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "namespace",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
     }
    ]
   },
@@ -215,6 +593,30 @@
      "name": "edges_removed",
      "serde": {},
      "shape": "int"
+    }
+   ]
+  },
+  "FusionConfigDto": {
+   "fields": [
+    {
+     "name": "k",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "semantic_weight",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "lexical_weight",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "graph_weight",
+     "serde": {},
+     "shape": "float"
     }
    ]
   },
@@ -507,6 +909,20 @@
     }
    ]
   },
+  "ListExtractorsResponseDto": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "shape": "list(ExtractorDto)"
+    },
+    {
+     "name": "total",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
   "ListRelationsQuery": {
    "fields": [
     {
@@ -556,6 +972,100 @@
      "name": "count",
      "serde": {},
      "shape": "int"
+    }
+   ]
+  },
+  "ListSchemasQuery": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "cursor",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "ListSchemasResponseDto": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "items",
+     "serde": {},
+     "shape": "list(SchemaVersionDto)"
+    },
+    {
+     "name": "total",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "ListSessionsQuery": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "ListSessionsResponseDto": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "sessions",
+     "serde": {},
+     "shape": "list(SessionSummaryDto)"
+    }
+   ]
+  },
+  "ListSpacesQuery": {
+   "fields": [
+    {
+     "name": "limit",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "ListSpacesResponseDto": {
+   "fields": [
+    {
+     "name": "spaces",
+     "serde": {},
+     "shape": "list(SpaceSummaryDto)"
+    },
+    {
+     "name": "cross_shard_complete",
+     "serde": {},
+     "shape": "bool"
     }
    ]
   },
@@ -624,6 +1134,150 @@
     }
    ]
   },
+  "LlmCredentialCheckDto": {
+   "fields": [
+    {
+     "name": "status",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "valid",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(bool)"
+    },
+    {
+     "name": "reason",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "provider",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "LlmCredentialDto": {
+   "fields": [
+    {
+     "name": "provider",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "model",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "fingerprint",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "created_at_unix_secs",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "MaterializeProceduralBody": {
+   "fields": [
+    {
+     "name": "sessions",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(int)"
+    },
+    {
+     "name": "top_k",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "min_confidence",
+     "serde": {
+      "default": true
+     },
+     "shape": "float"
+    },
+    {
+     "name": "categories",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    }
+   ]
+  },
+  "MaterializeProceduralResponseDto": {
+   "fields": [
+    {
+     "name": "system_block",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "statement_ids",
+     "serde": {},
+     "shape": "list(string)"
+    },
+    {
+     "name": "total_candidates",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "trimmed_by_budget",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "MemoryEdgeDto": {
+   "fields": [
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "direction",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "peer",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "weight",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "annotation",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
   "MemoryHit": {
    "fields": [
     {
@@ -684,6 +1338,11 @@
      "name": "artifact",
      "serde": {},
      "shape": "StageArtifactDto"
+    },
+    {
+     "name": "edges",
+     "serde": {},
+     "shape": "list(MemoryEdgeDto)"
     }
    ]
   },
@@ -796,6 +1455,43 @@
       "default": true
      },
      "shape": "opt(bool)"
+    }
+   ]
+  },
+  "MergeEntityBody": {
+   "fields": [
+    {
+     "name": "merged",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "confidence",
+     "serde": {
+      "default": "default_merge_confidence"
+     },
+     "shape": "float"
+    },
+    {
+     "name": "reason",
+     "serde": {
+      "default": true
+     },
+     "shape": "string"
+    }
+   ]
+  },
+  "MergeEntityResponseDto": {
+   "fields": [
+    {
+     "name": "audit_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "grace_period_seconds",
+     "serde": {},
+     "shape": "int"
     }
    ]
   },
@@ -918,6 +1614,146 @@
     }
    ]
   },
+  "PutLlmCredentialRequest": {
+   "fields": [
+    {
+     "name": "provider",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "model",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "api_key",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "QueryBody": {
+   "fields": [
+    {
+     "name": "text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "entity_anchor",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "kinds",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    },
+    {
+     "name": "predicates",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    },
+    {
+     "name": "sessions",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(int)"
+    },
+    {
+     "name": "time_range",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(TimeRangeDto)"
+    },
+    {
+     "name": "as_of_record_time_unix_nanos",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "confidence_min",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(float)"
+    },
+    {
+     "name": "include_tombstoned",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "include_superseded",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "retrievers",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    },
+    {
+     "name": "fusion",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(FusionConfigDto)"
+    }
+   ]
+  },
+  "QueryExplainResponseDto": {
+   "fields": [
+    {
+     "name": "plan_text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "estimated_cost_ms",
+     "serde": {},
+     "shape": "float"
+    }
+   ]
+  },
+  "QueryTraceResponseDto": {
+   "fields": [
+    {
+     "name": "trace_text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "total_latency_ms",
+     "serde": {},
+     "shape": "float"
+    }
+   ]
+  },
   "ReasonBody": {
    "fields": [
     {
@@ -986,6 +1822,13 @@
       "default": true
      },
      "shape": "opt(string)"
+    },
+    {
+     "name": "scope",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -1046,8 +1889,70 @@
      "shape": "bool"
     },
     {
+     "name": "properties",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "superseded_by",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "supersedes",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "chain_root",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "extractor_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "extracted_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
      "name": "tombstoned",
      "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "RenameEntityBody": {
+   "fields": [
+    {
+     "name": "new_canonical_name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "move_to_alias",
+     "serde": {
+      "default": "default_move_to_alias"
+     },
      "shape": "bool"
     }
    ]
@@ -1108,6 +2013,84 @@
      "name": "candidate_ids",
      "serde": {},
      "shape": "list(string)"
+    }
+   ]
+  },
+  "ResolvedLlmDto": {
+   "fields": [
+    {
+     "name": "provider",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "model",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "RetractStatementResponseDto": {
+   "fields": [
+    {
+     "name": "retracted_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "will_zero_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SchemaDropQuery": {
+   "fields": [
+    {
+     "name": "force",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    }
+   ]
+  },
+  "SchemaDropResponseDto": {
+   "fields": [
+    {
+     "name": "namespace",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "target_kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "target_name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "dropped",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "live_rows",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "validation_errors",
+     "serde": {},
+     "shape": "list(SchemaErrorDto)"
     }
    ]
   },
@@ -1302,6 +2285,199 @@
      "name": "validation_errors",
      "serde": {},
      "shape": "list(SchemaErrorDto)"
+    }
+   ]
+  },
+  "SchemaVersionDto": {
+   "fields": [
+    {
+     "name": "schema_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "uploaded_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "validator_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "has_source_text",
+     "serde": {},
+     "shape": "bool"
+    }
+   ]
+  },
+  "SessionErasedDto": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "existed",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "memories_forgotten",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SessionProvisionDto": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "created",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "last_active_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SessionSummaryDto": {
+   "fields": [
+    {
+     "name": "session_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "last_active_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "title",
+     "serde": {},
+     "shape": "opt(string)"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SpaceErasedDto": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "existed",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "memories_forgotten",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SpaceProvisionDto": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "created",
+     "serde": {},
+     "shape": "bool"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "last_active_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "session_count",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SpaceSummaryDto": {
+   "fields": [
+    {
+     "name": "space_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "last_active_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "memory_count",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "session_count",
+     "serde": {},
+     "shape": "int"
     }
    ]
   },
@@ -1517,6 +2693,385 @@
      "name": "tombstoned",
      "serde": {},
      "shape": "bool"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "superseded_by",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "supersedes",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "chain_root",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "extractor_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "extracted_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "schema_version",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "tombstone_reason",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "StatementHistoryQuery": {
+   "fields": [
+    {
+     "name": "include_tombstoned",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "limit",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "cursor",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "StatementHistoryResponseDto": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "shape": "list(StatementDetailDto)"
+    },
+    {
+     "name": "chain_root",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "total_versions",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "StatementRetireQuery": {
+   "fields": [
+    {
+     "name": "reason",
+     "serde": {
+      "default": true
+     },
+     "shape": "int"
+    },
+    {
+     "name": "message",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "SubscribeQuery": {
+   "fields": [
+    {
+     "name": "sessions",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "kinds",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "memories",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "include_history",
+     "serde": {
+      "default": true
+     },
+     "shape": "bool"
+    },
+    {
+     "name": "from_lsn",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "max_inflight",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "SubscriptionClosedDto": {
+   "fields": [
+    {
+     "name": "final_lsn",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "reason",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "SubscriptionEventDto": {
+   "fields": [
+    {
+     "name": "event_type",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "memory_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "session_id",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "text",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "kind",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "salience",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "timestamp_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "lsn",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "graph",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(GraphEventDto)"
+    },
+    {
+     "name": "edge",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(EdgeEventDto)"
+    },
+    {
+     "name": "stage_kind",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "stage_outcome",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "stage",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(StageEventDto)"
+    }
+   ]
+  },
+  "SupersedeRelationBody": {
+   "fields": [
+    {
+     "name": "relation",
+     "serde": {
+      "flatten": true
+     },
+     "shape": "CreateRelationBody"
+    }
+   ]
+  },
+  "SupersedeRelationResponseDto": {
+   "fields": [
+    {
+     "name": "new_relation_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "SupersedeStatementBody": {
+   "fields": [
+    {
+     "name": "statement",
+     "serde": {
+      "flatten": true
+     },
+     "shape": "CreateStatementBody"
+    }
+   ]
+  },
+  "SupersedeStatementResponseDto": {
+   "fields": [
+    {
+     "name": "new_statement_id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "chain_root",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "version",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "TimeRangeDto": {
+   "fields": [
+    {
+     "name": "from_unix_ms",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    },
+    {
+     "name": "to_unix_ms",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(int)"
+    }
+   ]
+  },
+  "TombstoneEntityQuery": {
+   "fields": [
+    {
+     "name": "reason",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "TombstoneEntityResponseDto": {
+   "fields": [
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "TombstoneRelationQuery": {
+   "fields": [
+    {
+     "name": "reason",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
+  "TombstoneRelationResponseDto": {
+   "fields": [
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
+    }
+   ]
+  },
+  "TombstoneStatementResponseDto": {
+   "fields": [
+    {
+     "name": "tombstoned_at_unix_nanos",
+     "serde": {},
+     "shape": "int"
     }
    ]
   },
@@ -1659,6 +3214,38 @@
     }
    ]
   },
+  "UnmergeEntityResponseDto": {
+   "fields": [
+    {
+     "name": "restored_entity_id",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "UpdateEntityBody": {
+   "fields": [
+    {
+     "name": "canonical_name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "aliases",
+     "serde": {
+      "default": true
+     },
+     "shape": "list(string)"
+    },
+    {
+     "name": "attributes",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
+    }
+   ]
+  },
   "WhoamiDto": {
    "fields": [
     {
@@ -1680,6 +3267,255 @@
   }
  },
  "enums": {
+  "GraphEventDto": {
+   "serde": {
+    "rename_all": "snake_case",
+    "tag": "type"
+   },
+   "variants": [
+    {
+     "fields": [
+      {
+       "name": "entity_id",
+       "shape": "string"
+      },
+      {
+       "name": "entity_type_id",
+       "shape": "int"
+      },
+      {
+       "name": "canonical_name",
+       "shape": "string"
+      }
+     ],
+     "name": "EntityCreated"
+    },
+    {
+     "fields": [
+      {
+       "name": "entity_id",
+       "shape": "string"
+      },
+      {
+       "name": "entity_type_id",
+       "shape": "int"
+      },
+      {
+       "name": "canonical_name",
+       "shape": "string"
+      },
+      {
+       "name": "embedding_version_changed",
+       "shape": "bool"
+      }
+     ],
+     "name": "EntityUpdated"
+    },
+    {
+     "fields": [
+      {
+       "name": "entity_id",
+       "shape": "string"
+      },
+      {
+       "name": "old_canonical_name",
+       "shape": "string"
+      },
+      {
+       "name": "new_canonical_name",
+       "shape": "string"
+      },
+      {
+       "name": "old_moved_to_alias",
+       "shape": "bool"
+      }
+     ],
+     "name": "EntityRenamed"
+    },
+    {
+     "fields": [
+      {
+       "name": "survivor",
+       "shape": "string"
+      },
+      {
+       "name": "merged",
+       "shape": "string"
+      },
+      {
+       "name": "audit_id",
+       "shape": "string"
+      },
+      {
+       "name": "confidence",
+       "shape": "float"
+      },
+      {
+       "name": "statements_rerouted",
+       "shape": "int"
+      },
+      {
+       "name": "relations_rerouted",
+       "shape": "int"
+      }
+     ],
+     "name": "EntityMerged"
+    },
+    {
+     "fields": [
+      {
+       "name": "restored_entity_id",
+       "shape": "string"
+      },
+      {
+       "name": "from_survivor",
+       "shape": "string"
+      },
+      {
+       "name": "audit_id",
+       "shape": "string"
+      }
+     ],
+     "name": "EntityUnmerged"
+    },
+    {
+     "fields": [
+      {
+       "name": "entity_id",
+       "shape": "string"
+      },
+      {
+       "name": "reason",
+       "shape": "string"
+      }
+     ],
+     "name": "EntityTombstoned"
+    },
+    {
+     "fields": [
+      {
+       "name": "statement_id",
+       "shape": "string"
+      },
+      {
+       "name": "kind",
+       "shape": "int"
+      },
+      {
+       "name": "subject",
+       "shape": "string"
+      },
+      {
+       "name": "predicate",
+       "shape": "string"
+      },
+      {
+       "name": "confidence",
+       "shape": "float"
+      }
+     ],
+     "name": "StatementCreated"
+    },
+    {
+     "fields": [
+      {
+       "name": "old_statement_id",
+       "shape": "string"
+      },
+      {
+       "name": "new_statement_id",
+       "shape": "string"
+      },
+      {
+       "name": "chain_root",
+       "shape": "string"
+      }
+     ],
+     "name": "StatementSuperseded"
+    },
+    {
+     "fields": [
+      {
+       "name": "statement_id",
+       "shape": "string"
+      },
+      {
+       "name": "reason",
+       "shape": "string"
+      }
+     ],
+     "name": "StatementTombstoned"
+    },
+    {
+     "fields": [
+      {
+       "name": "relation_id",
+       "shape": "string"
+      },
+      {
+       "name": "relation_type",
+       "shape": "string"
+      },
+      {
+       "name": "from",
+       "shape": "string"
+      },
+      {
+       "name": "to",
+       "shape": "string"
+      }
+     ],
+     "name": "RelationCreated"
+    },
+    {
+     "fields": [
+      {
+       "name": "old_relation_id",
+       "shape": "string"
+      },
+      {
+       "name": "new_relation_id",
+       "shape": "string"
+      }
+     ],
+     "name": "RelationSuperseded"
+    },
+    {
+     "fields": [
+      {
+       "name": "relation_id",
+       "shape": "string"
+      },
+      {
+       "name": "reason",
+       "shape": "string"
+      }
+     ],
+     "name": "RelationTombstoned"
+    },
+    {
+     "fields": [
+      {
+       "name": "namespace",
+       "shape": "string"
+      },
+      {
+       "name": "from_version",
+       "shape": "int"
+      },
+      {
+       "name": "to_version",
+       "shape": "int"
+      },
+      {
+       "name": "backward_compatible",
+       "shape": "bool"
+      }
+     ],
+     "name": "SchemaUpdated"
+    }
+   ]
+  },
   "RelationSide": {
    "serde": {},
    "variants": [
@@ -1688,6 +3524,66 @@
     },
     {
      "name": "To"
+    }
+   ]
+  },
+  "StageEventDto": {
+   "serde": {
+    "rename_all": "snake_case",
+    "tag": "type"
+   },
+   "variants": [
+    {
+     "fields": [
+      {
+       "name": "edges_written",
+       "shape": "int"
+      }
+     ],
+     "name": "AutoEdge"
+    },
+    {
+     "fields": [
+      {
+       "name": "edges_written",
+       "shape": "int"
+      }
+     ],
+     "name": "TemporalEdge"
+    },
+    {
+     "fields": [
+      {
+       "name": "entity_count",
+       "shape": "int"
+      },
+      {
+       "name": "statement_count",
+       "shape": "int"
+      },
+      {
+       "name": "relation_count",
+       "shape": "int"
+      },
+      {
+       "name": "error_message",
+       "shape": "string"
+      }
+     ],
+     "name": "Extractor"
+    },
+    {
+     "fields": [
+      {
+       "name": "questions_written",
+       "shape": "int"
+      },
+      {
+       "name": "cost_micro_usd",
+       "shape": "int"
+      }
+     ],
+     "name": "Hype"
     }
    ]
   },
@@ -1800,9 +3696,39 @@
  },
  "routes": [
   {
+   "handler": "llm_proxy::anthropic_messages",
+   "method": "POST",
+   "path": "/llm/ns/{namespace}/anthropic/v1/messages",
+   "plane": "broker",
+   "query": null,
+   "request_body": null,
+   "response": null,
+   "streaming": "passthrough"
+  },
+  {
+   "handler": "llm_proxy::openai_chat_completions",
+   "method": "POST",
+   "path": "/llm/ns/{namespace}/openai/v1/chat/completions",
+   "plane": "broker",
+   "query": null,
+   "request_body": null,
+   "response": null,
+   "streaming": "passthrough"
+  },
+  {
+   "handler": "llm_proxy::resolve",
+   "method": "GET",
+   "path": "/llm/ns/{namespace}/resolve",
+   "plane": "broker",
+   "query": null,
+   "request_body": null,
+   "response": "ResolvedLlmDto"
+  },
+  {
    "handler": "identity::capabilities",
    "method": "GET",
    "path": "/v1/capabilities",
+   "plane": "data",
    "query": null,
    "request_body": null,
    "response": "CapabilitiesDto"
@@ -1811,6 +3737,7 @@
    "handler": "entity::list",
    "method": "GET",
    "path": "/v1/entities",
+   "plane": "data",
    "query": "ListEntitiesQuery",
    "request_body": null,
    "response": "ListEntitiesResponseDto"
@@ -1819,6 +3746,7 @@
    "handler": "entity::create",
    "method": "POST",
    "path": "/v1/entities",
+   "plane": "data",
    "query": null,
    "request_body": "CreateEntityBody",
    "response": "CreateEntityResponseDto"
@@ -1827,38 +3755,97 @@
    "handler": "entity::resolve",
    "method": "POST",
    "path": "/v1/entities/resolve",
+   "plane": "data",
    "query": null,
    "request_body": "ResolveEntityBody",
    "response": "ResolveEntityResponseDto"
   },
   {
+   "handler": "entity::tombstone",
+   "method": "DELETE",
+   "path": "/v1/entities/{id}",
+   "plane": "data",
+   "query": "TombstoneEntityQuery",
+   "request_body": null,
+   "response": "TombstoneEntityResponseDto"
+  },
+  {
    "handler": "entity::get",
    "method": "GET",
    "path": "/v1/entities/{id}",
+   "plane": "data",
    "query": null,
    "request_body": null,
    "response": "EntityDetailDto"
   },
   {
+   "handler": "entity::update",
+   "method": "PUT",
+   "path": "/v1/entities/{id}",
+   "plane": "data",
+   "query": null,
+   "request_body": "UpdateEntityBody",
+   "response": "EntityDetailDto"
+  },
+  {
+   "handler": "entity::merge",
+   "method": "POST",
+   "path": "/v1/entities/{id}/merge",
+   "plane": "data",
+   "query": null,
+   "request_body": "MergeEntityBody",
+   "response": "MergeEntityResponseDto"
+  },
+  {
    "handler": "relation::list",
    "method": "GET",
    "path": "/v1/entities/{id}/relations",
+   "plane": "data",
    "query": "ListRelationsQuery",
    "request_body": null,
    "response": "ListRelationsResponseDto"
   },
   {
+   "handler": "entity::rename",
+   "method": "POST",
+   "path": "/v1/entities/{id}/rename",
+   "plane": "data",
+   "query": null,
+   "request_body": "RenameEntityBody",
+   "response": "EntityDetailDto"
+  },
+  {
    "handler": "entity::traverse",
    "method": "POST",
    "path": "/v1/entities/{id}/traverse",
+   "plane": "data",
    "query": null,
    "request_body": "TraverseBody",
    "response": "TraverseResponseDto"
   },
   {
+   "handler": "entity::unmerge",
+   "method": "POST",
+   "path": "/v1/entities/{id}/unmerge",
+   "plane": "data",
+   "query": null,
+   "request_body": null,
+   "response": "UnmergeEntityResponseDto"
+  },
+  {
+   "handler": "schema::extractors",
+   "method": "GET",
+   "path": "/v1/extractors",
+   "plane": "data",
+   "query": null,
+   "request_body": null,
+   "response": "ListExtractorsResponseDto"
+  },
+  {
    "handler": "graph::fetch",
    "method": "GET",
    "path": "/v1/graph",
+   "plane": "data",
    "query": "GraphFetchQuery",
    "request_body": null,
    "response": "GraphPageDto"
@@ -1867,6 +3854,7 @@
    "handler": "graph::unlink",
    "method": "DELETE",
    "path": "/v1/links",
+   "plane": "data",
    "query": null,
    "request_body": "UnlinkBody",
    "response": "UnlinkResponseDto"
@@ -1875,14 +3863,61 @@
    "handler": "graph::link",
    "method": "POST",
    "path": "/v1/links",
+   "plane": "data",
    "query": null,
    "request_body": "LinkBody",
    "response": "LinkResponseDto"
   },
   {
+   "handler": "llm_credential::delete",
+   "method": "DELETE",
+   "path": "/v1/llm-credential",
+   "plane": "credential",
+   "query": null,
+   "request_body": null,
+   "response": "DeleteLlmCredentialDto"
+  },
+  {
+   "handler": "llm_credential::get",
+   "method": "GET",
+   "path": "/v1/llm-credential",
+   "plane": "credential",
+   "query": null,
+   "request_body": null,
+   "response": "LlmCredentialDto"
+  },
+  {
+   "handler": "llm_credential::put",
+   "method": "PUT",
+   "path": "/v1/llm-credential",
+   "plane": "credential",
+   "query": null,
+   "request_body": "PutLlmCredentialRequest",
+   "response": "LlmCredentialDto"
+  },
+  {
+   "handler": "llm_credential::test",
+   "method": "POST",
+   "path": "/v1/llm-credential/test",
+   "plane": "credential",
+   "query": null,
+   "request_body": "PutLlmCredentialRequest",
+   "response": "LlmCredentialCheckDto"
+  },
+  {
+   "handler": "llm_credential::verify",
+   "method": "POST",
+   "path": "/v1/llm-credential/verify",
+   "plane": "credential",
+   "query": null,
+   "request_body": null,
+   "response": "LlmCredentialCheckDto"
+  },
+  {
    "handler": "memory::forget",
    "method": "DELETE",
    "path": "/v1/memories",
+   "plane": "data",
    "query": null,
    "request_body": "ForgetBody",
    "response": "ForgetResponseDto"
@@ -1891,6 +3926,7 @@
    "handler": "memory::list",
    "method": "GET",
    "path": "/v1/memories",
+   "plane": "data",
    "query": "MemoryListQuery",
    "request_body": null,
    "response": "MemoryListPageDto"
@@ -1899,14 +3935,25 @@
    "handler": "memory::encode",
    "method": "POST",
    "path": "/v1/memories",
+   "plane": "data",
    "query": null,
    "request_body": "EncodeBody",
+   "response": "EncodeResponseDto"
+  },
+  {
+   "handler": "memory::encode_vector",
+   "method": "POST",
+   "path": "/v1/memories/vector",
+   "plane": "data",
+   "query": null,
+   "request_body": "EncodeVectorBody",
    "response": "EncodeResponseDto"
   },
   {
    "handler": "memory::inspect",
    "method": "GET",
    "path": "/v1/memories/{id}/inspect",
+   "plane": "data",
    "query": null,
    "request_body": null,
    "response": "MemoryInspectDto"
@@ -1915,14 +3962,43 @@
    "handler": "reasoning::plan",
    "method": "POST",
    "path": "/v1/plan",
+   "plane": "data",
    "query": null,
    "request_body": "PlanBody",
    "response": "PlanResponseDto"
   },
   {
+   "handler": "memory::materialize_procedural",
+   "method": "POST",
+   "path": "/v1/procedural/materialize",
+   "plane": "data",
+   "query": null,
+   "request_body": null,
+   "response": "MaterializeProceduralResponseDto"
+  },
+  {
+   "handler": "query::explain",
+   "method": "POST",
+   "path": "/v1/query/explain",
+   "plane": "data",
+   "query": null,
+   "request_body": "QueryBody",
+   "response": "QueryExplainResponseDto"
+  },
+  {
+   "handler": "query::trace",
+   "method": "POST",
+   "path": "/v1/query/trace",
+   "plane": "data",
+   "query": null,
+   "request_body": "QueryBody",
+   "response": "QueryTraceResponseDto"
+  },
+  {
    "handler": "reasoning::reason",
    "method": "POST",
    "path": "/v1/reason",
+   "plane": "data",
    "query": null,
    "request_body": "ReasonBody",
    "response": "ReasonResponseDto"
@@ -1931,22 +4007,52 @@
    "handler": "memory::recall",
    "method": "POST",
    "path": "/v1/recall",
+   "plane": "data",
    "query": null,
    "request_body": "RecallBody",
    "response": "RecallResponseDto"
   },
   {
+   "handler": "relation::create",
+   "method": "POST",
+   "path": "/v1/relations",
+   "plane": "data",
+   "query": null,
+   "request_body": "CreateRelationBody",
+   "response": "CreateRelationResponseDto"
+  },
+  {
+   "handler": "relation::tombstone",
+   "method": "DELETE",
+   "path": "/v1/relations/{id}",
+   "plane": "data",
+   "query": "TombstoneRelationQuery",
+   "request_body": null,
+   "response": "TombstoneRelationResponseDto"
+  },
+  {
    "handler": "relation::get",
    "method": "GET",
    "path": "/v1/relations/{id}",
+   "plane": "data",
    "query": "GetRelationQuery",
    "request_body": null,
    "response": "RelationDetailDto"
   },
   {
+   "handler": "relation::supersede",
+   "method": "POST",
+   "path": "/v1/relations/{id}/supersede",
+   "plane": "data",
+   "query": null,
+   "request_body": "SupersedeRelationBody",
+   "response": "SupersedeRelationResponseDto"
+  },
+  {
    "handler": "schema::get",
    "method": "GET",
    "path": "/v1/schema",
+   "plane": "data",
    "query": "SchemaGetQuery",
    "request_body": null,
    "response": "SchemaDto"
@@ -1955,6 +4061,7 @@
    "handler": "schema::upload",
    "method": "POST",
    "path": "/v1/schema",
+   "plane": "data",
    "query": null,
    "request_body": "SchemaUploadBody",
    "response": "SchemaUploadDto"
@@ -1963,6 +4070,7 @@
    "handler": "schema::replace",
    "method": "PUT",
    "path": "/v1/schema",
+   "plane": "data",
    "query": null,
    "request_body": "SchemaReplaceBody",
    "response": "SchemaReplaceDto"
@@ -1971,30 +4079,161 @@
    "handler": "schema::validate",
    "method": "POST",
    "path": "/v1/schema/validate",
+   "plane": "data",
    "query": null,
    "request_body": "SchemaValidateBody",
    "response": "SchemaValidateDto"
   },
   {
+   "handler": "schema::drop",
+   "method": "DELETE",
+   "path": "/v1/schema/{kind}/{name}",
+   "plane": "data",
+   "query": "SchemaDropQuery",
+   "request_body": null,
+   "response": "SchemaDropResponseDto"
+  },
+  {
+   "handler": "schema::list",
+   "method": "GET",
+   "path": "/v1/schemas",
+   "plane": "data",
+   "query": "ListSchemasQuery",
+   "request_body": null,
+   "response": "ListSchemasResponseDto"
+  },
+  {
+   "handler": "session::list",
+   "method": "GET",
+   "path": "/v1/sessions",
+   "plane": "data",
+   "query": "ListSessionsQuery",
+   "request_body": null,
+   "response": "ListSessionsResponseDto"
+  },
+  {
+   "handler": "session::create",
+   "method": "POST",
+   "path": "/v1/sessions",
+   "plane": "data",
+   "query": null,
+   "request_body": "CreateSessionBody",
+   "response": "SessionProvisionDto"
+  },
+  {
+   "handler": "session::delete",
+   "method": "DELETE",
+   "path": "/v1/sessions/{id}",
+   "plane": "data",
+   "query": "DeleteSessionQuery",
+   "request_body": null,
+   "response": "SessionErasedDto"
+  },
+  {
+   "handler": "space::delete",
+   "method": "DELETE",
+   "path": "/v1/spaces",
+   "plane": "data",
+   "query": null,
+   "request_body": null,
+   "response": "SpaceErasedDto"
+  },
+  {
+   "handler": "space::list",
+   "method": "GET",
+   "path": "/v1/spaces",
+   "plane": "data",
+   "query": "ListSpacesQuery",
+   "request_body": null,
+   "response": "ListSpacesResponseDto"
+  },
+  {
+   "handler": "space::create",
+   "method": "POST",
+   "path": "/v1/spaces",
+   "plane": "data",
+   "query": null,
+   "request_body": null,
+   "response": "SpaceProvisionDto"
+  },
+  {
    "handler": "statement::list",
    "method": "GET",
    "path": "/v1/statements",
+   "plane": "data",
    "query": "ListStatementsQuery",
    "request_body": null,
    "response": "ListStatementsResponseDto"
   },
   {
+   "handler": "statement::create",
+   "method": "POST",
+   "path": "/v1/statements",
+   "plane": "data",
+   "query": null,
+   "request_body": "CreateStatementBody",
+   "response": "CreateStatementResponseDto"
+  },
+  {
+   "handler": "statement::tombstone",
+   "method": "DELETE",
+   "path": "/v1/statements/{id}",
+   "plane": "data",
+   "query": "StatementRetireQuery",
+   "request_body": null,
+   "response": "TombstoneStatementResponseDto"
+  },
+  {
    "handler": "statement::get",
    "method": "GET",
    "path": "/v1/statements/{id}",
+   "plane": "data",
    "query": "GetStatementQuery",
    "request_body": null,
    "response": "StatementDetailDto"
   },
   {
+   "handler": "statement::history",
+   "method": "GET",
+   "path": "/v1/statements/{id}/history",
+   "plane": "data",
+   "query": "StatementHistoryQuery",
+   "request_body": null,
+   "response": "StatementHistoryResponseDto"
+  },
+  {
+   "handler": "statement::retract",
+   "method": "POST",
+   "path": "/v1/statements/{id}/retract",
+   "plane": "data",
+   "query": "StatementRetireQuery",
+   "request_body": null,
+   "response": "RetractStatementResponseDto"
+  },
+  {
+   "handler": "statement::supersede",
+   "method": "POST",
+   "path": "/v1/statements/{id}/supersede",
+   "plane": "data",
+   "query": null,
+   "request_body": "SupersedeStatementBody",
+   "response": "SupersedeStatementResponseDto"
+  },
+  {
+   "handler": "subscribe::subscribe",
+   "method": "GET",
+   "path": "/v1/subscribe",
+   "plane": "data",
+   "query": "SubscribeQuery",
+   "request_body": null,
+   "response": "SubscriptionEventDto",
+   "streaming": "sse"
+  },
+  {
    "handler": "identity::whoami",
    "method": "GET",
    "path": "/v1/whoami",
+   "plane": "data",
    "query": null,
    "request_body": null,
    "response": "WhoamiDto"

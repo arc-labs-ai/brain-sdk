@@ -92,9 +92,25 @@ def main() -> int:
             print(f"  ! {u}")
         return 1
 
-    expected = {(r["method"], normalize(r["path"])) for r in manifest["routes"]}
-    print(f"brain-edge exposes {len(expected)} method+path combos "
-          f"across {len({p for _, p in expected})} paths\n")
+    # The broker plane is excluded: Brain calls those routes with a
+    # deployment-wide token, not a tenant credential, so they are not the
+    # SDK's to implement. Without this they report missing from all three
+    # clients forever — and `ROUTE_CALL` only matches `/v1/` paths anyway, so
+    # the alarm could not be silenced even by implementing them.
+    #
+    # Read from the manifest's own `plane` rather than from a path prefix
+    # here, so the line moves when brain-edge's routers move.
+    broker = sorted(
+        (r["method"], r["path"]) for r in manifest["routes"] if r.get("plane") == "broker"
+    )
+    expected = {
+        (r["method"], normalize(r["path"]))
+        for r in manifest["routes"]
+        if r.get("plane") != "broker"
+    }
+    print(f"brain-edge exposes {len(expected)} tenant method+path combos "
+          f"across {len({p for _, p in expected})} paths "
+          f"({len(broker)} broker routes excluded)\n")
 
     failed = False
     for lang, path in CLIENTS.items():

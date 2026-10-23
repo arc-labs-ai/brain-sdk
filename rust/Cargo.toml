@@ -45,7 +45,16 @@ uuid = { version = "1", features = ["v5", "v7"] }
 reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "rustls-tls",
+  # The change feed is Server-Sent Events, so the body has to be read as it
+  # arrives rather than collected: `bytes_stream()` comes from this.
+  "stream",
 ] }
+# `StreamExt::next` for draining that byte stream, and `Bytes` for its item
+# type. Both are already in the lock graph via reqwest/hyper, so they add no
+# download — they are named directly because the subscription holds the
+# stream in a field and a field needs a nameable type.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+bytes = "1"
 serde_json = "1"
 
 [dev-dependencies]

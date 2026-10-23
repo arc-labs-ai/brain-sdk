@@ -12,16 +12,27 @@ use serde::Serialize;
 
 use super::error::BrainHttpError;
 use super::retry::HttpRetryPolicy;
+use super::sse::Subscription;
 use super::types::{
-    Capabilities, CreateEntityInput, CreateEntityResult, EncodeInput, EncodeResult, EntityDetail,
-    ForgetInput, ForgetResult, GetRelationQuery, GetStatementQuery, GraphFetchQuery, GraphPage,
-    LinkInput, LinkResult, ListEntitiesQuery, ListEntitiesResult, ListRelationsQuery,
-    ListRelationsResult, ListStatementsQuery, ListStatementsResult, MemoryInspect, MemoryListPage,
-    MemoryListQuery, PlanInput, PlanResult, ReasonInput, ReasonResult, RecallInput, RecallResult,
-    RelationDetail, ResolveEntityInput, ResolveEntityResult, Schema, SchemaGetQuery,
-    SchemaReplaceInput, SchemaReplaceResult, SchemaUploadInput, SchemaUploadResult,
-    SchemaValidateInput, SchemaValidateResult, StatementDetail, TraverseInput, TraverseResult,
-    UnlinkInput, UnlinkResult, Whoami,
+    Capabilities, CreateEntityInput, CreateEntityResult, CreateRelationInput, CreateRelationResult,
+    CreateSessionInput, CreateSpaceInput, CreateStatementInput, CreateStatementResult,
+    DeleteSessionQuery, DropSchemaQuery, DropSchemaResult, EncodeInput, EncodeResult,
+    EncodeVectorInput, EntityDetail, ForgetInput, ForgetResult, GetRelationQuery,
+    GetStatementQuery, GraphFetchQuery, GraphPage, LinkInput, LinkResult, ListEntitiesQuery,
+    ListEntitiesResult, ListExtractorsResult, ListRelationsQuery, ListRelationsResult,
+    ListSchemasQuery, ListSchemasResult, ListSessionsQuery, ListSessionsResult, ListSpacesQuery,
+    ListSpacesResult, ListStatementsQuery, ListStatementsResult, LlmCredential, LlmCredentialCheck,
+    LlmCredentialDeleted, MaterializeProceduralInput, MaterializeProceduralResult, MemoryInspect,
+    MemoryListPage, MemoryListQuery, MergeEntitiesInput, MergeEntitiesResult, PlanInput,
+    PlanResult, PutLlmCredentialInput, QueryExplainResult, QueryInput, QueryTraceResult,
+    ReasonInput, ReasonResult, RecallInput, RecallResult, RelationDetail, RenameEntityInput,
+    ResolveEntityInput, ResolveEntityResult, RetireStatementQuery, RetractStatementResult, Schema,
+    SchemaGetQuery, SchemaReplaceInput, SchemaReplaceResult, SchemaUploadInput, SchemaUploadResult,
+    SchemaValidateInput, SchemaValidateResult, SessionErased, SessionProvision, SpaceErased,
+    SpaceProvision, StatementDetail, StatementHistoryQuery, StatementHistoryResult, SubscribeQuery,
+    SupersedeRelationResult, SupersedeStatementResult, TombstoneEntityQuery,
+    TombstoneRelationQuery, TombstoneResult, TraverseInput, TraverseResult, UnlinkInput,
+    UnlinkResult, UnmergeEntityResult, UpdateEntityInput, Whoami,
 };
 
 /// The default edge base URL (self-host).
@@ -431,6 +442,559 @@ impl BrainHttpClient {
             true,
         )
         .await
+    }
+
+    // --- space lifecycle -----------------------------------------------------
+    //
+    // All three act on the caller's effective space: Brain resolves it from
+    // the credential and never takes it from the request, so none of them
+    // names one.
+
+    /// Provision the caller's space. Idempotent — read `created` to tell
+    /// whether this call made it.
+    pub async fn create_space(
+        &self,
+        input: &CreateSpaceInput,
+    ) -> Result<SpaceProvision, BrainHttpError> {
+        self.send(reqwest::Method::POST, "/v1/spaces", Some(input), true)
+            .await
+    }
+
+    /// The spaces in the caller's namespace.
+    ///
+    /// Check `cross_shard_complete`: `false` means the listing covered one
+    /// shard, and treating a partial listing as complete is how a caller
+    /// concludes a space is gone.
+    pub async fn list_spaces(
+        &self,
+        query: &ListSpacesQuery,
+    ) -> Result<ListSpacesResult, BrainHttpError> {
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::GET,
+            "/v1/spaces",
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    /// Erase the caller's space and everything under it. Hard and immediate.
+    pub async fn delete_space(&self) -> Result<SpaceErased, BrainHttpError> {
+        // Retryable: a repeat reaches the same end state and answers
+        // `existed: false`, which the result type models.
+        self.send::<(), _>(reqwest::Method::DELETE, "/v1/spaces", None, true)
+            .await
+    }
+
+    // --- session lifecycle ---------------------------------------------------
+
+    /// Provision a session in the caller's space. Idempotent on the
+    /// client-chosen id.
+    pub async fn create_session(
+        &self,
+        input: &CreateSessionInput,
+    ) -> Result<SessionProvision, BrainHttpError> {
+        self.send(reqwest::Method::POST, "/v1/sessions", Some(input), true)
+            .await
+    }
+
+    /// The sessions in the caller's space.
+    pub async fn list_sessions(
+        &self,
+        query: &ListSessionsQuery,
+    ) -> Result<ListSessionsResult, BrainHttpError> {
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::GET,
+            "/v1/sessions",
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    /// Erase a session. Soft unless `hard` is set.
+    pub async fn delete_session(
+        &self,
+        session_id: u64,
+        query: &DeleteSessionQuery,
+    ) -> Result<SessionErased, BrainHttpError> {
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::DELETE,
+            &format!("/v1/sessions/{session_id}"),
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    // --- entity authoring ----------------------------------------------------
+
+    /// Replace an entity's name, aliases and attribute blob.
+    ///
+    /// A REPLACE, not a patch: an omitted `aliases` or `attributes` clears
+    /// it. `get_entity` returns both so a read-modify-write round-trips.
+    pub async fn update_entity(
+        &self,
+        entity_id: &str,
+        input: &UpdateEntityInput,
+    ) -> Result<EntityDetail, BrainHttpError> {
+        let id = segment(entity_id);
+        // Idempotent by nature: the same replace applied twice is the same
+        // end state.
+        self.send(
+            reqwest::Method::PUT,
+            &format!("/v1/entities/{id}"),
+            Some(input),
+            true,
+        )
+        .await
+    }
+
+    /// Change an entity's canonical name, keeping the old one as an alias
+    /// unless told otherwise.
+    pub async fn rename_entity(
+        &self,
+        entity_id: &str,
+        input: &RenameEntityInput,
+    ) -> Result<EntityDetail, BrainHttpError> {
+        let id = segment(entity_id);
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/entities/{id}/rename"),
+            Some(input),
+            true,
+        )
+        .await
+    }
+
+    /// Fold another entity into this one. `entity_id` is the SURVIVOR.
+    ///
+    /// Reversible for `grace_period_seconds`, which the result carries so a
+    /// caller need not know the deployment's configuration.
+    pub async fn merge_entities(
+        &self,
+        survivor_id: &str,
+        input: &MergeEntitiesInput,
+    ) -> Result<MergeEntitiesResult, BrainHttpError> {
+        let id = segment(survivor_id);
+        // Single-shot: a merge creates an audit record, and a retried one
+        // would create a second.
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/entities/{id}/merge"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+
+    /// Undo a merge. `entity_id` is the entity that was merged away.
+    pub async fn unmerge_entity(
+        &self,
+        merged_entity_id: &str,
+    ) -> Result<UnmergeEntityResult, BrainHttpError> {
+        let id = segment(merged_entity_id);
+        self.send::<(), _>(
+            reqwest::Method::POST,
+            &format!("/v1/entities/{id}/unmerge"),
+            None,
+            false,
+        )
+        .await
+    }
+
+    /// Tombstone an entity. The row stays and reads stop resolving to it,
+    /// which is what keeps statements that referenced it interpretable.
+    pub async fn tombstone_entity(
+        &self,
+        entity_id: &str,
+        query: &TombstoneEntityQuery,
+    ) -> Result<TombstoneResult, BrainHttpError> {
+        let id = segment(entity_id);
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::DELETE,
+            &format!("/v1/entities/{id}"),
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    // --- statement authoring -------------------------------------------------
+
+    /// Assert a claim.
+    ///
+    /// Brain may recognise it as a revision of an existing claim and supersede
+    /// that one; `auto_superseded` says when it did.
+    pub async fn create_statement(
+        &self,
+        input: &CreateStatementInput,
+    ) -> Result<CreateStatementResult, BrainHttpError> {
+        self.send(reqwest::Method::POST, "/v1/statements", Some(input), false)
+            .await
+    }
+
+    /// Replace a claim with a revised one, keeping both and the link between
+    /// them.
+    pub async fn supersede_statement(
+        &self,
+        statement_id: &str,
+        input: &CreateStatementInput,
+    ) -> Result<SupersedeStatementResult, BrainHttpError> {
+        let id = segment(statement_id);
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/statements/{id}/supersede"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+
+    /// Retire a claim. The row stays; reads stop returning it.
+    pub async fn tombstone_statement(
+        &self,
+        statement_id: &str,
+        query: &RetireStatementQuery,
+    ) -> Result<TombstoneResult, BrainHttpError> {
+        let id = segment(statement_id);
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::DELETE,
+            &format!("/v1/statements/{id}"),
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    /// Withdraw a claim: stronger than a tombstone, because the content
+    /// itself is scheduled to be zeroed.
+    pub async fn retract_statement(
+        &self,
+        statement_id: &str,
+        query: &RetireStatementQuery,
+    ) -> Result<RetractStatementResult, BrainHttpError> {
+        let id = segment(statement_id);
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::POST,
+            &format!("/v1/statements/{id}/retract"),
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    /// Every version of one claim, oldest first.
+    pub async fn statement_history(
+        &self,
+        statement_id: &str,
+        query: &StatementHistoryQuery,
+    ) -> Result<StatementHistoryResult, BrainHttpError> {
+        let id = segment(statement_id);
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::GET,
+            &format!("/v1/statements/{id}/history"),
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    // --- relation authoring --------------------------------------------------
+
+    /// Assert a typed edge between two entities.
+    pub async fn create_relation(
+        &self,
+        input: &CreateRelationInput,
+    ) -> Result<CreateRelationResult, BrainHttpError> {
+        self.send(reqwest::Method::POST, "/v1/relations", Some(input), false)
+            .await
+    }
+
+    /// Replace an edge with a revised one.
+    ///
+    /// The replacement is a whole edge and it REPLACES the property blob,
+    /// which is why `get_relation` returns `properties` — a revision that
+    /// only meant to change validity can carry the old ones back.
+    pub async fn supersede_relation(
+        &self,
+        relation_id: &str,
+        input: &CreateRelationInput,
+    ) -> Result<SupersedeRelationResult, BrainHttpError> {
+        let id = segment(relation_id);
+        self.send(
+            reqwest::Method::POST,
+            &format!("/v1/relations/{id}/supersede"),
+            Some(input),
+            false,
+        )
+        .await
+    }
+
+    /// Retire an edge.
+    pub async fn tombstone_relation(
+        &self,
+        relation_id: &str,
+        query: &TombstoneRelationQuery,
+    ) -> Result<TombstoneResult, BrainHttpError> {
+        let id = segment(relation_id);
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::DELETE,
+            &format!("/v1/relations/{id}"),
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    // --- schema introspection + drop -----------------------------------------
+
+    /// The namespace's schema version history.
+    ///
+    /// Distinct from [`Self::get_schema`], which returns one document: this is
+    /// what a caller about to upload needs in order to see what it is adding
+    /// to.
+    pub async fn list_schemas(
+        &self,
+        query: &ListSchemasQuery,
+    ) -> Result<ListSchemasResult, BrainHttpError> {
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::GET,
+            "/v1/schemas",
+            Some(query),
+            None,
+            true,
+        )
+        .await
+    }
+
+    /// The extractors registered on the shard. Read-only: extraction is
+    /// always-on and cannot be toggled. Here so a caller reading
+    /// `extractor_id` on a statement can find out what produced it.
+    pub async fn list_extractors(&self) -> Result<ListExtractorsResult, BrainHttpError> {
+        self.send::<(), _>(reqwest::Method::GET, "/v1/extractors", None, true)
+            .await
+    }
+
+    /// Drop one declared predicate or relation type.
+    ///
+    /// `kind` is `predicate` or `relation_type`. Entity types are not
+    /// droppable: they are global in the v1 storage model, so dropping one
+    /// would race rows in other namespaces.
+    pub async fn drop_schema(
+        &self,
+        kind: &str,
+        name: &str,
+        query: &DropSchemaQuery,
+    ) -> Result<DropSchemaResult, BrainHttpError> {
+        let (k, n) = (segment(kind), segment(name));
+        self.send_with_query::<(), _, _>(
+            reqwest::Method::DELETE,
+            &format!("/v1/schema/{k}/{n}"),
+            Some(query),
+            None,
+            false,
+        )
+        .await
+    }
+
+    // --- memory extras -------------------------------------------------------
+
+    /// Store a memory with a caller-supplied embedding.
+    ///
+    /// `model_fingerprint` is required: vectors from different models are not
+    /// comparable, so a recall that mixed them would rank nonsense
+    /// confidently.
+    pub async fn encode_vector(
+        &self,
+        input: &EncodeVectorInput,
+    ) -> Result<EncodeResult, BrainHttpError> {
+        self.send(
+            reqwest::Method::POST,
+            "/v1/memories/vector",
+            Some(input),
+            true,
+        )
+        .await
+    }
+
+    /// Render the caller's remembered directives into a system-prompt block.
+    ///
+    /// Check `trimmed_by_budget`: `true` means directives did not make it in,
+    /// so the block is not the whole set.
+    pub async fn materialize_procedural(
+        &self,
+        input: &MaterializeProceduralInput,
+    ) -> Result<MaterializeProceduralResult, BrainHttpError> {
+        self.send(
+            reqwest::Method::POST,
+            "/v1/procedural/materialize",
+            Some(input),
+            true,
+        )
+        .await
+    }
+
+    // --- query introspection -------------------------------------------------
+
+    /// The plan Brain would run, and its estimated cost. Does NOT run it.
+    pub async fn query_explain(
+        &self,
+        input: &QueryInput,
+    ) -> Result<QueryExplainResult, BrainHttpError> {
+        self.send(
+            reqwest::Method::POST,
+            "/v1/query/explain",
+            Some(input),
+            true,
+        )
+        .await
+    }
+
+    /// Run the query and report what happened, with the measured latency.
+    /// Unlike [`Self::query_explain`], this costs what the query costs.
+    pub async fn query_trace(
+        &self,
+        input: &QueryInput,
+    ) -> Result<QueryTraceResult, BrainHttpError> {
+        self.send(reqwest::Method::POST, "/v1/query/trace", Some(input), true)
+            .await
+    }
+
+    // --- BYOK provider credentials -------------------------------------------
+
+    /// Register (or replace) this tenant's provider key.
+    ///
+    /// The edge verifies the key with the provider before storing it and
+    /// seals it on arrival; it is never returned.
+    pub async fn put_llm_credential(
+        &self,
+        input: &PutLlmCredentialInput,
+    ) -> Result<LlmCredential, BrainHttpError> {
+        self.send(
+            reqwest::Method::PUT,
+            "/v1/llm-credential",
+            Some(input),
+            false,
+        )
+        .await
+    }
+
+    /// What is installed for this tenant. Carries no key material.
+    pub async fn get_llm_credential(&self) -> Result<LlmCredential, BrainHttpError> {
+        self.send::<(), _>(reqwest::Method::GET, "/v1/llm-credential", None, true)
+            .await
+    }
+
+    /// Remove this tenant's provider key. `deleted: false` means there was
+    /// nothing there — which matters during an incident response.
+    pub async fn delete_llm_credential(&self) -> Result<LlmCredentialDeleted, BrainHttpError> {
+        self.send::<(), _>(reqwest::Method::DELETE, "/v1/llm-credential", None, true)
+            .await
+    }
+
+    /// Check a key WITHOUT storing it. Nothing is written and nothing
+    /// existing is touched, so this is safe against a namespace that already
+    /// has a working credential.
+    pub async fn test_llm_credential(
+        &self,
+        input: &PutLlmCredentialInput,
+    ) -> Result<LlmCredentialCheck, BrainHttpError> {
+        self.send(
+            reqwest::Method::POST,
+            "/v1/llm-credential/test",
+            Some(input),
+            true,
+        )
+        .await
+    }
+
+    /// Re-check the key already stored. A key that worked at registration can
+    /// be revoked or run out of credit later, where the first sign is
+    /// otherwise an opaque upstream 401 on a write.
+    pub async fn verify_llm_credential(&self) -> Result<LlmCredentialCheck, BrainHttpError> {
+        self.send::<(), _>(
+            reqwest::Method::POST,
+            "/v1/llm-credential/verify",
+            None,
+            true,
+        )
+        .await
+    }
+
+    // --- change feed ---------------------------------------------------------
+
+    /// Open the caller's change feed.
+    ///
+    /// Returns a [`Subscription`] drained with `next().await` — the same
+    /// shape the native wire client's subscription has, so moving between the
+    /// two tiers rewrites the construction, not the loop.
+    ///
+    /// Unsubscribing is dropping the handle: the edge tears the Brain-side
+    /// subscription down when the response closes. There is no teardown call
+    /// to forget.
+    ///
+    /// Every event carries an `lsn`, and the handle remembers the last one
+    /// ([`Subscription::last_event_id`]). Pass it back as
+    /// [`SubscribeQuery::from_lsn`] on a reconnect to resume exactly rather
+    /// than replay or skip.
+    ///
+    /// # Errors
+    /// A transport failure, or a non-success status from the edge.
+    ///
+    /// Not retried, deliberately. A retry would silently reopen the feed from
+    /// the query's original position, re-delivering everything the caller had
+    /// already seen; resuming is the caller's decision because only it knows
+    /// where it got to.
+    pub async fn subscribe(&self, query: &SubscribeQuery) -> Result<Subscription, BrainHttpError> {
+        self.open_stream(reqwest::Method::GET, "/v1/subscribe", query)
+            .await
+    }
+
+    /// Open a streaming response rather than reading a body to completion.
+    ///
+    /// Split from [`Self::send_once`] because the two differ in every way
+    /// that matters: no retry (reopening a feed re-delivers what the caller
+    /// already saw), no body read, and no request timeout.
+    async fn open_stream<Q>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: &Q,
+    ) -> Result<Subscription, BrainHttpError>
+    where
+        Q: Serialize + ?Sized,
+    {
+        let url = format!("{}{}", self.base, path);
+        let resp = self
+            .http
+            .request(method, &url)
+            .bearer_auth(&self.api_key)
+            .query(query)
+            // The per-request timeout would otherwise cut a healthy feed off
+            // after 30s. A subscription is long-lived by definition; its
+            // liveness signal is the edge's keep-alive comment, not a
+            // deadline.
+            .timeout(Duration::from_secs(u64::MAX / 2))
+            .header(reqwest::header::ACCEPT, "text/event-stream")
+            .send()
+            .await
+            .map_err(|e| BrainHttpError::transport(format!("subscribe to {url} failed: {e}")))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(BrainHttpError::from_body(status.as_u16(), &text));
+        }
+        Ok(Subscription::new(resp))
     }
 
     /// Send with the retry policy applied when `idempotent`. Non-idempotent

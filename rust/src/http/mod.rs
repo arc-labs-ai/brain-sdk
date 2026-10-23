@@ -8,6 +8,7 @@
 pub mod client;
 pub mod error;
 pub mod retry;
+pub mod sse;
 pub mod types;
 
 pub use client::{BrainHttpClient, DEFAULT_BASE_URL, DEFAULT_TIMEOUT};
@@ -27,3 +28,5 @@ pub use types::{
     StatementObject, StatementValue, TraversalPath, TraversalStep, TraverseInput, TraverseResult,
     UnlinkInput, UnlinkResult, Whoami,
 };
+
+pub use sse::{FeedItem, Subscription};

@@ -21,6 +21,23 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+/// `0` is the edge's "unset" for these, so an unset field is omitted rather
+/// than sent as a zero the server then has to interpret.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero_u8(n: &u8) -> bool {
+    *n == 0
+}
+
 // --- encode ----------------------------------------------------------------
 
 /// `encode` input.
@@ -636,7 +653,10 @@ where
 
 /// A literal on the object side of a statement. Internally tagged by `type`,
 /// with snake_case tag values: `{"type": "text", "value": "…"}`.
-#[derive(Clone, Debug, Deserialize)]
+///
+/// `Serialize` too, since `create_statement` takes the same shape a read
+/// returns — one representation, not two that can drift apart.
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StatementValue {
     Text {
@@ -662,7 +682,10 @@ pub enum StatementValue {
 
 /// What a statement points at. Internally tagged by `kind`, with snake_case tag
 /// values: `{"kind": "entity", "id": "…"}`, `{"kind": "value", "value": {…}}`.
-#[derive(Clone, Debug, Deserialize)]
+///
+/// A MEMORY id is a 128-bit decimal string, the form every memory id in this
+/// contract takes — not a UUID. `Serialize` too; see [`StatementValue`].
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StatementObject {
     Entity { id: String },
@@ -901,4 +924,788 @@ mod recall_trace_tests {
             serde_json::from_str(r#"{"answer_kind":"none","memories":[]}"#).expect("deserialize");
         assert!(r.trace.is_none());
     }
+}
+
+// --- space lifecycle -------------------------------------------------------
+//
+// All three act on the CALLER's effective space: Brain resolves it from the
+// credential and never takes it from the request, so none of these name one.
+
+/// `create_space` input.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct CreateSpaceInput {
+    /// Opaque caller metadata. Write-only: no op returns it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<String>,
+}
+
+/// `create_space` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SpaceProvision {
+    pub space_id: String,
+    /// Whether THIS call created it. The op is idempotent, so the rest of the
+    /// body is identical either way and this is the only thing that tells
+    /// "made it" from "it was already there".
+    pub created: bool,
+    pub created_at_unix_nanos: u64,
+    pub last_active_unix_nanos: u64,
+    pub memory_count: u64,
+    pub session_count: u32,
+}
+
+/// `list_spaces` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ListSpacesQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// One row of a space listing.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SpaceSummary {
+    pub space_id: String,
+    pub created_at_unix_nanos: u64,
+    pub last_active_unix_nanos: u64,
+    pub memory_count: u64,
+    pub session_count: u32,
+}
+
+/// `list_spaces` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ListSpacesResult {
+    pub spaces: Vec<SpaceSummary>,
+    /// `false` when the listing covered only the caller's shard. Treat a
+    /// `false` as partial: concluding a space is gone from an incomplete
+    /// listing is the failure this field exists to prevent.
+    pub cross_shard_complete: bool,
+}
+
+/// `delete_space` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SpaceErased {
+    pub space_id: String,
+    /// `false` when there was no registry row — already erased, or never
+    /// written to.
+    pub existed: bool,
+    pub memories_forgotten: u64,
+}
+
+// --- session lifecycle -----------------------------------------------------
+
+/// `create_session` input. The id is client-chosen so a caller's own
+/// conversation id can BE the session id rather than needing a mapping.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct CreateSessionInput {
+    pub session_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// `create_session` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SessionProvision {
+    pub space_id: String,
+    pub session_id: u64,
+    /// Whether THIS call created it; the op is idempotent.
+    pub created: bool,
+    pub created_at_unix_nanos: u64,
+    pub last_active_unix_nanos: u64,
+    pub memory_count: u32,
+}
+
+/// `list_sessions` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ListSessionsQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// One row of a session listing.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SessionSummary {
+    pub session_id: u64,
+    pub created_at_unix_nanos: u64,
+    pub last_active_unix_nanos: u64,
+    pub title: Option<String>,
+    pub memory_count: u32,
+}
+
+/// `list_sessions` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ListSessionsResult {
+    pub space_id: String,
+    pub sessions: Vec<SessionSummary>,
+}
+
+/// `delete_session` query. Soft unless `hard` is asked for by name.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct DeleteSessionQuery {
+    #[serde(skip_serializing_if = "is_false")]
+    pub hard: bool,
+}
+
+/// `delete_session` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SessionErased {
+    pub space_id: String,
+    pub session_id: u64,
+    pub existed: bool,
+    pub memories_forgotten: u64,
+}
+
+// --- entity authoring ------------------------------------------------------
+
+/// `update_entity` input — a WHOLESALE replace, matching the edge's `PUT`.
+///
+/// An omitted `aliases` or `attributes` CLEARS it. `get_entity` returns both,
+/// so a read-modify-write round-trips.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct UpdateEntityInput {
+    pub canonical_name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    /// The complete attribute blob, lowercase hex.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<String>,
+}
+
+/// `rename_entity` input.
+#[derive(Clone, Debug, Serialize)]
+pub struct RenameEntityInput {
+    pub new_canonical_name: String,
+    /// Keep the old canonical name as an alias. Defaults to `true`: a name an
+    /// entity was known by is how a later mention still resolves to it.
+    pub move_to_alias: bool,
+}
+
+impl Default for RenameEntityInput {
+    fn default() -> Self {
+        Self {
+            new_canonical_name: String::new(),
+            move_to_alias: true,
+        }
+    }
+}
+
+/// `merge_entities` input. The entity named in the call is the SURVIVOR.
+#[derive(Clone, Debug, Serialize)]
+pub struct MergeEntitiesInput {
+    /// The entity to fold into the survivor.
+    pub merged: String,
+    pub confidence: f32,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub reason: String,
+}
+
+impl Default for MergeEntitiesInput {
+    fn default() -> Self {
+        Self {
+            merged: String::new(),
+            confidence: 1.0,
+            reason: String::new(),
+        }
+    }
+}
+
+/// `merge_entities` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MergeEntitiesResult {
+    pub audit_id: String,
+    /// How long the merge stays reversible.
+    pub grace_period_seconds: u64,
+}
+
+/// `unmerge_entity` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct UnmergeEntityResult {
+    pub restored_entity_id: String,
+}
+
+/// `tombstone_entity` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct TombstoneEntityQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// `tombstone_entity` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TombstoneResult {
+    pub tombstoned_at_unix_nanos: u64,
+}
+
+// --- statement authoring ---------------------------------------------------
+
+/// `create_statement` input.
+///
+/// `event_at` is when the thing HAPPENED; `valid_from`/`valid_to` are when the
+/// claim is held to be true. A meeting that happened Monday and is believed
+/// from Tuesday has different values for the two.
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateStatementInput {
+    /// `fact` | `preference` | `event` | `attribute` | `relation` | `directive`.
+    pub kind: String,
+    pub subject: String,
+    pub predicate: String,
+    pub object: StatementObject,
+    pub confidence: f32,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub event_at_unix_nanos: u64,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub valid_from_unix_nanos: u64,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub valid_to_unix_nanos: u64,
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub extractor_id: u32,
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub schema_version: u32,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub session_id: u64,
+    /// Memory ids this claim rests on (128-bit decimal strings).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
+}
+
+impl Default for CreateStatementInput {
+    fn default() -> Self {
+        Self {
+            kind: "fact".to_string(),
+            subject: String::new(),
+            predicate: String::new(),
+            object: StatementObject::Value {
+                value: StatementValue::Bool { value: true },
+            },
+            confidence: 1.0,
+            event_at_unix_nanos: 0,
+            valid_from_unix_nanos: 0,
+            valid_to_unix_nanos: 0,
+            extractor_id: 0,
+            schema_version: 0,
+            session_id: 0,
+            evidence: Vec::new(),
+        }
+    }
+}
+
+/// `create_statement` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CreateStatementResult {
+    pub statement_id: String,
+    /// A statement this one automatically superseded, when Brain recognised it
+    /// as a revision of an existing claim.
+    pub auto_superseded: Option<String>,
+    /// The chain this claim belongs to — its stable identity across revisions.
+    pub chain_root: String,
+}
+
+/// `supersede_statement` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SupersedeStatementResult {
+    pub new_statement_id: String,
+    pub chain_root: String,
+    pub version: u32,
+}
+
+/// `tombstone_statement` / `retract_statement` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct RetireStatementQuery {
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub reason: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// `retract_statement` result.
+///
+/// A retraction is stronger than a tombstone: the content itself is scheduled
+/// to be zeroed, and `will_zero_at_unix_nanos` says when.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RetractStatementResult {
+    pub retracted_at_unix_nanos: u64,
+    pub will_zero_at_unix_nanos: u64,
+}
+
+/// `statement_history` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct StatementHistoryQuery {
+    #[serde(skip_serializing_if = "is_false")]
+    pub include_tombstoned: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+/// `statement_history` result — every version of one claim, oldest first.
+#[derive(Clone, Debug, Deserialize)]
+pub struct StatementHistoryResult {
+    pub items: Vec<StatementDetail>,
+    pub chain_root: String,
+    pub total_versions: u32,
+    pub next_cursor: Option<String>,
+}
+
+// --- relation authoring ----------------------------------------------------
+
+/// `create_relation` input.
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateRelationInput {
+    pub relation_type: String,
+    pub from_entity: String,
+    pub to_entity: String,
+    pub confidence: f32,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub valid_from_unix_nanos: u64,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub valid_to_unix_nanos: u64,
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub extractor_id: u32,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub session_id: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
+    /// An opaque property blob, lowercase hex. A supersede REPLACES it, which
+    /// is why `get_relation` returns it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<String>,
+}
+
+impl Default for CreateRelationInput {
+    fn default() -> Self {
+        Self {
+            relation_type: String::new(),
+            from_entity: String::new(),
+            to_entity: String::new(),
+            confidence: 1.0,
+            valid_from_unix_nanos: 0,
+            valid_to_unix_nanos: 0,
+            extractor_id: 0,
+            session_id: 0,
+            evidence: Vec::new(),
+            properties: None,
+        }
+    }
+}
+
+/// `create_relation` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CreateRelationResult {
+    pub relation_id: String,
+}
+
+/// `supersede_relation` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SupersedeRelationResult {
+    pub new_relation_id: String,
+    pub version: u32,
+}
+
+/// `tombstone_relation` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct TombstoneRelationQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+// --- schema introspection + drop -------------------------------------------
+
+/// `list_schemas` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ListSchemasQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+/// One schema version.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SchemaVersion {
+    pub schema_version: u32,
+    pub uploaded_at_unix_nanos: u64,
+    /// Which validator accepted it — a document an older validator passed is
+    /// not necessarily one the current validator would.
+    pub validator_version: u32,
+    pub has_source_text: bool,
+}
+
+/// `list_schemas` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ListSchemasResult {
+    pub namespace: String,
+    pub items: Vec<SchemaVersion>,
+    pub total: u32,
+    pub next_cursor: Option<String>,
+}
+
+/// One registered extractor.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Extractor {
+    /// The id statements carry as `extractor_id`.
+    pub extractor_id: u32,
+    pub namespace: String,
+    pub name: String,
+    /// `0` = pattern, `1` = classifier, `2` = llm.
+    pub kind: u8,
+    pub schema_version: u32,
+    pub created_at_unix_nanos: u64,
+}
+
+/// `list_extractors` result. Read-only: extraction is always-on.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ListExtractorsResult {
+    pub items: Vec<Extractor>,
+    pub total: u32,
+}
+
+/// `drop_schema` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct DropSchemaQuery {
+    /// Consent to orphan live rows — they survive as plain memories no longer
+    /// enriched from the typed-graph tables. A type nothing uses drops
+    /// without it, so this is not a generic "yes I'm sure".
+    #[serde(skip_serializing_if = "is_false")]
+    pub force: bool,
+}
+
+/// `drop_schema` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DropSchemaResult {
+    pub namespace: String,
+    /// The new active version, or `0` when nothing was dropped.
+    pub schema_version: u32,
+    pub target_kind: u8,
+    pub target_name: String,
+    /// `false` with `live_rows > 0` means the type is still in use and
+    /// `force` was not set — nothing changed.
+    pub dropped: bool,
+    pub live_rows: u32,
+    pub validation_errors: Vec<SchemaError>,
+}
+
+// --- memory extras ---------------------------------------------------------
+
+/// `encode_vector` input — a memory whose embedding the caller computed.
+///
+/// `model_fingerprint` is required because vectors from different models are
+/// not comparable: a recall that mixed them would rank nonsense confidently.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct EncodeVectorInput {
+    pub text: String,
+    pub vector: Vec<f32>,
+    /// 16 bytes as lowercase hex (32 characters).
+    pub model_fingerprint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salience_hint: Option<f32>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub deduplicate: bool,
+}
+
+/// `materialize_procedural` input.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct MaterializeProceduralInput {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<u64>,
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub top_k: u32,
+    pub min_confidence: f32,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<String>,
+}
+
+/// `materialize_procedural` result — directives rendered for a system prompt.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MaterializeProceduralResult {
+    pub system_block: String,
+    /// The statements it was rendered from, so a caller can show its work.
+    pub statement_ids: Vec<String>,
+    pub total_candidates: u32,
+    /// Whether the block was cut short by the token budget. `true` means some
+    /// directives did not make it in — do not read the block as complete.
+    pub trimmed_by_budget: bool,
+}
+
+// --- query introspection ---------------------------------------------------
+
+/// Per-query fusion weights.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct FusionConfig {
+    pub k: u32,
+    pub semantic_weight: f32,
+    pub lexical_weight: f32,
+    pub graph_weight: f32,
+}
+
+/// A bi-temporal window. Milliseconds, matching the edge.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct TimeRange {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_unix_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_unix_ms: Option<u64>,
+}
+
+/// `query_explain` / `query_trace` input.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct QueryInput {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_anchor: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub kinds: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub predicates: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_range: Option<TimeRange>,
+    /// Read the graph as it was BELIEVED at this record time — a different
+    /// axis from `time_range`, which is when the content was true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub as_of_record_time_unix_nanos: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence_min: Option<f32>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub include_tombstoned: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub include_superseded: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    /// `auto`, or a pinned list of `semantic` / `lexical` / `graph`. Pinning
+    /// is what makes an explain answer "what would THIS plan cost" rather than
+    /// "what would the router pick today".
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub retrievers: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fusion: Option<FusionConfig>,
+}
+
+/// `query_explain` result. An estimate — nothing ran.
+#[derive(Clone, Debug, Deserialize)]
+pub struct QueryExplainResult {
+    pub plan_text: String,
+    pub estimated_cost_ms: f32,
+}
+
+/// `query_trace` result. A measurement — the query RAN.
+#[derive(Clone, Debug, Deserialize)]
+pub struct QueryTraceResult {
+    pub trace_text: String,
+    pub total_latency_ms: f64,
+}
+
+// --- BYOK provider credentials ---------------------------------------------
+
+/// `put_llm_credential` input.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct PutLlmCredentialInput {
+    /// `openai` | `anthropic`.
+    pub provider: String,
+    pub model: String,
+    /// The provider key. Sealed by the edge on arrival; never returned.
+    pub api_key: String,
+}
+
+/// An installed provider credential. Carries no key material.
+#[derive(Clone, Debug, Deserialize)]
+pub struct LlmCredential {
+    pub provider: String,
+    pub model: String,
+    /// Display-safe tail so an operator can tell which key is installed. Not
+    /// reversible into the key.
+    pub fingerprint: String,
+    pub created_at_unix_secs: u64,
+}
+
+/// `delete_llm_credential` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct LlmCredentialDeleted {
+    /// `false` when there was nothing to remove — which matters when the call
+    /// is part of an incident response.
+    pub deleted: bool,
+}
+
+/// What a provider said about a key.
+///
+/// Three outcomes, not a boolean: "the provider rejected this key" and "I
+/// could not reach the provider" demand opposite responses. On `unreachable`,
+/// `valid` is `None` — the probe learned nothing about the key.
+#[derive(Clone, Debug, Deserialize)]
+pub struct LlmCredentialCheck {
+    /// `valid` | `rejected` | `unreachable`.
+    pub status: String,
+    pub valid: Option<bool>,
+    pub reason: Option<String>,
+    pub provider: String,
+}
+
+// --- change feed (SSE) -----------------------------------------------------
+
+/// The typed-graph detail on a change event, tagged by `type`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GraphEvent {
+    EntityCreated {
+        entity_id: String,
+        entity_type_id: u32,
+        canonical_name: String,
+    },
+    EntityUpdated {
+        entity_id: String,
+        entity_type_id: u32,
+        canonical_name: String,
+        embedding_version_changed: bool,
+    },
+    EntityRenamed {
+        entity_id: String,
+        old_canonical_name: String,
+        new_canonical_name: String,
+        old_moved_to_alias: bool,
+    },
+    EntityMerged {
+        survivor: String,
+        merged: String,
+        audit_id: String,
+        confidence: f32,
+        statements_rerouted: u32,
+        relations_rerouted: u32,
+    },
+    EntityUnmerged {
+        restored_entity_id: String,
+        from_survivor: String,
+        audit_id: String,
+    },
+    EntityTombstoned {
+        entity_id: String,
+        reason: String,
+    },
+    StatementCreated {
+        statement_id: String,
+        kind: u8,
+        subject: String,
+        predicate: String,
+        confidence: f32,
+    },
+    StatementSuperseded {
+        old_statement_id: String,
+        new_statement_id: String,
+        chain_root: String,
+    },
+    StatementTombstoned {
+        statement_id: String,
+        reason: String,
+    },
+    RelationCreated {
+        relation_id: String,
+        relation_type: String,
+        from: String,
+        to: String,
+    },
+    RelationSuperseded {
+        old_relation_id: String,
+        new_relation_id: String,
+    },
+    RelationTombstoned {
+        relation_id: String,
+        reason: String,
+    },
+    SchemaUpdated {
+        namespace: String,
+        from_version: u32,
+        to_version: u32,
+        backward_compatible: bool,
+    },
+}
+
+/// A memory-graph edge event.
+#[derive(Clone, Debug, Deserialize)]
+pub struct EdgeEvent {
+    pub from_kind: u8,
+    pub from_id: String,
+    pub to_kind: u8,
+    pub to_id: String,
+    pub edge_kind_tag: u8,
+    pub edge_kind_byte: u8,
+    pub relation_type_id: Option<u32>,
+    pub weight: f32,
+    pub relation_id: Option<String>,
+    pub superseded_relation_id: Option<String>,
+    pub origin: u8,
+}
+
+/// What a write-pipeline stage produced, tagged by `type`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StageEvent {
+    AutoEdge {
+        edges_written: u32,
+    },
+    TemporalEdge {
+        edges_written: u32,
+    },
+    Extractor {
+        entity_count: u32,
+        statement_count: u32,
+        relation_count: u32,
+        error_message: String,
+    },
+    Hype {
+        questions_written: u32,
+        cost_micro_usd: u64,
+    },
+}
+
+/// One change-feed event.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SubscriptionEvent {
+    pub event_type: String,
+    /// A 128-bit decimal string.
+    pub memory_id: String,
+    pub session_id: u64,
+    pub text: String,
+    pub kind: u8,
+    pub salience: f32,
+    pub timestamp_unix_nanos: u64,
+    /// The feed position. Pass the last one back as
+    /// [`SubscribeQuery::from_lsn`] to resume exactly.
+    pub lsn: u64,
+    pub graph: Option<GraphEvent>,
+    pub edge: Option<EdgeEvent>,
+    pub stage_kind: Option<String>,
+    pub stage_outcome: Option<String>,
+    pub stage: Option<StageEvent>,
+}
+
+/// The terminal event, sent once when the feed closes.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SubscriptionClosed {
+    /// Where the feed got to. Hand it back as `from_lsn` to resume.
+    pub final_lsn: u64,
+    /// `unsubscribed` | `ended` | `error`.
+    pub reason: String,
+}
+
+/// `subscribe` query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SubscribeQuery {
+    /// Comma-separated session ids.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<String>,
+    /// Comma-separated kinds, by name or byte.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kinds: Option<String>,
+    /// Comma-separated memory ids (decimal).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memories: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub include_history: bool,
+    /// Resume after this feed position.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_lsn: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_inflight: Option<u32>,
 }
