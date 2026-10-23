@@ -20,31 +20,56 @@ from typing import Any, Optional
 
 from .errors import BrainHttpError
 from .retry import HttpRetryPolicy
+from .sse import Subscription
 from .types import (
     Capabilities,
     CreateEntityResult,
+    CreateRelationResult,
+    CreateStatementResult,
+    DropSchemaResult,
     EncodeResult,
     EntityDetail,
     ForgetResult,
     GraphPage,
     LinkResult,
     ListEntitiesResult,
+    ListExtractorsResult,
     ListRelationsResult,
+    ListSchemasResult,
+    ListSessionsResult,
+    ListSpacesResult,
     ListStatementsResult,
+    LlmCredential,
+    LlmCredentialCheck,
+    LlmCredentialDeleted,
+    MaterializeProceduralResult,
     MemoryInspect,
     MemoryListPage,
+    MergeEntitiesResult,
     PlanResult,
+    QueryExplainResult,
+    QueryTraceResult,
     ReasonResult,
     RecallResult,
     RelationDetail,
     ResolveEntityResult,
+    RetractStatementResult,
     Schema,
     SchemaReplace,
     SchemaUpload,
     SchemaValidate,
+    SessionErased,
+    SessionProvision,
+    SpaceErased,
+    SpaceProvision,
     StatementDetail,
+    StatementHistoryResult,
+    SupersedeRelationResult,
+    SupersedeStatementResult,
+    TombstoneResult,
     TraverseResult,
     UnlinkResult,
+    UnmergeEntityResult,
     Whoami,
 )
 
@@ -526,6 +551,834 @@ class BrainHttpClient:
                     "force_drop_existing": force_drop_existing,
                 },
             )
+        )
+
+    # --- space lifecycle --------------------------------------------------
+    #
+    # All three act on the caller's effective space: Brain resolves it from
+    # the credential and never takes it from the request, so none of them
+    # names one.
+
+    def create_space(self, metadata: Optional[str] = None) -> SpaceProvision:
+        """Provision the caller's space.
+
+        Idempotent — read :attr:`SpaceProvision.created` to tell whether this
+        call made it. ``metadata`` is write-only: no op returns it.
+        """
+        return SpaceProvision.from_dict(
+            self._request("POST", "/v1/spaces", _compact({"metadata": metadata}), idempotent=True)
+        )
+
+    def list_spaces(self, limit: Optional[int] = None) -> ListSpacesResult:
+        """The spaces in the caller's namespace.
+
+        Check :attr:`ListSpacesResult.cross_shard_complete`: ``False`` means
+        the listing covered one shard, and treating a partial listing as
+        complete is how a caller concludes a space is gone.
+        """
+        return ListSpacesResult.from_dict(
+            self._request("GET", "/v1/spaces", query=_compact({"limit": limit}), idempotent=True)
+        )
+
+    def delete_space(self) -> SpaceErased:
+        """Erase the caller's space and everything under it. Hard, immediate."""
+        # Retryable: a repeat reaches the same end state and answers
+        # `existed: False`, which the result models.
+        return SpaceErased.from_dict(self._request("DELETE", "/v1/spaces", idempotent=True))
+
+    # --- session lifecycle ------------------------------------------------
+
+    def create_session(self, session_id: int, title: Optional[str] = None) -> SessionProvision:
+        """Provision a session in the caller's space.
+
+        The id is client-chosen, so a caller's own conversation id can BE the
+        session id rather than needing a mapping. Idempotent on it.
+        """
+        return SessionProvision.from_dict(
+            self._request(
+                "POST",
+                "/v1/sessions",
+                _compact({"session_id": session_id, "title": title}),
+                idempotent=True,
+            )
+        )
+
+    def list_sessions(self, limit: Optional[int] = None) -> ListSessionsResult:
+        """The sessions in the caller's space."""
+        return ListSessionsResult.from_dict(
+            self._request("GET", "/v1/sessions", query=_compact({"limit": limit}), idempotent=True)
+        )
+
+    def delete_session(self, session_id: int, hard: bool = False) -> SessionErased:
+        """Erase a session. Soft unless ``hard`` is asked for by name."""
+        return SessionErased.from_dict(
+            self._request(
+                "DELETE",
+                f"/v1/sessions/{_seg(str(session_id))}",
+                query=_compact({"hard": hard or None}),
+                idempotent=True,
+            )
+        )
+
+    # --- entity authoring -------------------------------------------------
+
+    def update_entity(
+        self,
+        entity_id: str,
+        canonical_name: str,
+        aliases: Optional[Sequence[str]] = None,
+        attributes: Optional[str] = None,
+    ) -> EntityDetail:
+        """Replace an entity's name, aliases and attribute blob.
+
+        A REPLACE, not a patch: an omitted ``aliases`` or ``attributes``
+        CLEARS it. :meth:`get_entity` returns both, so a read-modify-write
+        round-trips.
+        """
+        return EntityDetail.from_dict(
+            self._request(
+                "PUT",
+                f"/v1/entities/{_seg(entity_id)}",
+                _compact(
+                    {
+                        "canonical_name": canonical_name,
+                        "aliases": list(aliases) if aliases else None,
+                        "attributes": attributes,
+                    }
+                ),
+                idempotent=True,
+            )
+        )
+
+    def rename_entity(
+        self, entity_id: str, new_canonical_name: str, move_to_alias: bool = True
+    ) -> EntityDetail:
+        """Change an entity's canonical name.
+
+        ``move_to_alias`` defaults to ``True``: a name an entity was known by
+        is how a later mention still resolves to it, so dropping it should be
+        asked for.
+        """
+        return EntityDetail.from_dict(
+            self._request(
+                "POST",
+                f"/v1/entities/{_seg(entity_id)}/rename",
+                {"new_canonical_name": new_canonical_name, "move_to_alias": move_to_alias},
+                idempotent=True,
+            )
+        )
+
+    def merge_entities(
+        self,
+        survivor_id: str,
+        merged: str,
+        confidence: float = 1.0,
+        reason: str = "",
+    ) -> MergeEntitiesResult:
+        """Fold another entity into this one. ``survivor_id`` is what remains.
+
+        Reversible for :attr:`MergeEntitiesResult.grace_period_seconds`, which
+        the result carries so a caller need not know the deployment's config.
+        """
+        # Single-shot: a merge writes an audit record, and a retried one
+        # writes a second.
+        return MergeEntitiesResult.from_dict(
+            self._request(
+                "POST",
+                f"/v1/entities/{_seg(survivor_id)}/merge",
+                _compact({"merged": merged, "confidence": confidence, "reason": reason or None}),
+            )
+        )
+
+    def unmerge_entity(self, merged_entity_id: str) -> UnmergeEntityResult:
+        """Undo a merge. The id is the entity that was merged away."""
+        return UnmergeEntityResult.from_dict(
+            self._request("POST", f"/v1/entities/{_seg(merged_entity_id)}/unmerge")
+        )
+
+    def tombstone_entity(self, entity_id: str, reason: Optional[str] = None) -> TombstoneResult:
+        """Tombstone an entity.
+
+        The row stays and reads stop resolving to it, which is what keeps
+        statements that referenced it interpretable.
+        """
+        return TombstoneResult.from_dict(
+            self._request(
+                "DELETE",
+                f"/v1/entities/{_seg(entity_id)}",
+                query=_compact({"reason": reason}),
+                idempotent=True,
+            )
+        )
+
+    # --- statement authoring ----------------------------------------------
+
+    def create_statement(
+        self,
+        kind: str,
+        subject: str,
+        predicate: str,
+        obj: Mapping[str, Any],
+        confidence: float = 1.0,
+        event_at_unix_nanos: Optional[int] = None,
+        valid_from_unix_nanos: Optional[int] = None,
+        valid_to_unix_nanos: Optional[int] = None,
+        extractor_id: Optional[int] = None,
+        schema_version: Optional[int] = None,
+        session_id: Optional[int] = None,
+        evidence: Optional[Sequence[str]] = None,
+    ) -> CreateStatementResult:
+        """Assert a claim.
+
+        ``obj`` is the tagged object a read returns, e.g.
+        ``{"kind": "value", "value": {"type": "text", "value": "Arc"}}``; a
+        memory object's id is a 128-bit decimal string, not a UUID.
+
+        ``event_at`` is when the thing HAPPENED; ``valid_from``/``valid_to``
+        are when the claim is held to be true. A meeting that happened Monday
+        and is believed from Tuesday has different values for the two.
+
+        Brain may recognise the claim as a revision of an existing one and
+        supersede it; :attr:`CreateStatementResult.auto_superseded` says when
+        it did.
+        """
+        return CreateStatementResult.from_dict(
+            self._request(
+                "POST",
+                "/v1/statements",
+                self._statement_body(
+                    kind,
+                    subject,
+                    predicate,
+                    obj,
+                    confidence,
+                    event_at_unix_nanos,
+                    valid_from_unix_nanos,
+                    valid_to_unix_nanos,
+                    extractor_id,
+                    schema_version,
+                    session_id,
+                    evidence,
+                ),
+            )
+        )
+
+    def supersede_statement(
+        self,
+        statement_id: str,
+        kind: str,
+        subject: str,
+        predicate: str,
+        obj: Mapping[str, Any],
+        confidence: float = 1.0,
+        event_at_unix_nanos: Optional[int] = None,
+        valid_from_unix_nanos: Optional[int] = None,
+        valid_to_unix_nanos: Optional[int] = None,
+        extractor_id: Optional[int] = None,
+        schema_version: Optional[int] = None,
+        session_id: Optional[int] = None,
+        evidence: Optional[Sequence[str]] = None,
+    ) -> SupersedeStatementResult:
+        """Replace a claim with a revised one, keeping both and the link.
+
+        The replacement is a whole statement rather than a patch: a revision
+        that changed only the confidence and one that changed the object are
+        the same operation to the chain.
+        """
+        return SupersedeStatementResult.from_dict(
+            self._request(
+                "POST",
+                f"/v1/statements/{_seg(statement_id)}/supersede",
+                self._statement_body(
+                    kind,
+                    subject,
+                    predicate,
+                    obj,
+                    confidence,
+                    event_at_unix_nanos,
+                    valid_from_unix_nanos,
+                    valid_to_unix_nanos,
+                    extractor_id,
+                    schema_version,
+                    session_id,
+                    evidence,
+                ),
+            )
+        )
+
+    def tombstone_statement(
+        self, statement_id: str, reason: int = 0, message: Optional[str] = None
+    ) -> TombstoneResult:
+        """Retire a claim. The row stays; reads stop returning it."""
+        return TombstoneResult.from_dict(
+            self._request(
+                "DELETE",
+                f"/v1/statements/{_seg(statement_id)}",
+                query=_compact({"reason": reason or None, "message": message}),
+                idempotent=True,
+            )
+        )
+
+    def retract_statement(
+        self, statement_id: str, reason: int = 0, message: Optional[str] = None
+    ) -> RetractStatementResult:
+        """Withdraw a claim.
+
+        Stronger than :meth:`tombstone_statement`: the content itself is
+        scheduled to be zeroed, and the result says when.
+        """
+        return RetractStatementResult.from_dict(
+            self._request(
+                "POST",
+                f"/v1/statements/{_seg(statement_id)}/retract",
+                query=_compact({"reason": reason or None, "message": message}),
+                idempotent=True,
+            )
+        )
+
+    def statement_history(
+        self,
+        statement_id: str,
+        include_tombstoned: bool = False,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> StatementHistoryResult:
+        """Every version of one claim, oldest first."""
+        return StatementHistoryResult.from_dict(
+            self._request(
+                "GET",
+                f"/v1/statements/{_seg(statement_id)}/history",
+                query=_compact(
+                    {
+                        "include_tombstoned": include_tombstoned or None,
+                        "limit": limit,
+                        "cursor": cursor,
+                    }
+                ),
+                idempotent=True,
+            )
+        )
+
+    # --- relation authoring -----------------------------------------------
+
+    def create_relation(
+        self,
+        relation_type: str,
+        from_entity: str,
+        to_entity: str,
+        confidence: float = 1.0,
+        valid_from_unix_nanos: Optional[int] = None,
+        valid_to_unix_nanos: Optional[int] = None,
+        extractor_id: Optional[int] = None,
+        session_id: Optional[int] = None,
+        evidence: Optional[Sequence[str]] = None,
+        properties: Optional[str] = None,
+    ) -> CreateRelationResult:
+        """Assert a typed edge between two entities."""
+        return CreateRelationResult.from_dict(
+            self._request(
+                "POST",
+                "/v1/relations",
+                self._relation_body(
+                    relation_type,
+                    from_entity,
+                    to_entity,
+                    confidence,
+                    valid_from_unix_nanos,
+                    valid_to_unix_nanos,
+                    extractor_id,
+                    session_id,
+                    evidence,
+                    properties,
+                ),
+            )
+        )
+
+    def supersede_relation(
+        self,
+        relation_id: str,
+        relation_type: str,
+        from_entity: str,
+        to_entity: str,
+        confidence: float = 1.0,
+        valid_from_unix_nanos: Optional[int] = None,
+        valid_to_unix_nanos: Optional[int] = None,
+        extractor_id: Optional[int] = None,
+        session_id: Optional[int] = None,
+        evidence: Optional[Sequence[str]] = None,
+        properties: Optional[str] = None,
+    ) -> SupersedeRelationResult:
+        """Replace an edge with a revised one.
+
+        The replacement REPLACES the property blob, which is why
+        :meth:`get_relation` returns ``properties`` — a revision that only
+        meant to change validity can carry the old ones back.
+        """
+        return SupersedeRelationResult.from_dict(
+            self._request(
+                "POST",
+                f"/v1/relations/{_seg(relation_id)}/supersede",
+                self._relation_body(
+                    relation_type,
+                    from_entity,
+                    to_entity,
+                    confidence,
+                    valid_from_unix_nanos,
+                    valid_to_unix_nanos,
+                    extractor_id,
+                    session_id,
+                    evidence,
+                    properties,
+                ),
+            )
+        )
+
+    def tombstone_relation(self, relation_id: str, reason: Optional[str] = None) -> TombstoneResult:
+        """Retire an edge."""
+        return TombstoneResult.from_dict(
+            self._request(
+                "DELETE",
+                f"/v1/relations/{_seg(relation_id)}",
+                query=_compact({"reason": reason}),
+                idempotent=True,
+            )
+        )
+
+    # --- schema introspection + drop --------------------------------------
+
+    def list_schemas(
+        self, limit: Optional[int] = None, cursor: Optional[str] = None
+    ) -> ListSchemasResult:
+        """The namespace's schema version history.
+
+        Distinct from :meth:`get_schema`, which returns one document: this is
+        what a caller about to upload needs to see what it is adding to.
+        """
+        return ListSchemasResult.from_dict(
+            self._request(
+                "GET",
+                "/v1/schemas",
+                query=_compact({"limit": limit, "cursor": cursor}),
+                idempotent=True,
+            )
+        )
+
+    def list_extractors(self) -> ListExtractorsResult:
+        """The extractors registered on the shard.
+
+        Read-only: extraction is always-on and cannot be toggled. Here so a
+        caller reading ``extractor_id`` on a statement can find out what
+        produced it.
+        """
+        return ListExtractorsResult.from_dict(
+            self._request("GET", "/v1/extractors", idempotent=True)
+        )
+
+    def drop_schema(self, kind: str, name: str, force: bool = False) -> DropSchemaResult:
+        """Drop one declared predicate or relation type.
+
+        ``kind`` is ``predicate`` or ``relation_type``. Entity types are not
+        droppable: they are global in the v1 storage model, so dropping one
+        would race rows in other namespaces.
+
+        ``force`` is consent to orphan live rows — they survive as plain
+        memories no longer enriched from the typed-graph tables. A type
+        nothing uses drops without it.
+        """
+        return DropSchemaResult.from_dict(
+            self._request(
+                "DELETE",
+                f"/v1/schema/{_seg(kind)}/{_seg(name)}",
+                query=_compact({"force": force or None}),
+            )
+        )
+
+    # --- memory extras ----------------------------------------------------
+
+    def encode_vector(
+        self,
+        text: str,
+        vector: Sequence[float],
+        model_fingerprint: str,
+        session: Optional[int] = None,
+        kind: Optional[int] = None,
+        salience_hint: Optional[float] = None,
+        deduplicate: bool = False,
+    ) -> EncodeResult:
+        """Store a memory with a caller-supplied embedding.
+
+        ``model_fingerprint`` (16 bytes as 32 hex characters) is required:
+        vectors from different models are not comparable, so a recall that
+        mixed them would rank nonsense confidently.
+        """
+        return EncodeResult.from_dict(
+            self._request(
+                "POST",
+                "/v1/memories/vector",
+                _compact(
+                    {
+                        "text": text,
+                        "vector": list(vector),
+                        "model_fingerprint": model_fingerprint,
+                        "session": session,
+                        "kind": kind,
+                        "salience_hint": salience_hint,
+                        "deduplicate": deduplicate or None,
+                    }
+                ),
+                idempotent=True,
+            )
+        )
+
+    def materialize_procedural(
+        self,
+        sessions: Optional[Sequence[int]] = None,
+        top_k: Optional[int] = None,
+        min_confidence: float = 0.0,
+        categories: Optional[Sequence[str]] = None,
+    ) -> MaterializeProceduralResult:
+        """Render the caller's remembered directives into a system-prompt block.
+
+        Check :attr:`MaterializeProceduralResult.trimmed_by_budget`: ``True``
+        means directives did not make it in, so the block is not the whole set.
+        """
+        return MaterializeProceduralResult.from_dict(
+            self._request(
+                "POST",
+                "/v1/procedural/materialize",
+                _compact(
+                    {
+                        "sessions": list(sessions) if sessions else None,
+                        "top_k": top_k,
+                        "min_confidence": min_confidence,
+                        "categories": list(categories) if categories else None,
+                    }
+                ),
+                idempotent=True,
+            )
+        )
+
+    # --- query introspection ----------------------------------------------
+
+    def query_explain(
+        self,
+        text: str,
+        entity_anchor: Optional[str] = None,
+        kinds: Optional[Sequence[str]] = None,
+        predicates: Optional[Sequence[str]] = None,
+        sessions: Optional[Sequence[int]] = None,
+        time_range: Optional[Mapping[str, int]] = None,
+        as_of_record_time_unix_nanos: Optional[int] = None,
+        confidence_min: Optional[float] = None,
+        include_tombstoned: bool = False,
+        include_superseded: bool = False,
+        limit: Optional[int] = None,
+        retrievers: Optional[Sequence[str]] = None,
+        fusion: Optional[Mapping[str, float]] = None,
+    ) -> QueryExplainResult:
+        """The plan Brain would run, and its estimated cost. Does NOT run it.
+
+        ``time_range`` is when the content was true; ``as_of_record_time``
+        is what was BELIEVED at a point in time. They are different axes, and
+        collapsing them is how bi-temporal data stops being bi-temporal.
+
+        Pin ``retrievers`` (``semantic`` / ``lexical`` / ``graph``) to answer
+        "what would THIS plan cost"; leaving it to ``auto`` answers "what
+        would the router pick today".
+        """
+        return QueryExplainResult.from_dict(
+            self._request(
+                "POST",
+                "/v1/query/explain",
+                self._query_body(
+                    text,
+                    entity_anchor,
+                    kinds,
+                    predicates,
+                    sessions,
+                    time_range,
+                    as_of_record_time_unix_nanos,
+                    confidence_min,
+                    include_tombstoned,
+                    include_superseded,
+                    limit,
+                    retrievers,
+                    fusion,
+                ),
+                idempotent=True,
+            )
+        )
+
+    def query_trace(
+        self,
+        text: str,
+        entity_anchor: Optional[str] = None,
+        kinds: Optional[Sequence[str]] = None,
+        predicates: Optional[Sequence[str]] = None,
+        sessions: Optional[Sequence[int]] = None,
+        time_range: Optional[Mapping[str, int]] = None,
+        as_of_record_time_unix_nanos: Optional[int] = None,
+        confidence_min: Optional[float] = None,
+        include_tombstoned: bool = False,
+        include_superseded: bool = False,
+        limit: Optional[int] = None,
+        retrievers: Optional[Sequence[str]] = None,
+        fusion: Optional[Mapping[str, float]] = None,
+    ) -> QueryTraceResult:
+        """Run the query and report what happened, with the measured latency.
+
+        Unlike :meth:`query_explain`, this costs what the query costs.
+        """
+        return QueryTraceResult.from_dict(
+            self._request(
+                "POST",
+                "/v1/query/trace",
+                self._query_body(
+                    text,
+                    entity_anchor,
+                    kinds,
+                    predicates,
+                    sessions,
+                    time_range,
+                    as_of_record_time_unix_nanos,
+                    confidence_min,
+                    include_tombstoned,
+                    include_superseded,
+                    limit,
+                    retrievers,
+                    fusion,
+                ),
+                idempotent=True,
+            )
+        )
+
+    # --- BYOK provider credentials ----------------------------------------
+
+    def put_llm_credential(self, provider: str, model: str, api_key: str) -> LlmCredential:
+        """Register (or replace) this tenant's provider key.
+
+        The edge verifies the key with the provider before storing it, and
+        seals it on arrival; it is never returned.
+        """
+        return LlmCredential.from_dict(
+            self._request(
+                "PUT",
+                "/v1/llm-credential",
+                {"provider": provider, "model": model, "api_key": api_key},
+            )
+        )
+
+    def get_llm_credential(self) -> LlmCredential:
+        """What is installed for this tenant. Carries no key material."""
+        return LlmCredential.from_dict(self._request("GET", "/v1/llm-credential", idempotent=True))
+
+    def delete_llm_credential(self) -> LlmCredentialDeleted:
+        """Remove this tenant's provider key.
+
+        ``deleted: False`` means there was nothing there — which matters when
+        the call is part of an incident response.
+        """
+        return LlmCredentialDeleted.from_dict(
+            self._request("DELETE", "/v1/llm-credential", idempotent=True)
+        )
+
+    def test_llm_credential(self, provider: str, model: str, api_key: str) -> LlmCredentialCheck:
+        """Check a key WITHOUT storing it.
+
+        Nothing is written and nothing existing is touched, so this is safe
+        against a namespace that already has a working credential.
+        """
+        return LlmCredentialCheck.from_dict(
+            self._request(
+                "POST",
+                "/v1/llm-credential/test",
+                {"provider": provider, "model": model, "api_key": api_key},
+                idempotent=True,
+            )
+        )
+
+    def verify_llm_credential(self) -> LlmCredentialCheck:
+        """Re-check the key already stored.
+
+        A key that worked at registration can be revoked or run out of credit
+        later, where the first sign is otherwise an opaque upstream 401 on a
+        write.
+        """
+        return LlmCredentialCheck.from_dict(
+            self._request("POST", "/v1/llm-credential/verify", idempotent=True)
+        )
+
+    # --- change feed ------------------------------------------------------
+
+    def subscribe(
+        self,
+        sessions: Optional[Sequence[int]] = None,
+        kinds: Optional[Sequence[str]] = None,
+        memories: Optional[Sequence[str]] = None,
+        include_history: bool = False,
+        from_lsn: Optional[int] = None,
+        max_inflight: Optional[int] = None,
+    ) -> Subscription:
+        """Open the caller's change feed.
+
+        Returns a :class:`Subscription` you iterate::
+
+            with client.subscribe() as feed:
+                for item in feed:
+                    ...
+
+        Unsubscribing is closing it — the edge tears the Brain-side
+        subscription down when the response closes — so the context manager
+        is the whole teardown, including on an exception.
+
+        Every event carries an ``lsn``, and the subscription remembers the
+        last one (:attr:`Subscription.last_event_id`). Pass it back as
+        ``from_lsn`` on a reconnect to resume exactly rather than replay or
+        skip.
+
+        Not retried, deliberately. A retry would reopen the feed at the
+        original position and re-deliver everything already seen; where to
+        resume is the caller's decision, because only the caller knows where
+        it got to.
+        """
+        query = _compact(
+            {
+                # Comma-separated on the wire, so a feed subscription is one
+                # readable URL that survives being pasted into a shell.
+                "sessions": ",".join(str(s) for s in sessions) if sessions else None,
+                "kinds": ",".join(kinds) if kinds else None,
+                "memories": ",".join(memories) if memories else None,
+                "include_history": include_history or None,
+                "from_lsn": from_lsn,
+                "max_inflight": max_inflight,
+            }
+        )
+        return self._open_stream("GET", "/v1/subscribe", query)
+
+    def _open_stream(
+        self, method: str, path: str, query: Optional[Mapping[str, Any]]
+    ) -> Subscription:
+        """Open a streaming response rather than reading a body to completion.
+
+        Separate from :meth:`_request_once` because the two differ in every
+        way that matters: no retry, no body read, and no response timeout —
+        a subscription is long-lived by definition, and its liveness signal
+        is the edge's keep-alive comment rather than a deadline.
+        """
+        url = self._base + path + _query_string(query)
+        headers = {
+            "authorization": f"Bearer {self._api_key}",
+            "accept": "text/event-stream",
+        }
+        req = urllib.request.Request(url, method=method, headers=headers)  # noqa: S310
+        try:
+            resp = urllib.request.urlopen(req)  # noqa: S310
+        except urllib.error.HTTPError as e:
+            raise self._error_from(e) from None
+        except urllib.error.URLError as e:
+            raise BrainHttpError(0, "transport", f"subscribe to {url} failed: {e.reason}") from None
+        except (TimeoutError, OSError) as e:
+            raise BrainHttpError(0, "transport", f"subscribe to {url} failed: {e}") from None
+        return Subscription(resp)
+
+    # --- shared body builders ---------------------------------------------
+    #
+    # `create` and `supersede` send the same shape for statements and for
+    # relations — a supersede IS a create, under an old id — so the body is
+    # built once rather than twice in each pair.
+
+    @staticmethod
+    def _query_body(
+        text: str,
+        entity_anchor: Optional[str],
+        kinds: Optional[Sequence[str]],
+        predicates: Optional[Sequence[str]],
+        sessions: Optional[Sequence[int]],
+        time_range: Optional[Mapping[str, int]],
+        as_of_record_time_unix_nanos: Optional[int],
+        confidence_min: Optional[float],
+        include_tombstoned: bool,
+        include_superseded: bool,
+        limit: Optional[int],
+        retrievers: Optional[Sequence[str]],
+        fusion: Optional[Mapping[str, float]],
+    ) -> dict[str, Any]:
+        return _compact(
+            {
+                "text": text,
+                "entity_anchor": entity_anchor,
+                "kinds": list(kinds) if kinds else None,
+                "predicates": list(predicates) if predicates else None,
+                "sessions": list(sessions) if sessions else None,
+                "time_range": dict(time_range) if time_range else None,
+                "as_of_record_time_unix_nanos": as_of_record_time_unix_nanos,
+                "confidence_min": confidence_min,
+                "include_tombstoned": include_tombstoned or None,
+                "include_superseded": include_superseded or None,
+                "limit": limit,
+                "retrievers": list(retrievers) if retrievers else None,
+                "fusion": dict(fusion) if fusion else None,
+            }
+        )
+
+    @staticmethod
+    def _statement_body(
+        kind: str,
+        subject: str,
+        predicate: str,
+        obj: Mapping[str, Any],
+        confidence: float,
+        event_at_unix_nanos: Optional[int],
+        valid_from_unix_nanos: Optional[int],
+        valid_to_unix_nanos: Optional[int],
+        extractor_id: Optional[int],
+        schema_version: Optional[int],
+        session_id: Optional[int],
+        evidence: Optional[Sequence[str]],
+    ) -> dict[str, Any]:
+        return _compact(
+            {
+                "kind": kind,
+                "subject": subject,
+                "predicate": predicate,
+                "object": dict(obj),
+                "confidence": confidence,
+                "event_at_unix_nanos": event_at_unix_nanos,
+                "valid_from_unix_nanos": valid_from_unix_nanos,
+                "valid_to_unix_nanos": valid_to_unix_nanos,
+                "extractor_id": extractor_id,
+                "schema_version": schema_version,
+                "session_id": session_id,
+                "evidence": list(evidence) if evidence else None,
+            }
+        )
+
+    @staticmethod
+    def _relation_body(
+        relation_type: str,
+        from_entity: str,
+        to_entity: str,
+        confidence: float,
+        valid_from_unix_nanos: Optional[int],
+        valid_to_unix_nanos: Optional[int],
+        extractor_id: Optional[int],
+        session_id: Optional[int],
+        evidence: Optional[Sequence[str]],
+        properties: Optional[str],
+    ) -> dict[str, Any]:
+        return _compact(
+            {
+                "relation_type": relation_type,
+                "from_entity": from_entity,
+                "to_entity": to_entity,
+                "confidence": confidence,
+                "valid_from_unix_nanos": valid_from_unix_nanos,
+                "valid_to_unix_nanos": valid_to_unix_nanos,
+                "extractor_id": extractor_id,
+                "session_id": session_id,
+                "evidence": list(evidence) if evidence else None,
+                "properties": properties,
+            }
         )
 
     # --- transport --------------------------------------------------------

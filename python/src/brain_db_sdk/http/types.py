@@ -879,3 +879,540 @@ class SchemaReplace:
             dropped_count=d["dropped_count"],
             validation_errors=[SchemaError.from_dict(e) for e in d.get("validation_errors", [])],
         )
+
+
+# --- space lifecycle -------------------------------------------------------
+#
+# All three act on the caller's effective space: Brain resolves it from the
+# credential and never takes it from the request, so none of them names one.
+
+
+@dataclass
+class SpaceProvision:
+    space_id: str
+    #: Whether THIS call created it. The op is idempotent, so the rest of the
+    #: body is identical either way and this is the only thing that tells
+    #: "made it" from "it was already there".
+    created: bool
+    created_at_unix_nanos: int
+    last_active_unix_nanos: int
+    memory_count: int
+    session_count: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SpaceProvision:
+        return cls(
+            space_id=d["space_id"],
+            created=d["created"],
+            created_at_unix_nanos=d["created_at_unix_nanos"],
+            last_active_unix_nanos=d["last_active_unix_nanos"],
+            memory_count=d["memory_count"],
+            session_count=d["session_count"],
+        )
+
+
+@dataclass
+class SpaceSummary:
+    space_id: str
+    created_at_unix_nanos: int
+    last_active_unix_nanos: int
+    memory_count: int
+    session_count: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SpaceSummary:
+        return cls(
+            space_id=d["space_id"],
+            created_at_unix_nanos=d["created_at_unix_nanos"],
+            last_active_unix_nanos=d["last_active_unix_nanos"],
+            memory_count=d["memory_count"],
+            session_count=d["session_count"],
+        )
+
+
+@dataclass
+class ListSpacesResult:
+    spaces: list[SpaceSummary]
+    #: ``False`` when the listing covered only the caller's shard. Treat a
+    #: ``False`` as partial: concluding a space is gone from an incomplete
+    #: listing is the failure this field exists to prevent.
+    cross_shard_complete: bool
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ListSpacesResult:
+        return cls(
+            spaces=[SpaceSummary.from_dict(s) for s in d.get("spaces", [])],
+            cross_shard_complete=d["cross_shard_complete"],
+        )
+
+
+@dataclass
+class SpaceErased:
+    space_id: str
+    #: ``False`` when there was no registry row — already erased, or never
+    #: written to.
+    existed: bool
+    memories_forgotten: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SpaceErased:
+        return cls(
+            space_id=d["space_id"],
+            existed=d["existed"],
+            memories_forgotten=d["memories_forgotten"],
+        )
+
+
+# --- session lifecycle -----------------------------------------------------
+
+
+@dataclass
+class SessionProvision:
+    space_id: str
+    session_id: int
+    #: Whether THIS call created it; the op is idempotent.
+    created: bool
+    created_at_unix_nanos: int
+    last_active_unix_nanos: int
+    memory_count: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SessionProvision:
+        return cls(
+            space_id=d["space_id"],
+            session_id=d["session_id"],
+            created=d["created"],
+            created_at_unix_nanos=d["created_at_unix_nanos"],
+            last_active_unix_nanos=d["last_active_unix_nanos"],
+            memory_count=d["memory_count"],
+        )
+
+
+@dataclass
+class SessionSummary:
+    session_id: int
+    created_at_unix_nanos: int
+    last_active_unix_nanos: int
+    title: Optional[str]
+    memory_count: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SessionSummary:
+        return cls(
+            session_id=d["session_id"],
+            created_at_unix_nanos=d["created_at_unix_nanos"],
+            last_active_unix_nanos=d["last_active_unix_nanos"],
+            title=d.get("title"),
+            memory_count=d["memory_count"],
+        )
+
+
+@dataclass
+class ListSessionsResult:
+    space_id: str
+    sessions: list[SessionSummary]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ListSessionsResult:
+        return cls(
+            space_id=d["space_id"],
+            sessions=[SessionSummary.from_dict(s) for s in d.get("sessions", [])],
+        )
+
+
+@dataclass
+class SessionErased:
+    space_id: str
+    session_id: int
+    existed: bool
+    memories_forgotten: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SessionErased:
+        return cls(
+            space_id=d["space_id"],
+            session_id=d["session_id"],
+            existed=d["existed"],
+            memories_forgotten=d["memories_forgotten"],
+        )
+
+
+# --- authoring results -----------------------------------------------------
+
+
+@dataclass
+class MergeEntitiesResult:
+    audit_id: str
+    #: How long the merge stays reversible.
+    grace_period_seconds: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> MergeEntitiesResult:
+        return cls(audit_id=d["audit_id"], grace_period_seconds=d["grace_period_seconds"])
+
+
+@dataclass
+class UnmergeEntityResult:
+    restored_entity_id: str
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> UnmergeEntityResult:
+        return cls(restored_entity_id=d["restored_entity_id"])
+
+
+@dataclass
+class TombstoneResult:
+    tombstoned_at_unix_nanos: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> TombstoneResult:
+        return cls(tombstoned_at_unix_nanos=d["tombstoned_at_unix_nanos"])
+
+
+@dataclass
+class CreateStatementResult:
+    statement_id: str
+    #: A statement this one automatically superseded, when Brain recognised it
+    #: as a revision of an existing claim.
+    auto_superseded: Optional[str]
+    #: The chain this claim belongs to — its identity across revisions.
+    chain_root: str
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> CreateStatementResult:
+        return cls(
+            statement_id=d["statement_id"],
+            auto_superseded=d.get("auto_superseded"),
+            chain_root=d["chain_root"],
+        )
+
+
+@dataclass
+class SupersedeStatementResult:
+    new_statement_id: str
+    chain_root: str
+    version: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SupersedeStatementResult:
+        return cls(
+            new_statement_id=d["new_statement_id"],
+            chain_root=d["chain_root"],
+            version=d["version"],
+        )
+
+
+@dataclass
+class RetractStatementResult:
+    retracted_at_unix_nanos: int
+    #: When the content itself is scheduled to be zeroed. A retraction is
+    #: stronger than a tombstone for exactly this reason.
+    will_zero_at_unix_nanos: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> RetractStatementResult:
+        return cls(
+            retracted_at_unix_nanos=d["retracted_at_unix_nanos"],
+            will_zero_at_unix_nanos=d["will_zero_at_unix_nanos"],
+        )
+
+
+@dataclass
+class StatementHistoryResult:
+    items: list[StatementDetail]
+    chain_root: str
+    total_versions: int
+    next_cursor: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> StatementHistoryResult:
+        return cls(
+            items=[StatementDetail.from_dict(i) for i in d.get("items", [])],
+            chain_root=d["chain_root"],
+            total_versions=d["total_versions"],
+            next_cursor=d.get("next_cursor"),
+        )
+
+
+@dataclass
+class CreateRelationResult:
+    relation_id: str
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> CreateRelationResult:
+        return cls(relation_id=d["relation_id"])
+
+
+@dataclass
+class SupersedeRelationResult:
+    new_relation_id: str
+    version: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SupersedeRelationResult:
+        return cls(new_relation_id=d["new_relation_id"], version=d["version"])
+
+
+# --- schema introspection + drop -------------------------------------------
+
+
+@dataclass
+class SchemaVersion:
+    schema_version: int
+    uploaded_at_unix_nanos: int
+    #: Which validator accepted it — a document an older validator passed is
+    #: not necessarily one the current validator would.
+    validator_version: int
+    has_source_text: bool
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SchemaVersion:
+        return cls(
+            schema_version=d["schema_version"],
+            uploaded_at_unix_nanos=d["uploaded_at_unix_nanos"],
+            validator_version=d["validator_version"],
+            has_source_text=d["has_source_text"],
+        )
+
+
+@dataclass
+class ListSchemasResult:
+    namespace: str
+    items: list[SchemaVersion]
+    total: int
+    next_cursor: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ListSchemasResult:
+        return cls(
+            namespace=d["namespace"],
+            items=[SchemaVersion.from_dict(i) for i in d.get("items", [])],
+            total=d["total"],
+            next_cursor=d.get("next_cursor"),
+        )
+
+
+@dataclass
+class Extractor:
+    #: The id statements carry as ``extractor_id``.
+    extractor_id: int
+    namespace: str
+    name: str
+    #: ``0`` = pattern, ``1`` = classifier, ``2`` = llm.
+    kind: int
+    schema_version: int
+    created_at_unix_nanos: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Extractor:
+        return cls(
+            extractor_id=d["extractor_id"],
+            namespace=d["namespace"],
+            name=d["name"],
+            kind=d["kind"],
+            schema_version=d["schema_version"],
+            created_at_unix_nanos=d["created_at_unix_nanos"],
+        )
+
+
+@dataclass
+class ListExtractorsResult:
+    items: list[Extractor]
+    total: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ListExtractorsResult:
+        return cls(
+            items=[Extractor.from_dict(i) for i in d.get("items", [])],
+            total=d["total"],
+        )
+
+
+@dataclass
+class DropSchemaResult:
+    namespace: str
+    #: The new active version, or ``0`` when nothing was dropped.
+    schema_version: int
+    target_kind: int
+    target_name: str
+    #: ``False`` with ``live_rows > 0`` means the type is still in use and
+    #: ``force`` was not set — nothing changed.
+    dropped: bool
+    live_rows: int
+    validation_errors: list[SchemaError]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> DropSchemaResult:
+        return cls(
+            namespace=d["namespace"],
+            schema_version=d["schema_version"],
+            target_kind=d["target_kind"],
+            target_name=d["target_name"],
+            dropped=d["dropped"],
+            live_rows=d["live_rows"],
+            validation_errors=[SchemaError.from_dict(e) for e in d.get("validation_errors", [])],
+        )
+
+
+# --- procedural + query introspection --------------------------------------
+
+
+@dataclass
+class MaterializeProceduralResult:
+    system_block: str
+    #: The statements it was rendered from, so a caller can show its work.
+    statement_ids: list[str]
+    total_candidates: int
+    #: ``True`` means directives did not make it in — do not read the block as
+    #: the whole set.
+    trimmed_by_budget: bool
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> MaterializeProceduralResult:
+        return cls(
+            system_block=d["system_block"],
+            statement_ids=list(d.get("statement_ids", [])),
+            total_candidates=d["total_candidates"],
+            trimmed_by_budget=d["trimmed_by_budget"],
+        )
+
+
+@dataclass
+class QueryExplainResult:
+    plan_text: str
+    #: An estimate — nothing ran. For the real figure, trace it.
+    estimated_cost_ms: float
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> QueryExplainResult:
+        return cls(plan_text=d["plan_text"], estimated_cost_ms=d["estimated_cost_ms"])
+
+
+@dataclass
+class QueryTraceResult:
+    trace_text: str
+    #: A measurement — the query RAN to produce this.
+    total_latency_ms: float
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> QueryTraceResult:
+        return cls(trace_text=d["trace_text"], total_latency_ms=d["total_latency_ms"])
+
+
+# --- BYOK provider credentials ---------------------------------------------
+
+
+@dataclass
+class LlmCredential:
+    provider: str
+    model: str
+    #: Display-safe tail so an operator can tell which key is installed. Not
+    #: reversible into the key.
+    fingerprint: str
+    created_at_unix_secs: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> LlmCredential:
+        return cls(
+            provider=d["provider"],
+            model=d["model"],
+            fingerprint=d["fingerprint"],
+            created_at_unix_secs=d["created_at_unix_secs"],
+        )
+
+
+@dataclass
+class LlmCredentialDeleted:
+    #: ``False`` when there was nothing to remove — which matters when the
+    #: call is part of an incident response.
+    deleted: bool
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> LlmCredentialDeleted:
+        return cls(deleted=d["deleted"])
+
+
+@dataclass
+class LlmCredentialCheck:
+    """What a provider said about a key.
+
+    Three outcomes, not a boolean: "the provider rejected this key" and "I
+    could not reach the provider" demand opposite responses. On
+    ``unreachable``, :attr:`valid` is ``None`` — the probe learned nothing
+    about the key, and reporting ``False`` would read as a rejection.
+    """
+
+    #: ``valid`` | ``rejected`` | ``unreachable``.
+    status: str
+    valid: Optional[bool]
+    reason: Optional[str]
+    provider: str
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> LlmCredentialCheck:
+        return cls(
+            status=d["status"],
+            valid=d.get("valid"),
+            reason=d.get("reason"),
+            provider=d["provider"],
+        )
+
+
+# --- change feed (SSE) -----------------------------------------------------
+
+
+@dataclass
+class SubscriptionEvent:
+    event_type: str
+    #: A 128-bit decimal string.
+    memory_id: str
+    session_id: int
+    text: str
+    kind: int
+    salience: float
+    timestamp_unix_nanos: int
+    #: The feed position. Pass the last one back as ``from_lsn`` to resume.
+    lsn: int
+    #: Typed-graph detail, tagged by ``type``. Left as a mapping: the 13
+    #: variants are a closed set on the edge but an open one here, and a
+    #: client that pattern-matches on ``type`` reads the same either way.
+    graph: Optional[dict[str, Any]]
+    edge: Optional[dict[str, Any]]
+    stage_kind: Optional[str]
+    stage_outcome: Optional[str]
+    stage: Optional[dict[str, Any]]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SubscriptionEvent:
+        return cls(
+            event_type=d["event_type"],
+            memory_id=d["memory_id"],
+            session_id=d["session_id"],
+            text=d["text"],
+            kind=d["kind"],
+            salience=d["salience"],
+            timestamp_unix_nanos=d["timestamp_unix_nanos"],
+            lsn=d["lsn"],
+            graph=d.get("graph"),
+            edge=d.get("edge"),
+            stage_kind=d.get("stage_kind"),
+            stage_outcome=d.get("stage_outcome"),
+            stage=d.get("stage"),
+        )
+
+
+@dataclass
+class SubscriptionClosed:
+    """The terminal item on a feed.
+
+    Carries where the feed got to, so the next connection resumes exactly
+    rather than replaying or skipping.
+    """
+
+    final_lsn: int
+    #: ``unsubscribed`` | ``ended`` | ``error``.
+    reason: str
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SubscriptionClosed:
+        return cls(final_lsn=d["final_lsn"], reason=d["reason"])
