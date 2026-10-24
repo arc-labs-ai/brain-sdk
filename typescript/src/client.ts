@@ -931,12 +931,23 @@ export class BrainClient {
    * CLIENT_PONG: this is an on-demand round-trip to the server. The client
    * timestamp defaults to the current wall clock (ns); the PONG echoes it back
    * alongside the server's timestamp, so the caller can measure RTT.
+   *
+   * Travels on stream 0, not the unary path. Brain classifies PING/PONG as
+   * connection-level alongside HELLO/AUTH/BYE and refuses them on any other
+   * stream with `connection-level opcode requires stream_id = 0`, so the unary
+   * form this used to take could never complete a round trip. Only running
+   * against live Brain shows it — the rule lives in the server's dispatch
+   * layer, so a mock answers the wrong-stream PING quite happily.
    */
   async ping(request: Partial<PingRequest> = {}): Promise<PongResponse> {
     const req: PingRequest = {
       clientTimestampUnixNanos: request.clientTimestampUnixNanos ?? BigInt(Date.now()) * 1_000_000n,
     };
-    const frame = await this.conn.requestOne(Opcode.Ping, encodePing(req));
+    const frames = await this.conn.requestOnConnection(Opcode.Ping, encodePing(req));
+    if (frames.length !== 1) {
+      throw new ProtocolError(`expected a single PONG frame, got ${frames.length}`);
+    }
+    const frame = frames[0]!;
     this.expect(frame.opcode, Opcode.Pong, "PONG");
     return decodePong(frame.payload);
   }

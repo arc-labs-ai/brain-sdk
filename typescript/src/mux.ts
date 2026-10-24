@@ -209,6 +209,40 @@ export class MuxConnection {
     }
   }
 
+  /**
+   * Send a CONNECTION-LEVEL request and collect its response frames.
+   *
+   * `PING`/`PONG`, like `HELLO` and `BYE`, are connection-level opcodes: the
+   * server refuses them on any stream but 0 with
+   * `connection-level opcode requires stream_id = 0`. They therefore cannot go
+   * through {@link request}, which allocates an odd op-stream id — a `ping()`
+   * built on that path never completed a round trip.
+   *
+   * Stream 0 is also the handshake stream, but it is free by the time any
+   * request runs: `HELLO`/`AUTH` complete before this is reachable, and the
+   * server's own `SERVER_PING` keepalive is intercepted by the pump before
+   * routing, so it never lands in the table.
+   */
+  async requestOnConnection(opcode: number, payload: Uint8Array): Promise<Frame[]> {
+    if (this.closedError) throw this.closedError;
+    const sink = new StreamSink();
+    this.routes.set(HANDSHAKE_STREAM_ID, sink);
+    try {
+      await this.writeFrame(opcode, HANDSHAKE_STREAM_ID, payload);
+      const frames: Frame[] = [];
+      for (;;) {
+        const frame = await this.nextFrame(sink);
+        if (frame.opcode === Opcode.Error) {
+          throw new ServerError(decodeError(frame.payload));
+        }
+        frames.push(frame);
+        if ((frame.flags & FLAG_EOS) !== 0) return frames;
+      }
+    } finally {
+      this.routes.delete(HANDSHAKE_STREAM_ID);
+    }
+  }
+
   /** Send one request and require exactly one EOS response frame. */
   async requestOne(opcode: number, payload: Uint8Array): Promise<Frame> {
     const frames = await this.request(opcode, payload);

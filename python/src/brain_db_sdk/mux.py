@@ -157,6 +157,35 @@ class MuxConnection:
         finally:
             self._deregister(stream_id)
 
+    def request_on_connection(self, opcode: Opcode, payload: bytes) -> list[Frame]:
+        """Send a CONNECTION-LEVEL request and collect its response frames.
+
+        PING/PONG, like HELLO and BYE, are connection-level opcodes: the server
+        refuses them on any stream but 0 with ``connection-level opcode
+        requires stream_id = 0``. They therefore cannot go through
+        :meth:`request`, which allocates an odd op-stream id — a ``ping()``
+        built on that path never completed a round trip.
+
+        Stream 0 is also the handshake stream, but it is free by the time any
+        request runs: HELLO/AUTH complete before this is reachable, and the
+        server's own SERVER_PING keepalive is intercepted by the reader before
+        routing, so it never lands in the table.
+        """
+        stream_id = HANDSHAKE_STREAM_ID
+        q = self._register(stream_id)
+        try:
+            self._write(opcode, stream_id, payload)
+            frames: list[Frame] = []
+            while True:
+                frame = self._next(q)
+                if frame.opcode == Opcode.ERROR:
+                    raise ServerError.from_response(decode_payload(ErrorResponse, frame.payload))
+                frames.append(frame)
+                if frame.flags & FLAG_EOS:
+                    return frames
+        finally:
+            self._deregister(stream_id)
+
     def request_one(self, opcode: Opcode, payload: bytes) -> Frame:
         """Send one request and require exactly one EOS response frame."""
         frames = self.request(opcode, payload)

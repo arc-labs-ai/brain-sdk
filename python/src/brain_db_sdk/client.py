@@ -19,6 +19,7 @@ from typing import TypeVar
 
 from .errors import ProtocolError
 from .mux import MuxConnection, Subscription
+from .wire.frame import Frame
 from .wire.opcode import Opcode
 from .wire.types import (
     AnswerKind,
@@ -206,6 +207,22 @@ def derive_space_id(namespace: str, space: str) -> bytes:
     pinned by a golden test on both sides."""
     ns = uuid.uuid5(_BRAIN_ROOT_NAMESPACE_UUID, namespace)
     return uuid.uuid5(ns, space).bytes
+
+
+def decode_pong(frames: list[Frame]) -> PongResponse:
+    """Check and decode the answer to a PING.
+
+    Module-level, and imported by the asyncio tier rather than copied, so the
+    two cannot come to disagree about what a valid PONG is. ``ping`` is the one
+    verb that does not go through ``_unary``/``_streamed`` — it rides stream 0
+    — so this is the check those helpers would otherwise have done.
+    """
+    if len(frames) != 1:
+        raise ProtocolError(f"expected a single PONG frame, got {len(frames)}")
+    frame = frames[0]
+    if frame.opcode != int(Opcode.PONG):
+        raise ProtocolError(f"expected PONG ({int(Opcode.PONG):#06x}), got {frame.opcode:#06x}")
+    return decode_payload(PongResponse, frame.payload)
 
 
 @dataclass(frozen=True)
@@ -768,17 +785,23 @@ class BrainClient:
         alongside the server's own. Distinct from the server's idle-timer
         heartbeat (SERVER_PING), which the mux answers automatically. Defaults
         the timestamp to the current wall clock when the caller omits it.
+
+        Travels on stream 0, not the unary path. Brain classifies PING/PONG as
+        connection-level alongside HELLO/AUTH/BYE and refuses them on any other
+        stream with ``connection-level opcode requires stream_id = 0``, so the
+        unary form this used to take could never complete a round trip. The
+        same bug was fixed in the Rust SDK first; no offline test could see it,
+        because the rule lives in the server's dispatch layer.
         """
         ts = (
             client_timestamp_unix_nanos
             if client_timestamp_unix_nanos is not None
             else time.time_ns()
         )
-        return self._unary(
-            Opcode.PING,
-            Opcode.PONG,
-            PongResponse,
-            PingRequest(client_timestamp_unix_nanos=ts),
+        return decode_pong(
+            self._conn.request_on_connection(
+                Opcode.PING, encode_payload(PingRequest(client_timestamp_unix_nanos=ts))
+            )
         )
 
     def extractor_list(
@@ -1094,6 +1117,7 @@ class BrainClient:
 
 __all__ = [
     "Auth",
+    "decode_pong",
     "BrainClient",
     "ClientConfig",
     "ConnectionInfo",
