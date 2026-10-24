@@ -173,23 +173,39 @@ async def test_cancellation_stops_the_retry_loop() -> None:
 
 async def test_the_wait_does_not_block_the_loop() -> None:
     """The whole reason this exists rather than reusing ``time.sleep``: other
-    tasks must keep running while a retry backs off."""
-    ticks = 0
+    tasks must keep running while a retry backs off.
 
-    async def ticker() -> None:
-        nonlocal ticks
+    The companion task yields with ``sleep(0)`` rather than sleeping for a
+    fixed interval. That is deliberate: a timed ticker measures the loop's
+    timer resolution as much as it measures blocking, and on a loaded machine
+    it can legitimately tick once or twice in a 150ms backoff — which is
+    indistinguishable from the bug. Yielding instead makes the two outcomes
+    categorical. A cooperative sleep lets the companion run as often as the
+    loop allows (thousands of times); ``time.sleep`` would let it run exactly
+    zero times.
+    """
+    yields = 0
+
+    async def spin() -> None:
+        nonlocal yields
         while True:
-            ticks += 1
-            await asyncio.sleep(0.005)
+            yields += 1
+            await asyncio.sleep(0)
 
     async def op() -> str:
         raise ConnectionClosed("dropped")
 
-    spinner = asyncio.create_task(ticker())
+    spinner = asyncio.create_task(spin())
     try:
+        await asyncio.sleep(0)  # let the spinner reach its loop
+        before = yields
         with pytest.raises(ConnectionClosed):
             await with_retry(op, RetryPolicy(max_attempts=3, base_delay=0.05, max_delay=0.1))
-        assert ticks > 1, "the loop was blocked during the backoff"
+        assert yields - before > 10, (
+            f"the companion task got {yields - before} turns during the backoff; "
+            "a cooperative sleep yields constantly, so this near zero means the "
+            "loop was blocked"
+        )
     finally:
         spinner.cancel()
         with pytest.raises(asyncio.CancelledError):

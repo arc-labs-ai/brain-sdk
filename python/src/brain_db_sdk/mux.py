@@ -148,17 +148,23 @@ class MuxConnection:
         finally:
             self._deregister(HANDSHAKE_STREAM_ID)
 
-    def request(self, opcode: Opcode, payload: bytes) -> list[Frame]:
+    def request(self, opcode: Opcode, payload: bytes, timeout: float | None = None) -> list[Frame]:
         """Send one request and collect its response frames up to and including
         the EOS frame. Safe to call from many threads; responses route back by
-        ``stream_id``."""
+        ``stream_id``.
+
+        ``timeout`` raises the per-frame deadline for this one request. The mux
+        cannot tell which verb it is carrying, let alone that an ENCODE asked
+        to block on derivation; the client can, so the policy lives there and
+        the mechanism lives here.
+        """
         stream_id = self._take_stream_id()
         q = self._register(stream_id)
         try:
             self._write(opcode, stream_id, payload)
             frames: list[Frame] = []
             while True:
-                frame = self._next(q)
+                frame = self._next(q, timeout)
                 if frame.opcode == Opcode.ERROR:
                     raise ServerError.from_response(decode_payload(ErrorResponse, frame.payload))
                 frames.append(frame)
@@ -196,9 +202,10 @@ class MuxConnection:
         finally:
             self._deregister(stream_id)
 
-    def request_one(self, opcode: Opcode, payload: bytes) -> Frame:
-        """Send one request and require exactly one EOS response frame."""
-        frames = self.request(opcode, payload)
+    def request_one(self, opcode: Opcode, payload: bytes, timeout: float | None = None) -> Frame:
+        """Send one request and require exactly one EOS response frame.
+        ``timeout`` overrides the per-frame deadline as in :meth:`request`."""
+        frames = self.request(opcode, payload, timeout)
         if len(frames) != 1:
             raise ProtocolError(f"expected a single response frame, got {len(frames)}")
         return frames[0]
@@ -301,13 +308,18 @@ class MuxConnection:
                 q.put(_Closed(error))
             self._routes.clear()
 
-    def _next(self, q: _RouteQueue) -> Frame:
+    def _next(self, q: _RouteQueue, timeout: float | None = None) -> Frame:
+        # ``None`` means "the deadline this connection was configured with",
+        # not "wait forever": an override exists to *raise* the limit for one
+        # request, and a caller that wants an unbounded wait sets
+        # ``request_timeout=None`` on the config.
+        deadline = self._request_timeout if timeout is None else timeout
         try:
-            item = q.get(timeout=self._request_timeout)
+            item = q.get(timeout=deadline)
         except queue.Empty:
             # `from None`: the empty queue is how a timeout is detected, not a
             # cause worth showing a caller.
-            raise BrainTimeout(self._request_timeout) from None
+            raise BrainTimeout(deadline) from None
         if isinstance(item, _Closed):
             raise item.error
         return item

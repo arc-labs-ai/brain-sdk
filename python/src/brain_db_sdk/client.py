@@ -155,6 +155,7 @@ from .wire.types import (
     TxnCommitResponse,
     UnlinkRequest,
     UnlinkResponse,
+    WaitMode,
     _WirePayload,
     decode_payload,
     encode_payload,
@@ -162,6 +163,30 @@ from .wire.types import (
 
 # Default ``client_id`` advertised in HELLO.
 DEFAULT_CLIENT_ID = "brain-db-sdk-python"
+
+# Deadline for an ENCODE that asked to block on derivation
+# (``WaitMode.DERIVED``), as distinct from the flat ``request_timeout`` every
+# other verb runs under.
+#
+# A write has two halves. The synchronous half is durable the instant it acks.
+# The asynchronous half — embedding, HyPE question generation, knowledge-graph
+# extraction — runs afterwards and makes LLM provider round trips, and a
+# derived write is the caller blocking on *that*. Measured against a live
+# server: three derived encodes in isolation took 26.9s end to end (~9s each);
+# under concurrent load a single write's visibility latency ranged 1.9s to
+# 22.5s; and a ten-way concurrent burst put three of the ten past 30s, the
+# slowest at 45.5s. Under the flat 30s default those three failed as a
+# client-side ``BrainTimeout`` that had nothing to do with the server, and a
+# derived write is the only way to get read-your-writes or a populated
+# ``EncodeTrace`` — so the correct call was the one that broke.
+#
+# 120s is ~2.5x the slowest write yet observed, which is the headroom a
+# provider hiccup on an already-saturated derivation queue needs. Do NOT fold
+# this back into ``request_timeout``: a read
+# is milliseconds and a derived write is seconds to tens of seconds, and one
+# number raised to cover both leaves every read hanging for two minutes on a
+# dead connection.
+DEFAULT_DERIVED_WRITE_TIMEOUT = 120.0
 
 
 def new_id() -> bytes:
@@ -268,6 +293,10 @@ class ClientConfig:
     )
     connect_timeout: float | None = 10.0
     request_timeout: float | None = 30.0
+    # Deadline for a derived ENCODE only — the one verb that waits on the
+    # asynchronous half of a write. Everything else keeps ``request_timeout``;
+    # see ``DEFAULT_DERIVED_WRITE_TIMEOUT`` for the measurements behind it.
+    derived_write_timeout: float | None = DEFAULT_DERIVED_WRITE_TIMEOUT
 
 
 @dataclass(frozen=True)
@@ -302,9 +331,15 @@ class BrainClient:
     single client serves many requests in flight at once from multiple threads.
     """
 
-    def __init__(self, conn: MuxConnection, connection: ConnectionInfo) -> None:
+    def __init__(
+        self,
+        conn: MuxConnection,
+        connection: ConnectionInfo,
+        derived_write_timeout: float | None = DEFAULT_DERIVED_WRITE_TIMEOUT,
+    ) -> None:
         self._conn = conn
         self._connection = connection
+        self._derived_write_timeout = derived_write_timeout
 
     @classmethod
     def connect(
@@ -362,7 +397,7 @@ class BrainClient:
             namespace=outcome.auth_ok.namespace,
             server_features=outcome.welcome.server_features,
         )
-        return cls(conn, connection)
+        return cls(conn, connection, config.derived_write_timeout)
 
     @property
     def connection(self) -> ConnectionInfo:
@@ -388,8 +423,14 @@ class BrainClient:
 
     def encode(self, request: EncodeRequest) -> EncodeResponse:
         """Store a memory from text (ENCODE). The server owns the embedding,
-        kind classification, salience, and edge extraction."""
-        frame = self._conn.request_one(Opcode.ENCODE_REQ, encode_payload(request))
+        kind classification, salience, and edge extraction.
+
+        A request built with ``WaitMode.DERIVED`` blocks on the asynchronous
+        half of the write and runs under ``derived_write_timeout`` instead of
+        the flat ``request_timeout``; see :meth:`_encode_timeout`."""
+        frame = self._conn.request_one(
+            Opcode.ENCODE_REQ, encode_payload(request), self._encode_timeout(request)
+        )
         if frame.opcode != int(Opcode.ENCODE_RESP):
             raise ProtocolError(
                 f"expected ENCODE_RESP ({int(Opcode.ENCODE_RESP):#06x}), got {frame.opcode:#06x}"
@@ -1088,6 +1129,17 @@ class BrainClient:
             out.append(decode_payload(resp_type, frame.payload))
         return out
 
+    def _encode_timeout(self, request: EncodeRequest) -> float | None:
+        """The deadline this one ENCODE waits under.
+
+        ``WaitMode.ACK`` returns on durability — milliseconds — and keeps the
+        connection default (``None`` defers to it). ``WaitMode.DERIVED`` waits
+        out embedding, HyPE and graph extraction, so it gets
+        ``derived_write_timeout``. Reading it off the request is what lets the
+        two populations differ without a second parameter on 71 verbs.
+        """
+        return self._derived_write_timeout if request.wait == WaitMode.DERIVED else None
+
     def _unary(
         self,
         req_opcode: Opcode,
@@ -1126,5 +1178,6 @@ __all__ = [
     "BrainClient",
     "ClientConfig",
     "ConnectionInfo",
+    "DEFAULT_DERIVED_WRITE_TIMEOUT",
     "new_id",
 ]

@@ -11,6 +11,7 @@ loop says so instead of hanging.
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 from aio_harness import (
@@ -23,8 +24,10 @@ from aio_harness import (
     mock_encode_response,
 )
 
+from brain_db_sdk import EncodeBuilder, RecallBuilder
+from brain_db_sdk.aio import AsyncBrainClient
 from brain_db_sdk.aio.mux import AsyncMuxConnection
-from brain_db_sdk.client import DEFAULT_CLIENT_ID
+from brain_db_sdk.client import DEFAULT_CLIENT_ID, Auth, ClientConfig
 from brain_db_sdk.errors import (
     ActAsDenied,
     BrainTimeout,
@@ -649,3 +652,93 @@ async def test_a_connection_refuses_a_different_event_loop() -> None:
             assert "different event loop" in str(caught)
         finally:
             await conn.aclose()
+
+
+# --------------------------------------------------------------------------
+# Two deadlines, not one.
+#
+# The asyncio half of what `tests/mux/test_mux.py` pins for the threaded tier:
+# a derived ENCODE waits out the asynchronous half of the write (~9s typical on
+# a live server, 45.5s under a ten-way burst) while a read keeps the flat one.
+# The handler here never answers, so the deadline that fires is the only thing
+# under test.
+# --------------------------------------------------------------------------
+
+# Scaled down from the shipped 30s / 120s: the ratio is what matters, and a
+# test that waits out the real numbers is a test nobody runs.
+_FLAT = 0.15
+_DERIVED = 0.8
+
+
+async def _silence(session: MockSession) -> None:
+    """Handshake, then never answer anything."""
+    await session.handshake()
+    while True:
+        await session.read()
+
+
+async def _connect_client_mux(server: MockBrain) -> AsyncMuxConnection:
+    return await _connect(server, request_timeout=_FLAT)
+
+
+async def _connect_client(server: MockBrain) -> AsyncBrainClient:
+    return await AsyncBrainClient.connect_with(
+        server.host,
+        server.port,
+        ClientConfig(
+            auth=Auth.token(b"opaque-token"),
+            request_timeout=_FLAT,
+            derived_write_timeout=_DERIVED,
+        ),
+    )
+
+
+async def test_a_per_request_deadline_overrides_the_connection_default() -> None:
+    async with MockBrain(_silence) as server:
+        conn = await _connect_client_mux(server)
+        try:
+            with pytest.raises(BrainTimeout) as default_timeout:
+                await conn.request_one(Opcode.ENCODE_REQ, _request(1))
+            assert default_timeout.value.timeout == _FLAT
+
+            with pytest.raises(BrainTimeout) as overridden:
+                await conn.request_one(Opcode.ENCODE_REQ, _request(2), _DERIVED)
+            assert overridden.value.timeout == _DERIVED
+        finally:
+            await conn.aclose()
+
+
+async def test_a_derived_encode_waits_under_the_derived_deadline() -> None:
+    async with MockBrain(_silence) as server:
+        client = await _connect_client(server)
+        started = time.monotonic()
+        with pytest.raises(BrainTimeout) as excinfo:
+            await client.encode(EncodeBuilder("a derived write").derived().build())
+        elapsed = time.monotonic() - started
+
+        assert excinfo.value.timeout == _DERIVED
+        # The number alone could come from anywhere; the wall clock proves the
+        # request really outlived the flat deadline rather than reporting one
+        # value and enforcing another.
+        assert elapsed >= _FLAT * 2, f"gave up after {elapsed:.3f}s"
+        await client._conn.aclose()  # the server never answers a BYE
+
+
+async def test_an_ack_encode_and_a_read_keep_the_flat_deadline() -> None:
+    """The point of a second number is that it is *not* applied to everything:
+    raising the flat default instead would make every read hang for two
+    minutes on a dead connection."""
+    async with MockBrain(_silence) as server:
+        client = await _connect_client(server)
+        started = time.monotonic()
+
+        with pytest.raises(BrainTimeout) as ack:
+            await client.encode(EncodeBuilder("an ordinary write").build())
+        assert ack.value.timeout == _FLAT
+
+        with pytest.raises(BrainTimeout) as read:
+            await client.recall(RecallBuilder("a cue").build())
+        assert read.value.timeout == _FLAT
+
+        assert time.monotonic() - started < _DERIVED
+        await client._conn.aclose()  # the server never answers a BYE

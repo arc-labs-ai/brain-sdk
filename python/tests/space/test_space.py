@@ -7,7 +7,7 @@ mints a fresh, isolated agent, so the space it provisions is its own.
 
 Note: keys are minted from a raw 16-byte space id (``space_id_hex``), not a
 structured ``namespace:space`` string, so the server echoes an empty
-``space_id`` string in the registry rows and :class:`SpaceView` carries no bytes
+``space`` string in the registry rows and :class:`SpaceView` carries no bytes
 id. Membership is therefore proven by the count delta on the caller-shard's
 listing (create adds exactly one row, delete removes it) rather than by matching
 an id — sound because the suite runs serially, so nothing else touches this
@@ -58,7 +58,7 @@ def test_create_space_is_idempotent(it):
         # A create for an existing space returns the existing row, created=False.
         second = client.create_space(SpaceCreateRequest(request_id=new_id()))
         assert second.created is False
-        assert second.space_id == first.space_id
+        assert second.space == first.space
     finally:
         client.close()
 

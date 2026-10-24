@@ -33,6 +33,7 @@ pub mod wire;
 
 pub use client::{
     derive_space_id, new_id, Auth, BrainClient, ClientConfig, ConnectionInfo, RecallAnswer,
+    DEFAULT_DERIVED_WRITE_TIMEOUT,
 };
 pub use error::{BrainError, Result};
 pub use mux::{HandshakeOutcome, MuxConnection, Subscription};

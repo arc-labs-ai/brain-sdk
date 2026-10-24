@@ -50,18 +50,18 @@ export class EncodeBuilder {
     return this;
   }
 
-  /** Run this encode as an effective `(namespace, spaceId)` on behalf of the
-   * connection principal. `spaceId` is the human-readable structured space
+  /** Run this encode as an effective `(namespace, space)` on behalf of the
+   * connection principal. `space` is the human-readable structured space
    * string (empty selects the key-bound space). Per-request, so one pooled
    * service key can serve many tenants. Requires the connection's `canActAs`
    * grant server-side. */
-  actAs(namespace: string, spaceId: string): this {
-    this.actAsIdentity = { namespace, spaceId };
+  actAs(namespace: string, space: string): this {
+    this.actAsIdentity = { namespace, space };
     return this;
   }
 
   /** Opt out of content dedup and force a distinct memory. By default Brain
-   * dedupes byte-identical text on `(spaceId, sessionId, BLAKE3(text))` and
+   * dedupes byte-identical text on `(space, sessionId, BLAKE3(text))` and
    * returns the existing memory (`wasDeduplicated = true`) without writing.
    * Call this when the same text is a genuinely distinct observation that must
    * coexist (e.g. the same fact re-stated at a different `occurredAt`). */
@@ -162,12 +162,12 @@ export class RecallBuilder {
     return this;
   }
 
-  /** Run this recall as an effective `(namespace, spaceId)` on behalf of the
-   * connection principal. `spaceId` is the human-readable structured space
+  /** Run this recall as an effective `(namespace, space)` on behalf of the
+   * connection principal. `space` is the human-readable structured space
    * string. Per-request; requires the connection's `canActAs` grant
    * server-side. */
-  actAs(namespace: string, spaceId: string): this {
-    this.actAsIdentity = { namespace, spaceId };
+  actAs(namespace: string, space: string): this {
+    this.actAsIdentity = { namespace, space };
     return this;
   }
 
@@ -220,12 +220,12 @@ export class ForgetBuilder {
     return this;
   }
 
-  /** Run this forget as an effective `(namespace, spaceId)` on behalf of the
-   * connection principal. `spaceId` is the human-readable structured space
+  /** Run this forget as an effective `(namespace, space)` on behalf of the
+   * connection principal. `space` is the human-readable structured space
    * string. Per-request; requires the connection's `canActAs` grant
    * server-side. */
-  actAs(namespace: string, spaceId: string): this {
-    this.actAsIdentity = { namespace, spaceId };
+  actAs(namespace: string, space: string): this {
+    this.actAsIdentity = { namespace, space };
     return this;
   }
 

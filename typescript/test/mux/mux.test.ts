@@ -9,8 +9,10 @@ import { describe, expect, it } from "vitest";
 import * as net from "node:net";
 
 import { MuxConnection } from "../../src/mux.js";
-import { newId } from "../../src/client.js";
-import { SERVER_AGENT_ID } from "../common/_auth.js";
+import { BrainClient, newId } from "../../src/client.js";
+import { BrainTimeout } from "../../src/errors.js";
+import { EncodeBuilder, RecallBuilder } from "../../src/verbs.js";
+import { SERVER_AGENT_ID, TEST_AUTH } from "../common/_auth.js";
 import { FrameChannel } from "../../src/transport.js";
 import { FLAG_EOS, type Frame } from "../../src/wire/frame.js";
 import { Opcode } from "../../src/wire/opcode.js";
@@ -406,6 +408,111 @@ describe("the negotiated payload limit", () => {
       );
 
       conn.close();
+    } finally {
+      server.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Two deadlines, not one.
+//
+// A read and a derived write are two different populations, so they get two
+// deadlines. `ClientConfig.requestTimeoutMs` is right for a read (milliseconds)
+// and far too tight for an ENCODE that asked to block on derivation: measured
+// against a live server,
+// three `WaitMode.Derived` encodes in isolation took 26.9s (~9s each), and a
+// ten-way concurrent burst put three of the ten past 30s, the slowest at
+// 45.5s. So the
+// caller doing the correct thing — a derived write is the only way to get
+// read-your-writes — was the one that hit a client-side BrainTimeout.
+//
+// The mux cannot see a wait mode, so it only grew the *mechanism*: a
+// per-request deadline. The policy (which number an ENCODE gets) lives in the
+// client. `serveHandshakeOnly` never answers a request, so the deadline that
+// fires is the only thing under test.
+//
+// `python/tests/mux/test_mux.py`, `python/tests/aio_mux/test_aio_mux.py` and
+// `rust/tests/mux/main.rs` assert the same properties.
+// ---------------------------------------------------------------------------
+
+// Scaled down from the shipped 30s / 120s: the ratio is what matters, and a
+// test that waits out the real numbers is a test nobody runs.
+const FLAT_MS = 150;
+const DERIVED_MS = 800;
+
+describe("the derived-write deadline", () => {
+  it("lets one request override the connection default", async () => {
+    const { server, port } = await startServer(serveHandshakeOnly);
+    try {
+      const hello: HelloPayload = {
+        clientId: "deadline-test",
+        supportedVersions: [1],
+        capabilities: { streaming: true, compressionZstd: false, serverPush: false },
+        clientConnectionToken: null,
+      };
+      const auth: AuthPayload = {
+        method: AuthMethod.Token,
+        credentials: { kind: "Token", token: new TextEncoder().encode("opaque-token") },
+      };
+      const { conn } = await MuxConnection.connect("127.0.0.1", port, hello, auth, {
+        requestTimeoutMs: FLAT_MS,
+      });
+
+      await expect(
+        conn.requestOne(Opcode.EncodeReq, encodeEncode(encodeRequest(1n))),
+      ).rejects.toThrow(new BrainTimeout(FLAT_MS).message);
+
+      await expect(
+        conn.requestOne(Opcode.EncodeReq, encodeEncode(encodeRequest(2n)), DERIVED_MS),
+      ).rejects.toThrow(new BrainTimeout(DERIVED_MS).message);
+
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+
+  it("gives a derived encode the derived deadline", async () => {
+    const { server, port } = await startServer(serveHandshakeOnly);
+    try {
+      const client = await BrainClient.connect("127.0.0.1", port, {
+        auth: TEST_AUTH,
+        requestTimeoutMs: FLAT_MS,
+        derivedWriteTimeoutMs: DERIVED_MS,
+      });
+      const started = Date.now();
+      await expect(
+        client.encode(new EncodeBuilder("a derived write").wait(WaitMode.Derived).build()),
+      ).rejects.toThrow(new BrainTimeout(DERIVED_MS).message);
+      // The number alone could come from anywhere; the wall clock proves the
+      // request really outlived the flat deadline rather than reporting one
+      // value and enforcing another.
+      expect(Date.now() - started).toBeGreaterThanOrEqual(FLAT_MS * 2);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("leaves an ack encode and a read on the flat deadline", async () => {
+    // The point of a second number is that it is *not* applied to everything:
+    // raising the flat default instead would make every read hang for two
+    // minutes on a dead connection.
+    const { server, port } = await startServer(serveHandshakeOnly);
+    try {
+      const client = await BrainClient.connect("127.0.0.1", port, {
+        auth: TEST_AUTH,
+        requestTimeoutMs: FLAT_MS,
+        derivedWriteTimeoutMs: DERIVED_MS,
+      });
+      const started = Date.now();
+      await expect(client.encode(new EncodeBuilder("an ordinary write").build())).rejects.toThrow(
+        new BrainTimeout(FLAT_MS).message,
+      );
+      await expect(client.recall(new RecallBuilder("a cue").build())).rejects.toThrow(
+        new BrainTimeout(FLAT_MS).message,
+      );
+      expect(Date.now() - started).toBeLessThan(DERIVED_MS);
     } finally {
       server.close();
     }

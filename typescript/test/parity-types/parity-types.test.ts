@@ -512,7 +512,7 @@ describe("SUBSCRIBE round-trip", () => {
       includeHistory: true,
       fromLsn: 100n,
       maxInflight: 64,
-      actAs: { namespace: "acme", spaceId: "acme:user2" },
+      actAs: { namespace: "acme", space: "acme:user2" },
     });
     rt(encodeSubscribe, decodeSubscribe, {
       filter: { sessionFilter: null, kinds: null, similarTo: null, spaces: null, memoryIds: null },

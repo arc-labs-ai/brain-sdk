@@ -57,15 +57,15 @@ impl EncodeBuilder {
         self
     }
 
-    /// Run this encode on behalf of another `(namespace, space_id)` identity.
+    /// Run this encode on behalf of another `(namespace, space)` identity.
     /// Requires the connection principal to hold the `can_act_as` grant; set
     /// per request, never on the client, so a pooled client can serve many
     /// effective identities.
     #[must_use]
-    pub fn act_as(mut self, namespace: impl Into<String>, space_id: impl Into<String>) -> Self {
+    pub fn act_as(mut self, namespace: impl Into<String>, space: impl Into<String>) -> Self {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
-            space_id: space_id.into(),
+            space: space.into(),
             grant: 0,
         });
         self
@@ -168,15 +168,15 @@ impl RecallBuilder {
         self
     }
 
-    /// Run this recall on behalf of another `(namespace, space_id)` identity.
+    /// Run this recall on behalf of another `(namespace, space)` identity.
     /// Requires the connection principal to hold the `can_act_as` grant; set
     /// per request, never on the client, so a pooled client can serve many
     /// effective identities.
     #[must_use]
-    pub fn act_as(mut self, namespace: impl Into<String>, space_id: impl Into<String>) -> Self {
+    pub fn act_as(mut self, namespace: impl Into<String>, space: impl Into<String>) -> Self {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
-            space_id: space_id.into(),
+            space: space.into(),
             grant: 0,
         });
         self
@@ -305,15 +305,15 @@ impl ForgetBuilder {
         }
     }
 
-    /// Run this forget on behalf of another `(namespace, space_id)` identity.
+    /// Run this forget on behalf of another `(namespace, space)` identity.
     /// Requires the connection principal to hold the `can_act_as` grant; set
     /// per request, never on the client, so a pooled client can serve many
     /// effective identities.
     #[must_use]
-    pub fn act_as(mut self, namespace: impl Into<String>, space_id: impl Into<String>) -> Self {
+    pub fn act_as(mut self, namespace: impl Into<String>, space: impl Into<String>) -> Self {
         self.act_as = Some(ActAs {
             namespace: namespace.into(),
-            space_id: space_id.into(),
+            space: space.into(),
             grant: 0,
         });
         self

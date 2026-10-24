@@ -81,14 +81,9 @@ def _memory(memory_id: int, text: str) -> MemoryResult:
     )
 
 
-def _id(n: int) -> bytes:
-    """A 16-byte memory id. Ids are opaque bytes on the wire, not integers."""
-    return n.to_bytes(16, "big")
-
-
 def _list_item(n: int) -> MemoryListItem:
     return MemoryListItem(
-        memory_id=_id(n),
+        memory_id=n,
         space_id=MOCK_SPACE_ID,
         session_id=0,
         text=f"m{n}",
@@ -335,7 +330,7 @@ async def test_memory_list_flattens_pages() -> None:
         client = await _client(server)
         try:
             items = await client.memory_list(_list_request())
-            assert [i.memory_id for i in items] == [_id(1), _id(2), _id(3)]
+            assert [i.memory_id for i in items] == [1, 2, 3]
         finally:
             await client.aclose()
 
@@ -346,9 +341,10 @@ async def test_memory_list_flattens_pages() -> None:
 
 
 async def test_inspecting_a_memory_that_is_not_there_is_refused_not_flagged() -> None:
-    """``MEMORY_INSPECT`` used to answer an absent id with ``found = False`` on
-    a success frame — the only such flag in the protocol. It now refuses the
-    way every other read does, so a caller branches on one thing.
+    """An id with no memory behind it is refused with ``MemoryNotFound`` in the
+    ``NotFound`` category, the same answer every sibling read gives, so a
+    caller branches on the error taxonomy it already handles rather than on a
+    flag specific to one response.
     """
 
     async def handler(session: MockSession) -> None:
@@ -367,7 +363,7 @@ async def test_inspecting_a_memory_that_is_not_there_is_refused_not_flagged() ->
         client = await _client(server)
         try:
             with pytest.raises(ServerError) as caught:
-                await client.memory_inspect(MemoryInspectRequest(memory_id=_id(99)))
+                await client.memory_inspect(MemoryInspectRequest(memory_id=99))
             assert caught.value.category == ErrorCategory.NOT_FOUND
             assert caught.value.code == MEMORY_NOT_FOUND_CODE
         finally:
@@ -457,11 +453,11 @@ async def test_ping_travels_on_the_connection_stream() -> None:
     """PING is connection-level, like HELLO and BYE: Brain refuses it on any
     stream but 0 with ``connection-level opcode requires stream_id = 0``.
 
-    It used to go through the unary path, which allocates an odd op-stream id,
-    so the probe could never complete a round trip against a real server. Only
-    live traffic surfaced it — the rule lives in the server's dispatch layer,
-    and the mock below answers a wrong-stream PING quite happily. The stream id
-    is the part a mock can pin, and it is exactly what was wrong.
+    The unary path allocates an odd op-stream id, which the server refuses for
+    a connection-level opcode, so the probe has to ride stream 0. Only live
+    traffic shows that: the rule lives in the server's dispatch layer, and the
+    mock below answers a wrong-stream PING quite happily. The stream id is the
+    part a mock can pin.
     """
     seen: list[int] = []
 

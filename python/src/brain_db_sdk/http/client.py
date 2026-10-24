@@ -18,7 +18,7 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional
 
-from .errors import BrainHttpError
+from .errors import BrainHttpError, FieldError
 from .retry import HttpRetryPolicy
 from .sse import Subscription
 from .types import (
@@ -113,7 +113,7 @@ class BrainHttpClient:
         occurred_at: Optional[int] = None,
     ) -> EncodeResult:
         """Store a memory."""
-        body = _compact({"text": text, "session": session, "occurred_at": occurred_at})
+        body = _compact({"text": text, "session": session, "occurred_at_unix_nanos": occurred_at})
         return EncodeResult.from_dict(self._request("POST", "/v1/memories", body, idempotent=True))
 
     def recall(
@@ -121,9 +121,15 @@ class BrainHttpClient:
         query: str,
         max_results: Optional[int] = None,
         subject: Optional[str] = None,
+        scope: Optional[str] = None,
         include_trace: Optional[bool] = None,
     ) -> RecallResult:
         """Recall memories for a cue.
+
+        ``scope`` says how wide to read: ``"space"`` (the default — the
+        caller's own space) or ``"namespace"``, which fans out across every
+        space in the caller's namespace and merges the hits. Case-insensitive;
+        any other value is rejected rather than quietly narrowed.
 
         ``include_trace`` returns Brain's read pipeline alongside the hits as
         :attr:`RecallResult.trace` — which retrievers ran, how they were
@@ -131,12 +137,18 @@ class BrainHttpClient:
         several KB per call, so leave it off in hot paths and switch it on
         when chasing a bad answer. The cloud gateway serves it; a server that
         does not support it ignores the field and returns no trace.
+
+        The trace is large and does NOT scale with ``max_results``: it reports
+        every candidate each lane considered, so it grows with the size of the
+        space. A three-hit recall over ~700 memories measured 121 KB. Leave it
+        off in hot paths; it costs nothing when off.
         """
         body = _compact(
             {
                 "query": query,
                 "max_results": max_results,
                 "subject": subject,
+                "scope": scope,
                 "include_trace": include_trace,
             }
         )
@@ -1438,15 +1450,30 @@ class BrainHttpClient:
     @staticmethod
     def _error_from(e: urllib.error.HTTPError) -> BrainHttpError:
         code, message = "http_error", f"HTTP {e.code}"
+        field_errors: list[FieldError] = []
         try:
             payload = json.loads(e.read().decode())
             err = payload.get("error") if isinstance(payload, dict) else None
             if isinstance(err, dict):
+                # brain-edge's envelope.
                 code = err.get("code", code)
                 message = err.get("message", message)
+            elif isinstance(payload, dict) and isinstance(payload.get("code"), str):
+                # The cloud gateway's RFC 9457 `application/problem+json`.
+                code = payload["code"]
+                for key in ("detail", "title"):
+                    if isinstance(payload.get(key), str):
+                        message = payload[key]
+                        break
+                field_errors = _field_errors(payload.get("errors"))
+                if field_errors:
+                    # "one or more fields are invalid" says nothing; name the
+                    # fields. Without this the same 422 that tells a TypeScript
+                    # caller `email: must be valid` tells a Python one nothing.
+                    message = "; ".join(f"{f.field}: {f.message}" for f in field_errors)
         except Exception:  # noqa: BLE001 - best-effort error body parse
             pass
-        out = BrainHttpError(e.code, code, message)
+        out = BrainHttpError(e.code, code, message, field_errors)
         # Attach a server Retry-After hint (integer seconds) for the retry
         # scheduler. Not part of the public {status, code, message} shape.
         out.retry_after = _parse_retry_after(e)
@@ -1483,6 +1510,25 @@ def _query_string(query: Optional[Mapping[str, Any]]) -> str:
         if v is not None
     ]
     return "?" + urllib.parse.urlencode(pairs) if pairs else ""
+
+
+def _field_errors(raw: object) -> list[FieldError]:
+    """The well-formed entries of an RFC 9457 ``errors[]``.
+
+    An entry missing ``field`` or ``message`` is dropped rather than rendered
+    as a half-empty ``": "`` line in the joined message.
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[FieldError] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        field, message = item.get("field"), item.get("message")
+        if isinstance(field, str) and isinstance(message, str):
+            code = item.get("code")
+            out.append(FieldError(field, message, code if isinstance(code, str) else None))
+    return out
 
 
 def _parse_retry_after(e: urllib.error.HTTPError) -> Optional[float]:

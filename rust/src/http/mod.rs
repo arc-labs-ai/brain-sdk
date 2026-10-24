@@ -12,7 +12,7 @@ pub mod sse;
 pub mod types;
 
 pub use client::{BrainHttpClient, DEFAULT_BASE_URL, DEFAULT_TIMEOUT};
-pub use error::BrainHttpError;
+pub use error::{BrainHttpError, FieldError};
 pub use retry::HttpRetryPolicy;
 pub use types::{
     Capabilities, CreateEntityInput, CreateEntityResult, EncodeInput, EncodeResult, Endpoint,

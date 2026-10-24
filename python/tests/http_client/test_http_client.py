@@ -607,6 +607,125 @@ def test_every_statement_value_tag_round_trips(edge, type_tag, raw) -> None:
     assert (value.type, value.value) == (type_tag, raw)
 
 
+def test_a_read_carries_the_supersession_chain_and_its_provenance(edge) -> None:
+    """Without these the head of a chain was indistinguishable from a row that
+    had never been revised: an absent ``superseded_by`` is what makes this one
+    current, and ``supersedes``/``chain_root`` are what make its history
+    reachable at all."""
+    client, rec = edge
+    statement = _statement_with({"kind": "entity", "id": "ent-2"}) | {
+        "version": 2,
+        "superseded_by": None,
+        "supersedes": "stmt-0",
+        "chain_root": "stmt-0",
+        "extractor_id": 4,
+        "extracted_at_unix_nanos": 77,
+        "schema_version": 3,
+        "tombstoned_at_unix_nanos": 0,
+        "tombstone_reason": 0,
+    }
+    rec.responses = [(200, statement, {})]
+    out = client.get_statement("stmt-1")
+    assert out.version == 2
+    assert (out.supersedes, out.superseded_by) == ("stmt-0", None)
+    assert out.chain_root == "stmt-0", "the claim's identity, not this row's"
+    assert (out.extractor_id, out.extracted_at_unix_nanos) == (4, 77)
+    assert out.schema_version == 3
+    assert (out.tombstoned_at_unix_nanos, out.tombstone_reason) == (0, 0)
+
+    rec.responses = [
+        (
+            200,
+            {
+                "relation_id": "rel-2",
+                "relation_type": "works_at",
+                "from_entity": "ent-1",
+                "to_entity": "ent-2",
+                "confidence": 0.9,
+                "valid_from_unix_nanos": 1,
+                "valid_to_unix_nanos": 0,
+                "is_symmetric": False,
+                "tombstoned": False,
+                # The blob a supersede would otherwise drop, read back as hex.
+                "properties": "0badc0de",
+                "version": 2,
+                "supersedes": "rel-1",
+                "chain_root": "rel-1",
+                "extractor_id": 4,
+                "extracted_at_unix_nanos": 77,
+                "tombstoned_at_unix_nanos": 0,
+            },
+            {},
+        )
+    ]
+    rel = client.get_relation("rel-2")
+    assert rel.properties == "0badc0de"
+    assert (rel.version, rel.supersedes, rel.superseded_by) == (2, "rel-1", None)
+    assert rel.chain_root == "rel-1"
+    assert (rel.extractor_id, rel.extracted_at_unix_nanos) == (4, 77)
+    assert rel.tombstoned_at_unix_nanos == 0
+
+
+def test_a_merged_away_id_is_disclosed_by_resolved_from(edge) -> None:
+    """The edge walked ``ent-1 -> ent-5 -> ent-9`` and answered with ent-9.
+    Nothing else in the body says the id moved, so a caller blind to
+    ``resolved_from`` files ent-9's name and mentions under the ent-1 it asked
+    for."""
+    client, rec = edge
+    rec.responses = [
+        (
+            200,
+            {
+                "entity_id": "ent-9",
+                "entity_type_id": 7,
+                "canonical_name": "Ada Lovelace",
+                "aliases": ["Ada"],
+                "attributes": "0badc0de",
+                "mention_count": 3,
+                "created_at_unix_nanos": 1,
+                "updated_at_unix_nanos": 2,
+                "merged_into": None,
+                "resolved_from": ["ent-1", "ent-5"],
+            },
+            {},
+        )
+    ]
+    out = client.get_entity("ent-1")
+    assert out.entity_id == "ent-9", "the survivor, not the id requested"
+    assert out.resolved_from == ["ent-1", "ent-5"]
+    # `update_entity` replaces this blob, so a caller must be able to read it.
+    assert out.attributes == "0badc0de"
+
+
+def test_an_edge_that_omits_the_provenance_fields_still_decodes(edge) -> None:
+    """A missing field must cost the caller that field, not the whole read."""
+    client, rec = edge
+    rec.responses = [
+        (
+            200,
+            {
+                "entity_id": "ent-1",
+                "entity_type_id": 7,
+                "canonical_name": "Ada Lovelace",
+                "aliases": [],
+                "mention_count": 0,
+                "created_at_unix_nanos": 1,
+                "updated_at_unix_nanos": 2,
+                "merged_into": None,
+            },
+            {},
+        )
+    ]
+    ent = client.get_entity("ent-1")
+    assert ent.resolved_from == [] and ent.attributes is None
+
+    rec.responses = [(200, _statement_with({"kind": "entity", "id": "ent-2"}), {})]
+    stmt = client.get_statement("stmt-1")
+    assert (stmt.version, stmt.chain_root, stmt.schema_version) == (0, "", 0)
+    assert (stmt.supersedes, stmt.superseded_by) == (None, None)
+    assert (stmt.tombstoned_at_unix_nanos, stmt.tombstone_reason) == (0, 0)
+
+
 def test_the_declared_tag_sets_match_the_contract() -> None:
     """The closed sets are transcribed from the manifest's enum variants; if the
     edge adds one, this is where the SDK notices."""
@@ -675,6 +794,68 @@ def test_a_non_json_error_body_still_yields_an_error(edge) -> None:
         client.whoami()
     assert excinfo.value.status == 502
     assert excinfo.value.code == "http_error", "falls back rather than raising a parse error"
+
+
+def test_problem_json_field_errors_name_the_fields(edge) -> None:
+    """The cloud gateway answers a 422 with RFC 9457 and a per-field `errors[]`.
+
+    Without this the same response that tells a TypeScript caller
+    `email: must be valid` told a Python one "one or more fields are invalid",
+    which names nothing a caller can act on.
+    """
+    client, rec = edge
+    rec.responses = [
+        (
+            422,
+            {
+                "code": "validation_failed",
+                "title": "Unprocessable Entity",
+                "detail": "one or more fields are invalid",
+                "errors": [
+                    {"field": "email", "code": "format", "message": "must be valid"},
+                    {"field": "name", "message": "required"},
+                    {"code": "no_field_so_dropped"},
+                ],
+            },
+            {},
+        )
+    ]
+    with pytest.raises(BrainHttpError) as excinfo:
+        client.whoami()
+
+    err = excinfo.value
+    assert err.status == 422
+    assert err.code == "validation_failed"
+    assert err.message == "email: must be valid; name: required"
+    assert [f.field for f in err.field_errors] == ["email", "name"]
+    assert err.field_errors[0].code == "format"
+    assert err.field_errors[1].code is None
+
+
+def test_problem_json_without_field_errors_uses_detail_then_title(edge) -> None:
+    client, rec = edge
+    rec.responses = [(409, {"code": "conflict", "title": "Conflict", "detail": "already"}, {})]
+    with pytest.raises(BrainHttpError) as excinfo:
+        client.whoami()
+    assert excinfo.value.message == "already"
+    assert excinfo.value.field_errors == ()
+
+    rec.responses = [(409, {"code": "conflict", "title": "Conflict"}, {})]
+    with pytest.raises(BrainHttpError) as excinfo:
+        client.whoami()
+    assert excinfo.value.message == "Conflict"
+
+
+def test_the_edge_envelope_carries_no_field_errors(edge) -> None:
+    """The edge emits `{error: {code, message}}`; both shapes must parse."""
+    client, rec = edge
+    rec.responses = [
+        (400, {"error": {"code": "bad_request", "message": "cursor: invalid hex"}}, {})
+    ]
+    with pytest.raises(BrainHttpError) as excinfo:
+        client.whoami()
+    assert excinfo.value.message == "cursor: invalid hex"
+    assert excinfo.value.field_errors == ()
 
 
 def test_transport_failure_is_a_brain_error_not_a_raw_socket_error(edge) -> None:
@@ -774,6 +955,20 @@ def test_a_server_retry_after_overrides_the_computed_backoff() -> None:
     assert policy.backoff(2, None) == 2.0, "exponential without a server hint"
     assert policy.backoff(1, 7.0) == 7.0, "a Retry-After hint wins"
     assert policy.backoff(1, 900.0) == 30.0, "but is still capped by max_delay"
+
+
+def test_recall_sends_a_scope_only_when_one_is_asked_for(edge) -> None:
+    """An omitted ``scope`` is what asks for the edge's own default (the
+    caller's own space); sending ``"space"`` anyway would be the SDK deciding.
+    ``"namespace"`` fans the read out across every space in the namespace."""
+    client, rec = edge
+    rec.responses = [(200, {"answer_kind": "none", "memories": []}, {})]
+    client.recall("anything")
+    assert "scope" not in rec.requests[0]["body"]
+
+    rec.responses = [(200, {"answer_kind": "none", "memories": []}, {})]
+    client.recall("anything", scope="namespace")
+    assert rec.requests[1]["body"]["scope"] == "namespace"
 
 
 def test_recall_omits_include_trace_unless_asked(edge) -> None:

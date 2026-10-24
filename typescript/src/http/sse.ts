@@ -14,23 +14,13 @@
  * `Authorization` header and so cannot reach an authenticated feed at all.
  */
 import { BrainHttpError } from "./errors.js";
+import { decodeJsonBody } from "./json.js";
 import type { FeedItem, SubscriptionClosed, SubscriptionEvent } from "./types.js";
 
 /** One dispatched SSE frame, before it is decoded. */
 interface Frame {
   event: string | undefined;
   data: string;
-}
-
-/** Convert the edge's snake_case keys to the camelCase this SDK speaks. */
-function toCamelKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(toCamelKeys);
-  if (value === null || typeof value !== "object") return value;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase())] = toCamelKeys(v);
-  }
-  return out;
 }
 
 /**
@@ -142,7 +132,7 @@ export class Subscription implements AsyncIterable<FeedItem> {
 function decode(frame: Frame): FeedItem {
   let payload: unknown;
   try {
-    payload = toCamelKeys(JSON.parse(frame.data));
+    payload = decodeJsonBody(frame.data);
   } catch (e) {
     // biome-ignore lint/style/useErrorCause: cause is passed in the options bag below
     throw new BrainHttpError(0, "transport", `decode subscription frame: ${String(e)}`, {

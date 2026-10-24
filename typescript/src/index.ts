@@ -20,7 +20,12 @@ export * from "./wire/cbor.js";
 export * from "./wire/types.js";
 
 // Client + transport layers.
-export { BrainClient, newId, deriveSpaceId } from "./client.js";
+export {
+  BrainClient,
+  newId,
+  deriveSpaceId,
+  DEFAULT_DERIVED_WRITE_TIMEOUT_MS,
+} from "./client.js";
 export type { Auth, ClientConfig, ConnectionInfo } from "./client.js";
 export { MuxConnection, Subscription } from "./mux.js";
 export type { HandshakeOutcome } from "./connection.js";

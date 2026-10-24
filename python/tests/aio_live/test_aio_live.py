@@ -71,27 +71,26 @@ async def test_inspecting_an_absent_memory_is_refused(it) -> None:
     there with ``NotFound``, not a success carrying ``found = False``."""
     client, _ = await it.connect_fresh_async()
     async with client:
-        absent = (99_999_999).to_bytes(16, "big")
         with pytest.raises(ServerError) as caught:
-            await client.memory_inspect(MemoryInspectRequest(memory_id=absent))
+            await client.memory_inspect(MemoryInspectRequest(memory_id=99_999_999))
         assert caught.value.category == ErrorCategory.NOT_FOUND
 
 
 async def test_inspect_returns_the_write_artifacts_for_a_real_memory(it) -> None:
-    """Also pins a protocol asymmetry worth knowing about: ENCODE answers with
-    ``memory_id`` as a CBOR integer (``u128`` server-side) while MEMORY_INSPECT
-    takes — and returns — a 16-byte string (``[u8; 16]``). Feeding one straight
-    to the other is refused with ``invalid length 9, expected a byte array of
-    length 16``; the conversion below is what a caller has to do, in both
-    directions. The SDK mirrors the server faithfully here — the asymmetry is
-    Brain's, not the client's.
+    """The id ENCODE returns goes straight into MEMORY_INSPECT.
+
+    It did not used to: ENCODE answered with a CBOR integer while
+    MEMORY_INSPECT took and returned a 16-byte string, so chaining the two
+    was refused with ``invalid length 9, expected a byte array of length 16``
+    and every caller had to convert. Both are the integer now, and this test
+    is the one that would have caught it — the earlier suites called the two
+    verbs but never fed one to the other.
     """
     client, _ = await it.connect_fresh_async()
     async with client:
         written = await client.encode(EncodeBuilder("Brain is a memory database").build())
-        as_bytes = written.memory_id.to_bytes(16, "big")
-        inspected = await client.memory_inspect(MemoryInspectRequest(memory_id=as_bytes))
-        assert inspected.memory_id == as_bytes
+        inspected = await client.memory_inspect(MemoryInspectRequest(memory_id=written.memory_id))
+        assert inspected.memory_id == written.memory_id
         assert inspected.text == "Brain is a memory database"
         # `edges` is the field that replaced the old `found` flag; an absent id
         # is now the refusal the test above asserts, not a success with a

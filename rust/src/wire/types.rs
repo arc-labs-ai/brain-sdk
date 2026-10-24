@@ -209,7 +209,7 @@ pub struct ActAs {
     /// `"support-bot:user123"`) — a CBOR text string on the wire. The server
     /// derives the 16-byte storage space id from it at ingress. An empty
     /// string selects the connection's key-bound space.
-    pub space_id: String,
+    pub space: String,
     /// Extra capability bits granted to the effective caller for this op,
     /// on top of the standard space mask. Only `SCHEMA_UPLOAD` (`1 << 4`)
     /// and `ADMIN` (`1 << 5`) are grantable, and only when the connection
@@ -462,8 +462,7 @@ pub struct EncodeTraceIndex {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EncodeTraceDedup {
     pub was_deduplicated: bool,
-    #[serde(with = "crate::wire::cbor::opt_byte_array16")]
-    pub matched_memory_id: Option<[u8; 16]>,
+    pub matched_memory_id: Option<WireMemoryId>,
 }
 
 // ===========================================================================
@@ -492,8 +491,7 @@ pub struct EncodeStageArtifact {
 /// The durable metadata row a `persist` stage wrote.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EncodeStageRecord {
-    #[serde(with = "serde_bytes")]
-    pub memory_id: [u8; 16],
+    pub memory_id: WireMemoryId,
     pub kind: u8,
     pub salience: f32,
     pub created_at_unix_nanos: u64,
@@ -552,8 +550,7 @@ pub struct EncodeStageGraph {
 /// memory. Single-shot (not paginated).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemoryInspectRequest {
-    #[serde(with = "serde_bytes")]
-    pub memory_id: [u8; 16],
+    pub memory_id: WireMemoryId,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
 }
@@ -567,8 +564,7 @@ pub struct MemoryInspectRequest {
 /// yet is still a success, with an empty `artifact`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemoryInspectResponse {
-    #[serde(with = "serde_bytes")]
-    pub memory_id: [u8; 16],
+    pub memory_id: WireMemoryId,
     pub text: String,
     pub artifact: EncodeStageArtifact,
     /// Memory↔memory edges anchored at this memory, both directions.
@@ -1130,8 +1126,7 @@ pub struct MemoryListRequest {
 /// enumeration-relevant fields plus relationship-handle counts.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemoryListItem {
-    #[serde(with = "serde_bytes")]
-    pub memory_id: [u8; 16],
+    pub memory_id: WireMemoryId,
     /// Owner space (16-byte storage key) the row belongs to.
     #[serde(with = "serde_bytes")]
     pub space_id: [u8; 16],
@@ -2509,7 +2504,7 @@ pub struct MaterializeProceduralResponse {
 /// string), not the derived 16-byte storage id.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceView {
-    pub space_id: String,
+    pub space: String,
     pub created_at_unix_nanos: u64,
     pub last_active_unix_nanos: u64,
     pub memory_count: u64,
@@ -2531,11 +2526,11 @@ pub struct SpaceCreateRequest {
     pub act_as: Option<ActAs>,
 }
 
-/// SPACE_CREATE_RESP (`0x00F0`). `space_id` is the human-readable structured
+/// SPACE_CREATE_RESP (`0x00F0`). `space` is the human-readable structured
 /// space string this create resolved to (a CBOR text string).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceCreateResponse {
-    pub space_id: String,
+    pub space: String,
     /// `false` on an idempotent replay of an existing space.
     pub created: bool,
     pub created_at_unix_nanos: u64,
@@ -2573,11 +2568,11 @@ pub struct SpaceDeleteRequest {
     pub act_as: Option<ActAs>,
 }
 
-/// SPACE_DELETE_RESP (`0x00F2`). `space_id` is the human-readable structured
+/// SPACE_DELETE_RESP (`0x00F2`). `space` is the human-readable structured
 /// space string this delete targeted (a CBOR text string).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceDeleteResponse {
-    pub space_id: String,
+    pub space: String,
     /// `false` when the space had no registry row.
     pub existed: bool,
     /// Number of memories tombstoned by the cascade.

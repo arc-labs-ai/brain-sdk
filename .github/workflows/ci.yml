@@ -37,21 +37,17 @@ jobs:
       - name: Check protocol types
         run: ./tools/check_protocol.sh
 
-      # The HTTP boundary's equivalent: brain-edge serves 25 method+path
-      # combos and the clients covered 9, so a whole tier of the product was
+      # The HTTP boundary's equivalent: brain-edge serves the method+path combos
+      # and the clients covered 9 of 25, so a whole tier of the product was
       # unreachable over JSON. This fails when an SDK misses a route the edge
-      # serves, or serves one it does not.
+      # serves or serves one it does not, and when their fields disagree in
+      # either direction.
       - name: Check HTTP contract
         run: python3 tools/check_http_contract.py
+      - name: Check HTTP contract gate's own tests
+        run: python3 tools/test_check_http_contract.py
       - name: Check API surface parity
         run: python3 tools/compare_api.py
-
-      # Route-level parity let an SDK speak all 25 routes while dropping half
-      # the fields on each — which is what had happened. This checks parity at
-      # the field level, against brain-edge's manifest and the gateway's DTOs
-      # both, since the gateway adds fields brain-edge never sends.
-      - name: Check HTTP field parity
-        run: python3 tools/check_http_fields.py
 
   rust:
     name: Rust SDK

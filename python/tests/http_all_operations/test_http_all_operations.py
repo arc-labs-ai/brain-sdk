@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from uuid import uuid4
 
 import pytest
@@ -90,6 +91,50 @@ def stored(client: BrainHttpClient):
         client.forget(result.memory_id)
 
 
+# How long an HTTP-written memory may take to become searchable.
+#
+# Measured, not guessed: six writes while the rest of this suite was running
+# against the same server took 1.9, 3.3, 4.0, 8.5, 11.2 and 22.5 seconds to
+# appear in RECALL. The spread is the point — the async half of a write queues
+# behind every other write in flight and waits on provider round trips, so
+# there is no tight bound to assert. 30s covers the measured worst case with
+# margin; a budget near the median (8s, which is what this was first set to)
+# fails roughly half the time under load and looks like a server bug.
+VISIBILITY_TIMEOUT_S = 30.0
+
+
+def _recall_until_found(
+    client: BrainHttpClient,
+    query: str,
+    memory_id: str,
+    timeout_s: float = VISIBILITY_TIMEOUT_S,
+):
+    """Poll RECALL until `memory_id` shows up, or give up.
+
+    A Brain write has two halves. The synchronous half is durable the moment
+    POST /v1/memories returns; the asynchronous half — embedding, HyPE,
+    extraction — runs afterwards, and the semantic index only becomes
+    searchable when it does.
+
+    Over the wire a caller can ask to wait for the second half
+    (`WaitMode::Derived`). **Over HTTP they cannot**: the edge's `EncodeBody`
+    has no `wait` field, so every HTTP write is ack-only and polling is the
+    only way to read your own write. See the note on `EncodeBody` in
+    brain-edge's `dto/memory.rs`.
+
+    So this is not flake-tolerance papering over a bug — it is the documented
+    behaviour of the tier under test. Asserting without it was testing a race.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        answer = client.recall(query=query, max_results=10)
+        if any(m.memory_id == memory_id for m in answer.memories):
+            return answer
+        if time.monotonic() >= deadline:
+            return answer
+        time.sleep(0.15)
+
+
 # ── identity ────────────────────────────────────────────────────────────────
 
 
@@ -118,9 +163,13 @@ def test_encode_recall_inspect_list_forget(client: BrainHttpClient, stored) -> N
     assert result.memory_id
     assert result.was_deduplicated is False
 
-    answer = client.recall(query=text, max_results=5)
+    answer = _recall_until_found(client, text, result.memory_id)
     assert answer.answer_kind in {"single", "many", "none"}
-    assert any(m.memory_id == result.memory_id for m in answer.memories)
+    assert any(m.memory_id == result.memory_id for m in answer.memories), (
+        f"the memory did not become searchable within {VISIBILITY_TIMEOUT_S}s. "
+        "The write is durable on ack; the index lags it. If this fails "
+        "consistently the derivation pipeline is stuck, not slow."
+    )
 
     inspected = client.memory_inspect(result.memory_id)
     assert inspected.memory_id == result.memory_id

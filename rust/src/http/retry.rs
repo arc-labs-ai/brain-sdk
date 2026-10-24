@@ -183,11 +183,13 @@ mod tests {
             status: 503,
             code: "unavailable".into(),
             message: String::new(),
+            field_errors: Vec::new(),
         };
         let client_err = BrainHttpError {
             status: 401,
             code: "unauthorized".into(),
             message: String::new(),
+            field_errors: Vec::new(),
         };
         assert!(p.should_retry(1, &transient));
         assert!(p.should_retry(2, &transient));

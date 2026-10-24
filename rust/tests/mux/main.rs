@@ -4,6 +4,7 @@
 //! a single round-trip works.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::net::{TcpListener, TcpStream};
 
@@ -18,6 +19,7 @@ use brain_db_sdk::wire::types::{
     HelloCapabilities, HelloPayload, MemoryKindWire, ServerFeatures, ServerPingResponse,
     SpacePermissions, WaitMode, WelcomePayload,
 };
+use brain_db_sdk::{Auth, BrainClient, ClientConfig, EncodeBuilder, RecallBuilder};
 
 /// The agent id the mock server assigns from the credential.
 const SERVER_AGENT: [u8; 16] = [0x22; 16];
@@ -631,5 +633,155 @@ async fn a_payload_over_the_negotiated_limit_is_refused_locally() {
     assert!(
         text.contains(&ADVERTISED_MAX.to_string()) && text.contains("WELCOME"),
         "expected the server's advertised limit in the message, got: {text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Two deadlines, not one.
+//
+// A read and a derived write are two different populations, so they get two
+// deadlines. `ClientConfig::request_timeout` is right for a read (milliseconds)
+// and far too tight for an ENCODE that asked to block on derivation: measured
+// against a live server,
+// three `WaitMode::Derived` encodes in isolation took 26.9s (~9s each), and a
+// ten-way concurrent burst put three of the ten past 30s, the slowest at
+// 45.5s. So the
+// caller doing the correct thing — a derived write is the only way to get
+// read-your-writes — was the one that hit a client-side `Timeout`.
+//
+// The mux cannot see a wait mode, so it only grew the *mechanism*: a
+// per-request deadline. The policy (which number an ENCODE gets) lives in the
+// client. `serve_handshake_only` never answers a request, so the deadline that
+// fires is the only thing under test.
+//
+// `python/tests/mux/test_mux.py`, `python/tests/aio_mux/test_aio_mux.py` and
+// `typescript/test/mux/mux.test.ts` assert the same properties.
+// ---------------------------------------------------------------------------
+
+// Scaled down from the shipped 30s / 120s: the ratio is what matters, and a
+// test that waits out the real numbers is a test nobody runs.
+const FLAT: Duration = Duration::from_millis(150);
+const DERIVED: Duration = Duration::from_millis(800);
+
+/// Bind a silent mock server and return its address.
+async fn spawn_silent_server() -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        while let Ok((sock, _peer)) = listener.accept().await {
+            tokio::spawn(serve_handshake_only(sock));
+        }
+    });
+    addr
+}
+
+#[tokio::test]
+async fn a_per_request_deadline_overrides_the_connection_default() {
+    let addr = spawn_silent_server().await;
+    let hello = HelloPayload {
+        client_id: "deadline-test".to_string(),
+        supported_versions: vec![1],
+        capabilities: HelloCapabilities {
+            streaming: true,
+            compression_zstd: false,
+            server_push: false,
+        },
+        client_connection_token: None,
+    };
+    let auth = AuthPayload {
+        method: brain_db_sdk::wire::types::AuthMethod::Token,
+        credentials: brain_db_sdk::wire::types::AuthCredentials::Token(b"opaque-token".to_vec()),
+    };
+    let stream = TcpStream::connect(addr).await.expect("connect");
+    let (conn, _outcome) = MuxConnection::handshake(stream, hello, auth, Some(FLAT))
+        .await
+        .expect("handshake");
+
+    let err = conn
+        .request_one(Opcode::EncodeReq, to_cbor_bytes(&encode_request(1)))
+        .await
+        .expect_err("the server never answers");
+    assert!(
+        matches!(err, brain_db_sdk::BrainError::Timeout(d) if d == FLAT),
+        "expected the connection default, got: {err}"
+    );
+
+    let err = conn
+        .request_one_with_timeout(
+            Opcode::EncodeReq,
+            to_cbor_bytes(&encode_request(2)),
+            Some(DERIVED),
+        )
+        .await
+        .expect_err("the server never answers");
+    assert!(
+        matches!(err, brain_db_sdk::BrainError::Timeout(d) if d == DERIVED),
+        "expected the per-request override, got: {err}"
+    );
+}
+
+fn silent_config() -> ClientConfig {
+    let mut config = ClientConfig::new(Auth::Token(b"opaque-token".to_vec()));
+    config.request_timeout = Some(FLAT);
+    config.derived_write_timeout = Some(DERIVED);
+    config
+}
+
+#[tokio::test]
+async fn a_derived_encode_waits_under_the_derived_deadline() {
+    let addr = spawn_silent_server().await;
+    let client = BrainClient::connect_with(addr, silent_config())
+        .await
+        .expect("connect");
+
+    let started = std::time::Instant::now();
+    let err = client
+        .encode(&EncodeBuilder::new("a derived write").wait_derived().build())
+        .await
+        .expect_err("the server never answers");
+    let elapsed = started.elapsed();
+
+    assert!(
+        matches!(err, brain_db_sdk::BrainError::Timeout(d) if d == DERIVED),
+        "expected the derived deadline, got: {err}"
+    );
+    // The number alone could come from anywhere; the wall clock proves the
+    // request really outlived the flat deadline rather than reporting one
+    // value and enforcing another.
+    assert!(elapsed >= FLAT * 2, "gave up after {elapsed:?}");
+}
+
+/// The point of a second number is that it is *not* applied to everything:
+/// raising the flat default instead would make every read hang for two minutes
+/// on a dead connection.
+#[tokio::test]
+async fn an_ack_encode_and_a_read_keep_the_flat_deadline() {
+    let addr = spawn_silent_server().await;
+    let client = BrainClient::connect_with(addr, silent_config())
+        .await
+        .expect("connect");
+
+    let started = std::time::Instant::now();
+    let err = client
+        .encode(&EncodeBuilder::new("an ordinary write").build())
+        .await
+        .expect_err("the server never answers");
+    assert!(
+        matches!(err, brain_db_sdk::BrainError::Timeout(d) if d == FLAT),
+        "expected the flat deadline, got: {err}"
+    );
+
+    let err = client
+        .recall(&RecallBuilder::new("a cue").build())
+        .await
+        .expect_err("the server never answers");
+    assert!(
+        matches!(err, brain_db_sdk::BrainError::Timeout(d) if d == FLAT),
+        "expected the flat deadline, got: {err}"
+    );
+
+    assert!(
+        started.elapsed() < DERIVED,
+        "a read waited on the write's deadline"
     );
 }

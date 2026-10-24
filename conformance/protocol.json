@@ -3804,7 +3804,7 @@
      "type": "String"
     },
     {
-     "name": "space_id",
+     "name": "space",
      "serde": {},
      "type": "String"
     },
@@ -5036,9 +5036,9 @@
     {
      "name": "memory_id",
      "serde": {
-      "with": "serde_bytes"
+      "with": "memory_id_at_rest"
      },
-     "type": "[u8; 16]"
+     "type": "u128"
     },
     {
      "name": "kind",
@@ -5138,9 +5138,9 @@
     {
      "name": "matched_memory_id",
      "serde": {
-      "with": "opt_byte_array16"
+      "with": "opt_memory_id_at_rest"
      },
-     "type": "Option<[u8; 16]>"
+     "type": "Option<u128>"
     }
    ],
    "serde": {}
@@ -6957,10 +6957,8 @@
    "fields": [
     {
      "name": "memory_id",
-     "serde": {
-      "with": "serde_bytes"
-     },
-     "type": "[u8; 16]"
+     "serde": {},
+     "type": "u128"
     },
     {
      "name": "act_as",
@@ -6976,16 +6974,9 @@
   "MemoryInspectResponse": {
    "fields": [
     {
-     "name": "found",
-     "serde": {},
-     "type": "bool"
-    },
-    {
      "name": "memory_id",
-     "serde": {
-      "with": "serde_bytes"
-     },
-     "type": "[u8; 16]"
+     "serde": {},
+     "type": "u128"
     },
     {
      "name": "text",
@@ -7011,10 +7002,8 @@
    "fields": [
     {
      "name": "memory_id",
-     "serde": {
-      "with": "serde_bytes"
-     },
-     "type": "[u8; 16]"
+     "serde": {},
+     "type": "u128"
     },
     {
      "name": "space_id",
@@ -10041,7 +10030,7 @@
   "SpaceCreateResponse": {
    "fields": [
     {
-     "name": "space_id",
+     "name": "space",
      "serde": {},
      "type": "String"
     },
@@ -10096,7 +10085,7 @@
   "SpaceDeleteResponse": {
    "fields": [
     {
-     "name": "space_id",
+     "name": "space",
      "serde": {},
      "type": "String"
     },
@@ -10189,7 +10178,7 @@
   "SpaceView": {
    "fields": [
     {
-     "name": "space_id",
+     "name": "space",
      "serde": {},
      "type": "String"
     },

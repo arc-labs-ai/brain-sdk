@@ -53,7 +53,7 @@ async fn live_edge_memory_lifecycle() {
         .encode(&EncodeInput {
             text: text.clone(),
             session: None,
-            occurred_at: None,
+            occurred_at_unix_nanos: None,
         })
         .await
         .expect("encode");

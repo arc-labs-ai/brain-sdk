@@ -20,8 +20,8 @@ use std::time::Duration;
 use brain_db_sdk::http::{
     BrainHttpClient, CreateEntityInput, GetRelationQuery, GetStatementQuery, GraphFetchQuery,
     HttpRetryPolicy, ListEntitiesQuery, ListRelationsQuery, ListStatementsQuery, MemoryListQuery,
-    ResolveEntityInput, SchemaGetQuery, SchemaReplaceInput, SchemaUploadInput, SchemaValidateInput,
-    StatementObject, StatementValue, TraverseInput,
+    RecallInput, ResolveEntityInput, SchemaGetQuery, SchemaReplaceInput, SchemaUploadInput,
+    SchemaValidateInput, StatementObject, StatementValue, TraverseInput,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -207,6 +207,29 @@ const STATEMENTS: &str = r#"{"statements":[
    "event_at_unix_nanos":1,"valid_from_unix_nanos":2,"valid_to_unix_nanos":0,
    "tombstoned":false}],"count":2}"#;
 
+// `ENTITY`, `RELATION` and `STATEMENT` above are what an edge predating the
+// supersession + provenance set answers with — they are left that way on
+// purpose, as the absent-field case. These three are a current edge's reply.
+
+const ENTITY_REDIRECTED: &str = r#"{"entity_id":"e9","entity_type_id":7,
+  "canonical_name":"Ada Lovelace","aliases":["Ada"],"attributes":"0badc0de",
+  "mention_count":3,"created_at_unix_nanos":1,"updated_at_unix_nanos":2,
+  "merged_into":null,"resolved_from":["e1","e5"]}"#;
+
+const RELATION_V2: &str = r#"{"relation_id":"r2","relation_type":"works_at",
+  "from_entity":"e1","to_entity":"e2","confidence":0.9,"valid_from_unix_nanos":1,
+  "valid_to_unix_nanos":0,"is_symmetric":false,"properties":"0badc0de",
+  "version":2,"superseded_by":null,"supersedes":"r1","chain_root":"r1",
+  "extractor_id":4,"extracted_at_unix_nanos":77,"tombstoned_at_unix_nanos":0,
+  "tombstoned":false}"#;
+
+const STATEMENT_V2: &str = r#"{"statement_id":"s2","kind":"Fact","subject":"e1",
+  "predicate":"knows","object":{"kind":"entity","id":"e2"},"confidence":0.9,
+  "event_at_unix_nanos":1,"valid_from_unix_nanos":2,"valid_to_unix_nanos":0,
+  "tombstoned":false,"version":2,"superseded_by":null,"supersedes":"s1",
+  "chain_root":"s1","extractor_id":4,"extracted_at_unix_nanos":77,
+  "schema_version":3,"tombstoned_at_unix_nanos":0,"tombstone_reason":0}"#;
+
 /// Assert the edge saw exactly one request, and that it was `method path`.
 /// `path` includes the query string, which is the point for the read routes:
 /// a filter that never reaches the wire is a filter that silently does nothing.
@@ -244,7 +267,7 @@ async fn encode_posts_to_the_right_route_carrying_the_key() {
         .encode(&brain_db_sdk::http::EncodeInput {
             text: "the sky is teal".to_string(),
             session: None,
-            occurred_at: None,
+            occurred_at_unix_nanos: None,
         })
         .await
         .expect("encode");
@@ -460,6 +483,115 @@ async fn statement_and_relation_reads_hit_their_routes() {
     assert_route(&edge, "GET", "/v1/relations/r1");
     assert_eq!(out.relation_type, "works_at");
     assert!(!out.is_symmetric);
+}
+
+#[tokio::test]
+async fn a_read_carries_the_supersession_chain_and_its_provenance() {
+    // Without these, the head of a chain was indistinguishable from a row that
+    // had never been revised: `superseded_by` absent is what makes this row
+    // the current one, `supersedes` and `chain_root` are what make its history
+    // reachable at all.
+    let edge = mock_edge(vec![(200, STATEMENT_V2)]).await;
+    let out = client(&edge)
+        .get_statement("s2", &GetStatementQuery::default())
+        .await
+        .expect("get_statement");
+    assert_eq!(out.version, 2);
+    assert_eq!(out.supersedes.as_deref(), Some("s1"));
+    assert_eq!(
+        out.superseded_by, None,
+        "nothing replaced it — it is the head"
+    );
+    assert_eq!(out.chain_root, "s1", "the claim's identity, not this row's");
+    assert_eq!(out.extractor_id, 4);
+    assert_eq!(out.extracted_at_unix_nanos, 77);
+    assert_eq!(out.schema_version, 3);
+    assert_eq!((out.tombstoned_at_unix_nanos, out.tombstone_reason), (0, 0));
+
+    let edge = mock_edge(vec![(200, RELATION_V2)]).await;
+    let out = client(&edge)
+        .get_relation("r2", &GetRelationQuery::default())
+        .await
+        .expect("get_relation");
+    // The blob a supersede would otherwise drop, read back as hex.
+    assert_eq!(out.properties.as_deref(), Some("0badc0de"));
+    assert_eq!(out.version, 2);
+    assert_eq!(out.supersedes.as_deref(), Some("r1"));
+    assert_eq!(out.superseded_by, None);
+    assert_eq!(out.chain_root, "r1");
+    assert_eq!(out.extractor_id, 4);
+    assert_eq!(out.extracted_at_unix_nanos, 77);
+    assert_eq!(out.tombstoned_at_unix_nanos, 0);
+}
+
+#[tokio::test]
+async fn a_merged_away_id_is_disclosed_by_resolved_from() {
+    // The edge walked `e1 → e5 → e9` and answered with e9. Nothing else in the
+    // body says the id moved, so a caller blind to `resolved_from` files e9's
+    // name, aliases and mentions under the e1 it asked for.
+    let edge = mock_edge(vec![(200, ENTITY_REDIRECTED)]).await;
+    let out = client(&edge).get_entity("e1").await.expect("get_entity");
+    assert_eq!(out.entity_id, "e9", "the survivor, not the id requested");
+    assert_eq!(out.resolved_from, ["e1", "e5"]);
+    // `update_entity` replaces this blob, so a caller must be able to read it.
+    assert_eq!(out.attributes.as_deref(), Some("0badc0de"));
+}
+
+#[tokio::test]
+async fn an_edge_that_omits_the_provenance_fields_still_decodes() {
+    // A missing field must cost the caller that field, not the whole read.
+    let edge = mock_edge(vec![(200, ENTITY)]).await;
+    let out = client(&edge).get_entity("e1").await.expect("get_entity");
+    assert_eq!(out.resolved_from, Vec::<String>::new());
+    assert_eq!(out.attributes, None);
+
+    let edge = mock_edge(vec![(200, RELATION)]).await;
+    let out = client(&edge)
+        .get_relation("r1", &GetRelationQuery::default())
+        .await
+        .expect("get_relation");
+    assert_eq!((out.version, out.chain_root.as_str()), (0, ""));
+    assert_eq!((out.properties, out.superseded_by), (None, None));
+
+    let edge = mock_edge(vec![(200, STATEMENT)]).await;
+    let out = client(&edge)
+        .get_statement("s1", &GetStatementQuery::default())
+        .await
+        .expect("get_statement");
+    assert_eq!(
+        (out.version, out.schema_version, out.tombstone_reason),
+        (0, 0, 0)
+    );
+    assert_eq!((out.supersedes, out.superseded_by), (None, None));
+}
+
+#[tokio::test]
+async fn recall_sends_its_scope_only_when_one_is_asked_for() {
+    // An omitted `scope` is what asks for the edge's own default (the caller's
+    // own space); sending "space" explicitly would be the SDK deciding.
+    let edge = mock_edge(vec![(200, r#"{"answer_kind":"none","memories":[]}"#)]).await;
+    client(&edge)
+        .recall(&RecallInput {
+            query: "kettle".to_string(),
+            ..Default::default()
+        })
+        .await
+        .expect("recall");
+    assert!(
+        !edge.seen()[0].body.contains("scope"),
+        "scope must be absent"
+    );
+
+    let edge = mock_edge(vec![(200, r#"{"answer_kind":"none","memories":[]}"#)]).await;
+    client(&edge)
+        .recall(&RecallInput {
+            query: "kettle".to_string(),
+            scope: Some("namespace".to_string()),
+            ..Default::default()
+        })
+        .await
+        .expect("recall");
+    assert!(edge.seen()[0].body.contains(r#""scope":"namespace""#));
 }
 
 #[tokio::test]

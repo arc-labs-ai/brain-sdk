@@ -67,6 +67,10 @@ function asOptBytes(value: unknown): Uint8Array | null {
   return value === null || value === undefined ? null : asBytes(value);
 }
 
+function asOptBig(value: unknown): bigint | null {
+  return value === null || value === undefined ? null : asBig(value);
+}
+
 function asNum(value: unknown): number {
   if (typeof value === "number") return value;
   if (typeof value === "bigint") return Number(value);
@@ -633,7 +637,7 @@ export interface ActAs {
   namespace: string;
   /** Effective space, as the human-readable structured space string (CBOR
    * text string, key `space_id`). Empty selects the key-bound space. */
-  spaceId: string;
+  space: string;
   /** Extra capability bits granted to the effective caller for this op, on
    * top of the standard space mask — see {@link ActAsGrant}. Only honoured
    * when the connection principal holds the bits itself. Omitted (or `0`) is
@@ -653,7 +657,7 @@ export const ActAsGrant = {
 function encodeActAs(a: ActAs): Map<string, unknown> {
   const map = new Map<string, unknown>([
     ["namespace", a.namespace],
-    ["space_id", a.spaceId],
+    ["space", a.space],
   ]);
   if (a.grant) map.set("grant", a.grant);
   return map;
@@ -664,7 +668,7 @@ function decodeActAs(value: unknown): ActAs {
   const grant = m.has("grant") ? asNum(field(m, "grant")) : 0;
   return {
     namespace: asStr(field(m, "namespace")),
-    spaceId: asStr(field(m, "space_id")),
+    space: asStr(field(m, "space")),
     ...(grant ? { grant } : {}),
   };
 }
@@ -706,16 +710,17 @@ function spreadOptActAs(m: Map<string, unknown>): { actAs?: ActAs } {
 // SPACE registry (SPACE_CREATE / SPACE_LIST / SPACE_DELETE).
 //
 // Non-admin, scoped to the caller's `(namespace, space)`. The effective space
-// is echoed on every response as `space_id` — the human-readable structured
-// space string from the registry (a CBOR text string), not the derived
-// 16-byte storage id. Optional fields (`metadata`, `act_as`) are CBOR-omitted
+// is echoed on every response as `space` — the human-readable structured
+// space string from the registry (a CBOR text string). It is deliberately NOT
+// called `space_id`: that name means the derived 16-byte storage id
+// everywhere else, and one name for both is what this rename removed. Optional fields (`metadata`, `act_as`) are CBOR-omitted
 // when null, mirroring the server's `skip_serializing_if = Option::is_none`.
 // ---------------------------------------------------------------------------
 
 /** One space row in a {@link SpaceListResponse}. */
 export interface SpaceView {
   /** Human-readable structured space string (e.g. `"support-bot:user123"`). */
-  spaceId: string;
+  space: string;
   createdAtUnixNanos: bigint;
   lastActiveUnixNanos: bigint;
   memoryCount: bigint;
@@ -724,7 +729,7 @@ export interface SpaceView {
 
 function encodeSpaceView(v: SpaceView): Map<string, unknown> {
   return new Map<string, unknown>([
-    ["space_id", v.spaceId],
+    ["space", v.space],
     ["created_at_unix_nanos", v.createdAtUnixNanos],
     ["last_active_unix_nanos", v.lastActiveUnixNanos],
     ["memory_count", v.memoryCount],
@@ -735,7 +740,7 @@ function encodeSpaceView(v: SpaceView): Map<string, unknown> {
 function decodeSpaceView(value: unknown): SpaceView {
   const m = asMap(value);
   return {
-    spaceId: asStr(field(m, "space_id")),
+    space: asStr(field(m, "space")),
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
     lastActiveUnixNanos: asBig(field(m, "last_active_unix_nanos")),
     memoryCount: asBig(field(m, "memory_count")),
@@ -776,7 +781,7 @@ export function decodeSpaceCreate(bytes: Uint8Array): SpaceCreateRequest {
 /** SPACE_CREATE_RESP (`0x00F0`): the resolved space plus its registry counters. */
 export interface SpaceCreateResponse {
   /** Human-readable structured space string this create resolved to. */
-  spaceId: string;
+  space: string;
   /** `false` on an idempotent replay of an existing space. */
   created: boolean;
   createdAtUnixNanos: bigint;
@@ -789,7 +794,7 @@ export interface SpaceCreateResponse {
 export function encodeSpaceCreateResponse(p: SpaceCreateResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
-      ["space_id", p.spaceId],
+      ["space", p.space],
       ["created", p.created],
       ["created_at_unix_nanos", p.createdAtUnixNanos],
       ["last_active_unix_nanos", p.lastActiveUnixNanos],
@@ -803,7 +808,7 @@ export function encodeSpaceCreateResponse(p: SpaceCreateResponse): Uint8Array {
 export function decodeSpaceCreateResponse(bytes: Uint8Array): SpaceCreateResponse {
   const m = asMap(fromCbor(bytes));
   return {
-    spaceId: asStr(field(m, "space_id")),
+    space: asStr(field(m, "space")),
     created: asBool(field(m, "created")),
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
     lastActiveUnixNanos: asBig(field(m, "last_active_unix_nanos")),
@@ -893,7 +898,7 @@ export function decodeSpaceDelete(bytes: Uint8Array): SpaceDeleteRequest {
 /** SPACE_DELETE_RESP (`0x00F2`): the targeted space and cascade result. */
 export interface SpaceDeleteResponse {
   /** Human-readable structured space string this delete targeted. */
-  spaceId: string;
+  space: string;
   /** `false` when the space had no registry row. */
   existed: boolean;
   memoriesForgotten: bigint;
@@ -903,7 +908,7 @@ export interface SpaceDeleteResponse {
 export function encodeSpaceDeleteResponse(p: SpaceDeleteResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
-      ["space_id", p.spaceId],
+      ["space", p.space],
       ["existed", p.existed],
       ["memories_forgotten", p.memoriesForgotten],
     ]),
@@ -914,7 +919,7 @@ export function encodeSpaceDeleteResponse(p: SpaceDeleteResponse): Uint8Array {
 export function decodeSpaceDeleteResponse(bytes: Uint8Array): SpaceDeleteResponse {
   const m = asMap(fromCbor(bytes));
   return {
-    spaceId: asStr(field(m, "space_id")),
+    space: asStr(field(m, "space")),
     existed: asBool(field(m, "existed")),
     memoriesForgotten: asBig(field(m, "memories_forgotten")),
   };
@@ -1435,7 +1440,7 @@ export interface EncodeTraceIndex {
 export interface EncodeTraceDedup {
   wasDeduplicated: boolean;
   /** The memory a dedup collapsed into, or `null` when the write was new. */
-  matchedMemoryId: Uint8Array | null;
+  matchedMemoryId: bigint | null;
 }
 
 /** What a traced ENCODE produced, resolved after the async stages drained. */
@@ -1594,7 +1599,7 @@ function decodeEncodeTraceArtifacts(value: unknown): EncodeTraceArtifacts {
       const d = asMap(field(m, "dedup"));
       return {
         wasDeduplicated: asBool(field(d, "was_deduplicated")),
-        matchedMemoryId: asOptBytes(field(d, "matched_memory_id")),
+        matchedMemoryId: asOptBig(field(d, "matched_memory_id")),
       };
     })(),
   };
@@ -1610,7 +1615,7 @@ function decodeEncodeTraceArtifacts(value: unknown): EncodeTraceArtifacts {
 
 /** The redb metadata row a `persist` stage committed — the durable record fields. */
 export interface EncodeStageRecord {
-  memoryId: Uint8Array;
+  memoryId: bigint;
   /** Memory-kind discriminant (as stored). */
   kind: number;
   /** Salience the write assigned. */
@@ -1642,7 +1647,7 @@ function encodeStageRecord(r: EncodeStageRecord): Map<string, unknown> {
 function decodeStageRecord(value: unknown): EncodeStageRecord {
   const m = asMap(value);
   return {
-    memoryId: asBytes(field(m, "memory_id")),
+    memoryId: asBig(field(m, "memory_id")),
     kind: asNum(field(m, "kind")),
     salience: asNum(field(m, "salience")),
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
@@ -1826,7 +1831,7 @@ function decodeStageArtifact(value: unknown): EncodeStageArtifact {
 /** MEMORY_INSPECT (`0x0028`): fetch the durable write-artifact bundle for one
  * memory. Single-shot — the reply carries the whole bundle. */
 export interface MemoryInspectRequest {
-  memoryId: Uint8Array;
+  memoryId: bigint;
   /** Effective identity this read runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
   actAs?: ActAs | null;
@@ -1841,7 +1846,7 @@ export function encodeMemoryInspect(p: MemoryInspectRequest): Uint8Array {
 export function decodeMemoryInspect(bytes: Uint8Array): MemoryInspectRequest {
   const m = asMap(fromCbor(bytes));
   return {
-    memoryId: asBytes(field(m, "memory_id")),
+    memoryId: asBig(field(m, "memory_id")),
     actAs: decodeOptActAs(m),
   };
 }
@@ -1856,7 +1861,7 @@ export function decodeMemoryInspect(bytes: Uint8Array): MemoryInspectRequest {
  * sibling read. A memory that exists but whose bundle has not been written yet
  * is still a success, with an empty `artifact`. */
 export interface MemoryInspectResponse {
-  memoryId: Uint8Array;
+  memoryId: bigint;
   text: string;
   artifact: EncodeStageArtifact;
   /**
@@ -1922,7 +1927,7 @@ export function encodeMemoryInspectResponse(p: MemoryInspectResponse): Uint8Arra
 export function decodeMemoryInspectResponse(bytes: Uint8Array): MemoryInspectResponse {
   const m = asMap(fromCbor(bytes));
   return {
-    memoryId: asBytes(field(m, "memory_id")),
+    memoryId: asBig(field(m, "memory_id")),
     text: asStr(field(m, "text")),
     artifact: decodeStageArtifact(field(m, "artifact")),
     // Absent rather than empty on a server that predates the field.
@@ -4030,7 +4035,7 @@ export function decodeMemoryList(bytes: Uint8Array): MemoryListRequest {
 /** One memory in a MEMORY_LIST response batch: the enumeration-relevant fields
  * plus relationship-handle counts. */
 export interface MemoryListItem {
-  memoryId: Uint8Array;
+  memoryId: bigint;
   /** 16-byte resolved space id echo (CBOR byte string). */
   spaceId: WireUuid;
   sessionId: bigint;
@@ -4075,7 +4080,7 @@ function encodeMemoryListItem(i: MemoryListItem): Map<string, unknown> {
 function decodeMemoryListItem(value: unknown): MemoryListItem {
   const m = asMap(value);
   return {
-    memoryId: asBytes(field(m, "memory_id")),
+    memoryId: asBig(field(m, "memory_id")),
     spaceId: asBytes(field(m, "space_id")),
     sessionId: asBig(field(m, "session_id")),
     text: asStr(field(m, "text")),

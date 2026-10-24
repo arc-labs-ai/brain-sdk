@@ -128,15 +128,15 @@ describe("routing and auth", () => {
         },
       ],
     ];
-    const out = await client.encode({ text: "t", occurredAt: 99 });
+    const out = await client.encode({ text: "t", occurredAtUnixNanos: 99n });
 
     expect(seen[0]!.body, "the edge must receive snake_case").toEqual({
       text: "t",
-      occurred_at: 99,
+      occurred_at_unix_nanos: 99,
     });
     expect(out.memoryId, "the caller must receive camelCase").toBe("7");
     expect(out.wasDeduplicated).toBe(true);
-    expect(out.createdAtUnixNanos).toBe(11);
+    expect(out.createdAtUnixNanos).toBe(11n);
     expect(
       (out as unknown as Record<string, unknown>).memory_id,
       "no snake_case leaks through to the public type",
@@ -399,7 +399,7 @@ describe("field names on the new routes", () => {
     const out = await client.listEntities();
     expect(out.count).toBe(1);
     expect(out.entities[0]!.entityTypeId).toBe(2);
-    expect(out.entities[0]!.createdAtUnixNanos).toBe(1);
+    expect(out.entities[0]!.createdAtUnixNanos).toBe(1n);
     expect(out.entities[0]!.mergedInto).toBeNull();
     expect(
       (out.entities[0] as unknown as Record<string, unknown>).entity_id,
@@ -432,6 +432,152 @@ describe("field names on the new routes", () => {
     expect(out.object.kind).toBe("value");
     if (out.object.kind !== "value") throw new Error("unreachable");
     expect(out.object.value.type).toBe("unix_nanos");
+  });
+});
+
+// --- supersession, provenance and merge redirects --------------------------
+
+describe("supersession, provenance and merge redirects", () => {
+  it("carries a statement's chain and provenance", async () => {
+    // Without these the head of a chain was indistinguishable from a row that
+    // had never been revised: an absent `supersededBy` is what makes this one
+    // current, and `supersedes`/`chainRoot` are what make its history
+    // reachable at all.
+    replies = [
+      [
+        200,
+        {
+          statement_id: "s2",
+          kind: "fact",
+          subject: "e1",
+          predicate: "knows",
+          object: { kind: "entity", id: "e2" },
+          confidence: 0.9,
+          event_at_unix_nanos: 1,
+          valid_from_unix_nanos: 2,
+          valid_to_unix_nanos: 0,
+          tombstoned: false,
+          version: 2,
+          supersedes: "s1",
+          chain_root: "s1",
+          extractor_id: 4,
+          extracted_at_unix_nanos: 77,
+          schema_version: 3,
+          tombstoned_at_unix_nanos: 0,
+          tombstone_reason: 0,
+        },
+      ],
+    ];
+    const out = await client.getStatement("s2");
+    expect(out.version).toBe(2);
+    expect(out.supersedes).toBe("s1");
+    expect(out.supersededBy, "nothing replaced it — it is the head").toBeUndefined();
+    expect(out.chainRoot, "the claim's identity, not this row's").toBe("s1");
+    expect(out.extractorId).toBe(4);
+    expect(out.extractedAtUnixNanos).toBe(77n);
+    expect(out.schemaVersion).toBe(3);
+    expect(out.tombstonedAtUnixNanos).toBe(0n);
+    expect(out.tombstoneReason).toBe(0);
+  });
+
+  it("carries a relation's chain, provenance and property blob", async () => {
+    replies = [
+      [
+        200,
+        {
+          relation_id: "r2",
+          relation_type: "works_at",
+          from_entity: "e1",
+          to_entity: "e2",
+          confidence: 0.9,
+          valid_from_unix_nanos: 1,
+          valid_to_unix_nanos: 0,
+          is_symmetric: false,
+          tombstoned: false,
+          properties: "0badc0de",
+          version: 2,
+          supersedes: "r1",
+          chain_root: "r1",
+          extractor_id: 4,
+          extracted_at_unix_nanos: 77,
+          tombstoned_at_unix_nanos: 0,
+        },
+      ],
+    ];
+    const out = await client.getRelation("r2");
+    // The blob a supersede would otherwise drop, read back as hex.
+    expect(out.properties).toBe("0badc0de");
+    expect(out.version).toBe(2);
+    expect(out.supersedes).toBe("r1");
+    expect(out.supersededBy).toBeUndefined();
+    expect(out.chainRoot).toBe("r1");
+    expect(out.extractorId).toBe(4);
+    expect(out.extractedAtUnixNanos).toBe(77n);
+    expect(out.tombstonedAtUnixNanos).toBe(0n);
+  });
+
+  it("discloses a merged-away id through resolvedFrom", async () => {
+    // The edge walked `e1 -> e5 -> e9` and answered with e9. Nothing else in
+    // the body says the id moved, so a caller blind to `resolvedFrom` files
+    // e9's name and mentions under the e1 it asked for.
+    replies = [
+      [
+        200,
+        {
+          entity_id: "e9",
+          entity_type_id: 7,
+          canonical_name: "Ada Lovelace",
+          aliases: ["Ada"],
+          attributes: "0badc0de",
+          mention_count: 3,
+          created_at_unix_nanos: 1,
+          updated_at_unix_nanos: 2,
+          merged_into: null,
+          resolved_from: ["e1", "e5"],
+        },
+      ],
+    ];
+    const out = await client.getEntity("e1");
+    expect(out.entityId, "the survivor, not the id requested").toBe("e9");
+    expect(out.resolvedFrom).toEqual(["e1", "e5"]);
+    // `updateEntity` replaces this blob, so a caller must be able to read it.
+    expect(out.attributes).toBe("0badc0de");
+  });
+
+  it("still decodes a reply that omits every one of them", async () => {
+    // A missing field must cost the caller that field, not the whole read.
+    replies = [
+      [
+        200,
+        {
+          entity_id: "e1",
+          entity_type_id: 7,
+          canonical_name: "Ada Lovelace",
+          aliases: [],
+          mention_count: 0,
+          created_at_unix_nanos: 1,
+          updated_at_unix_nanos: 2,
+          merged_into: null,
+        },
+      ],
+    ];
+    const out = await client.getEntity("e1");
+    expect(out.resolvedFrom).toBeUndefined();
+    expect(out.attributes).toBeUndefined();
+    expect(out.canonicalName, "the rest of the row still arrives").toBe("Ada Lovelace");
+  });
+
+  it("sends a recall scope only when one is asked for", async () => {
+    // An omitted `scope` is what asks for the edge's own default (the
+    // caller's own space); sending "space" anyway would be the SDK deciding.
+    replies = [
+      [200, { answer_kind: "none", memories: [] }],
+      [200, { answer_kind: "none", memories: [] }],
+    ];
+    await client.recall({ query: "kettle" });
+    expect(seen[0]!.body).toEqual({ query: "kettle" });
+    await client.recall({ query: "kettle", scope: "namespace" });
+    expect(seen[1]!.body).toEqual({ query: "kettle", scope: "namespace" });
   });
 });
 

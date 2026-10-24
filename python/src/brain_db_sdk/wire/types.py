@@ -564,14 +564,17 @@ class ClientPongRequest:
 @dataclass
 class ActAs:
     """Per-request effective-identity selector carried on data-plane op
-    requests. When present, the op runs as this ``(namespace, space_id)`` on
+    requests. When present, the op runs as this ``(namespace, space)`` on
     behalf of the authenticated connection principal; when absent (the common
     case, omitted on the wire) the op runs as the connection's own key-bound
     identity.
 
-    ``space_id`` is the human-readable structured space string (e.g.
+    ``space`` is the human-readable structured space string (e.g.
     ``"support-bot:user123"``) and encodes as a CBOR text string; the server
-    derives the 16-byte storage id from ``(namespace, space_id)``. An empty
+    derives the 16-byte storage id from ``(namespace, space)``. It is NOT
+    called ``space_id``: that name means the derived 16-byte id everywhere
+    else in this protocol, and using it for the input string too meant one
+    sentence had to carry both. An empty
     string selects the key-bound space. ``grant`` carries optional delegated
     schema/admin capability bits and is omitted when zero.
 
@@ -582,18 +585,18 @@ class ActAs:
     """
 
     namespace: str
-    space_id: str
+    space: str
     grant: int = 0
 
     def to_map(self) -> dict[str, Any]:
-        m: dict[str, Any] = {"namespace": self.namespace, "space_id": self.space_id}
+        m: dict[str, Any] = {"namespace": self.namespace, "space": self.space}
         if self.grant:
             m["grant"] = self.grant
         return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> ActAs:
-        return cls(m["namespace"], m["space_id"], int(m.get("grant", 0)))
+        return cls(m["namespace"], m["space"], int(m.get("grant", 0)))
 
 
 # ===========================================================================
@@ -931,7 +934,7 @@ class EncodeTraceDedup:
     """The dedup verdict carried on an ENCODE trace: whether the write deduplicated and, if so, the matched memory id."""
 
     was_deduplicated: bool
-    matched_memory_id: Optional[bytes]  # 16-byte byte string or None
+    matched_memory_id: Optional[int]  # u128 or None
 
     def to_map(self) -> dict[str, Any]:
         return {
@@ -1015,7 +1018,7 @@ class EncodeTrace:
 class EncodeStageRecord:
     """The durable metadata row a ``persist`` stage wrote."""
 
-    memory_id: bytes  # 16-byte byte string
+    memory_id: int  # u128
     kind: int  # u8
     salience: float  # f32
     created_at_unix_nanos: int  # u64
@@ -1196,7 +1199,7 @@ class MemoryInspectRequest:
     """MEMORY_INSPECT (``0x0028``). Fetch the durable write-artifact bundle for
     one memory. Single-shot (not paginated)."""
 
-    memory_id: bytes  # 16-byte byte string
+    memory_id: int  # u128
     # Effective identity this inspect runs as. Omitted from the CBOR map when
     # None so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
@@ -1274,7 +1277,7 @@ class MemoryInspectResponse:
     written yet is still a success, with an empty ``artifact``.
     """
 
-    memory_id: bytes  # 16-byte byte string
+    memory_id: int  # u128
     text: str
     artifact: EncodeStageArtifact
     edges: list[MemoryEdge] = field(default_factory=list)
@@ -2113,7 +2116,7 @@ class MemoryListItem:
     """One memory in a MEMORY_LIST response batch: the enumeration-relevant
     fields plus relationship-handle counts."""
 
-    memory_id: bytes  # 16-byte byte string
+    memory_id: int  # u128
     space_id: bytes  # 16-byte byte string (derived storage id)
     session_id: int
     text: str
@@ -6783,7 +6786,7 @@ class SpaceView:
     """One space row in a :class:`SpaceListResponse`: the human-readable
     structured space string plus activity and cardinality counters."""
 
-    space_id: str
+    space: str
     created_at_unix_nanos: int
     last_active_unix_nanos: int
     memory_count: int
@@ -6791,7 +6794,7 @@ class SpaceView:
 
     def to_map(self) -> dict[str, Any]:
         return {
-            "space_id": self.space_id,
+            "space": self.space,
             "created_at_unix_nanos": self.created_at_unix_nanos,
             "last_active_unix_nanos": self.last_active_unix_nanos,
             "memory_count": self.memory_count,
@@ -6801,7 +6804,7 @@ class SpaceView:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SpaceView:
         return cls(
-            m["space_id"],
+            m["space"],
             m["created_at_unix_nanos"],
             m["last_active_unix_nanos"],
             m["memory_count"],
@@ -6842,9 +6845,10 @@ class SpaceCreateRequest:
 @dataclass
 class SpaceCreateResponse:
     """SPACE_CREATE_RESP (``0x00F0``). ``created`` is False on an idempotent
-    replay. ``space_id`` is the human-readable structured space string."""
+    replay. ``space`` is the human-readable structured space string, not the
+    derived 16-byte id."""
 
-    space_id: str
+    space: str
     created: bool
     created_at_unix_nanos: int
     last_active_unix_nanos: int
@@ -6853,7 +6857,7 @@ class SpaceCreateResponse:
 
     def to_map(self) -> dict[str, Any]:
         return {
-            "space_id": self.space_id,
+            "space": self.space,
             "created": self.created,
             "created_at_unix_nanos": self.created_at_unix_nanos,
             "last_active_unix_nanos": self.last_active_unix_nanos,
@@ -6864,7 +6868,7 @@ class SpaceCreateResponse:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SpaceCreateResponse:
         return cls(
-            m["space_id"],
+            m["space"],
             m["created"],
             m["created_at_unix_nanos"],
             m["last_active_unix_nanos"],
@@ -6949,22 +6953,23 @@ class SpaceDeleteRequest:
 @dataclass
 class SpaceDeleteResponse:
     """SPACE_DELETE_RESP (``0x00F2``). ``existed`` is False when the space had no
-    registry row. ``space_id`` is the human-readable structured space string."""
+    registry row. ``space`` is the human-readable structured space string, not the
+    derived 16-byte id."""
 
-    space_id: str
+    space: str
     existed: bool
     memories_forgotten: int
 
     def to_map(self) -> dict[str, Any]:
         return {
-            "space_id": self.space_id,
+            "space": self.space,
             "existed": self.existed,
             "memories_forgotten": self.memories_forgotten,
         }
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SpaceDeleteResponse:
-        return cls(m["space_id"], m["existed"], m["memories_forgotten"])
+        return cls(m["space"], m["existed"], m["memories_forgotten"])
 
 
 # ---------------------------------------------------------------------------

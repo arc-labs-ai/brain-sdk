@@ -363,9 +363,8 @@
      "shape": "opt(int)"
     },
     {
-     "name": "occurred_at",
+     "name": "occurred_at_unix_nanos",
      "serde": {
-      "alias": "occurred_at_unix_nanos",
       "default": true
      },
      "shape": "opt(int)"
@@ -892,6 +891,13 @@
      "name": "limit",
      "serde": {},
      "shape": "opt(int)"
+    },
+    {
+     "name": "cursor",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -906,6 +912,13 @@
      "name": "count",
      "serde": {},
      "shape": "int"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -958,6 +971,13 @@
      "name": "limit",
      "serde": {},
      "shape": "opt(int)"
+    },
+    {
+     "name": "cursor",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -972,6 +992,13 @@
      "name": "count",
      "serde": {},
      "shape": "int"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -1117,6 +1144,13 @@
      "name": "limit",
      "serde": {},
      "shape": "opt(int)"
+    },
+    {
+     "name": "cursor",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -1131,6 +1165,13 @@
      "name": "count",
      "serde": {},
      "shape": "int"
+    },
+    {
+     "name": "next_cursor",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -1799,9 +1840,7 @@
    "fields": [
     {
      "name": "query",
-     "serde": {
-      "alias": "cue"
-     },
+     "serde": {},
      "shape": "string"
     },
     {
@@ -1824,6 +1863,13 @@
       "default": true
      },
      "shape": "opt(string)"
+    },
+    {
+     "name": "include_trace",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
     }
    ]
   },
@@ -1838,6 +1884,13 @@
      "name": "memories",
      "serde": {},
      "shape": "list(MemoryHit)"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -1933,6 +1986,20 @@
      "name": "tombstoned",
      "serde": {},
      "shape": "bool"
+    },
+    {
+     "name": "from_name",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "to_name",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -2397,7 +2464,7 @@
   "SpaceErasedDto": {
    "fields": [
     {
-     "name": "space_id",
+     "name": "space",
      "serde": {},
      "shape": "string"
     },
@@ -2416,7 +2483,7 @@
   "SpaceProvisionDto": {
    "fields": [
     {
-     "name": "space_id",
+     "name": "space",
      "serde": {},
      "shape": "string"
     },
@@ -2450,7 +2517,7 @@
   "SpaceSummaryDto": {
    "fields": [
     {
-     "name": "space_id",
+     "name": "space",
      "serde": {},
      "shape": "string"
     },
@@ -2737,6 +2804,20 @@
      "name": "tombstone_reason",
      "serde": {},
      "shape": "int"
+    },
+    {
+     "name": "subject_name",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "object_name",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
     }
    ]
   },

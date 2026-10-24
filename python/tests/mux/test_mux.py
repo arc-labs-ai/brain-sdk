@@ -9,10 +9,21 @@ from __future__ import annotations
 import contextlib
 import socket
 import threading
+import time
 
 import pytest
 
-from brain_db_sdk import MuxConnection, ProtocolError, new_id
+from brain_db_sdk import (
+    Auth,
+    BrainClient,
+    BrainTimeout,
+    ClientConfig,
+    EncodeBuilder,
+    MuxConnection,
+    ProtocolError,
+    RecallBuilder,
+    new_id,
+)
 from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
@@ -563,6 +574,119 @@ def test_a_payload_over_the_negotiated_limit_is_refused_locally() -> None:
         # Asserting the boundary keeps the check from being off by one.
         assert len(oversize) - 1 == _ADVERTISED_MAX
         conn.close()
+    finally:
+        listener.close()
+        thread.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
+# Two deadlines, not one.
+#
+# A read and a derived write are two different populations, so they get two
+# deadlines. `ClientConfig.request_timeout` is right for a read (milliseconds)
+# and far too tight for an ENCODE that asked to block on derivation: measured
+# against a live server,
+# three `WaitMode.DERIVED` encodes in isolation took 26.9s (~9s each), and a
+# ten-way concurrent burst put three of the ten past 30s, the slowest at 45.5s.
+# So the caller doing the correct thing — a derived write is the only way to get
+# read-your-writes — was the one that hit a client-side BrainTimeout.
+#
+# The mux cannot see a wait mode, so it carries only the *mechanism*: a per-request
+# deadline. The policy (which number an ENCODE gets) lives in the client, and
+# the tests below pin both halves. `_serve_handshake_only` never answers a
+# request, so the deadline that fires is the only thing under test.
+#
+# `tests/aio_mux/test_aio_mux.py`, `rust/tests/mux/main.rs` and
+# `typescript/test/mux/mux.test.ts` assert the same properties.
+# ---------------------------------------------------------------------------
+
+# Scaled down from the shipped 30s / 120s: the ratio is what matters, and a
+# test that waits out the real numbers is a test nobody runs.
+_FLAT = 0.15
+_DERIVED = 0.8
+
+
+def _connect_client(host: str, port: int) -> BrainClient:
+    return BrainClient.connect_with(
+        host,
+        port,
+        ClientConfig(
+            auth=Auth.token(b"opaque-token"),
+            request_timeout=_FLAT,
+            derived_write_timeout=_DERIVED,
+        ),
+    )
+
+
+def test_a_per_request_deadline_overrides_the_connection_default() -> None:
+    host, port, thread, listener = _spawn(_serve_handshake_only)
+    try:
+        hello = HelloPayload(
+            client_id="deadline-test",
+            supported_versions=[1],
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=False
+            ),
+            client_connection_token=None,
+        )
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
+        conn, _outcome = MuxConnection.connect(host, port, hello, auth, request_timeout=_FLAT)
+
+        with pytest.raises(BrainTimeout) as default_timeout:
+            conn.request_one(Opcode.ENCODE_REQ, encode_payload(_request(1)))
+        assert default_timeout.value.timeout == _FLAT
+
+        with pytest.raises(BrainTimeout) as overridden:
+            conn.request_one(Opcode.ENCODE_REQ, encode_payload(_request(2)), _DERIVED)
+        assert overridden.value.timeout == _DERIVED
+
+        conn.close()
+    finally:
+        listener.close()
+        thread.join(timeout=5)
+
+
+def test_a_derived_encode_waits_under_the_derived_deadline() -> None:
+    host, port, thread, listener = _spawn(_serve_handshake_only)
+    try:
+        client = _connect_client(host, port)
+        started = time.monotonic()
+        with pytest.raises(BrainTimeout) as excinfo:
+            client.encode(EncodeBuilder("a derived write").derived().build())
+        elapsed = time.monotonic() - started
+
+        assert excinfo.value.timeout == _DERIVED
+        # The number alone could come from anywhere; the wall clock proves the
+        # request really outlived the flat deadline rather than reporting one
+        # value and enforcing another.
+        assert elapsed >= _FLAT * 2, f"gave up after {elapsed:.3f}s"
+        client._conn.close()  # the server never answers a BYE
+    finally:
+        listener.close()
+        thread.join(timeout=5)
+
+
+def test_an_ack_encode_and_a_read_keep_the_flat_deadline() -> None:
+    """The point of a second number is that it is *not* applied to everything:
+    raising the flat default instead would make every read hang for two
+    minutes on a dead connection."""
+    host, port, thread, listener = _spawn(_serve_handshake_only)
+    try:
+        client = _connect_client(host, port)
+
+        started = time.monotonic()
+        with pytest.raises(BrainTimeout) as ack:
+            client.encode(EncodeBuilder("an ordinary write").build())
+        assert ack.value.timeout == _FLAT
+
+        with pytest.raises(BrainTimeout) as read:
+            client.recall(RecallBuilder("a cue").build())
+        assert read.value.timeout == _FLAT
+
+        assert time.monotonic() - started < _DERIVED
+        client._conn.close()  # the server never answers a BYE
     finally:
         listener.close()
         thread.join(timeout=5)

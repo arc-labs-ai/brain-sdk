@@ -10,6 +10,19 @@
  *
  * Query types are the exception: a query string does not pass through that
  * seam, so the client snake_cases those parameter names as it builds the URL.
+ *
+ * A field is `bigint` here when its value can exceed `Number.MAX_SAFE_INTEGER`
+ * — the `*UnixNanos` timestamps (around 1.79e18 today), session ids, and feed
+ * positions. A `number` cannot hold those digits, so reading one as a `number`
+ * returns a timestamp the server never sent; `src/http/json.ts` is where the
+ * JSON is parsed so that it does not. The same values are already `bigint` in
+ * `src/wire/types.ts`, so the two tiers now agree on one representation.
+ *
+ * Counts and the coarser clocks the edge also stores in 64 bits
+ * (`memoryCount`, `memoriesForgotten`, `gracePeriodSeconds`, `fromUnixMs` /
+ * `toUnixMs`, `createdAtUnixSecs`) stay `number`: 2^53 of anything countable
+ * is unreachable and 2^53 milliseconds is the year 287396, so there is nothing
+ * to lose and arithmetic on them stays ordinary.
  */
 
 /** A directed memory-graph edge kind. */
@@ -29,15 +42,15 @@ export type AnswerKind = "single" | "many" | "none";
 // --- encode ---------------------------------------------------------------
 export interface EncodeInput {
   text: string;
-  session?: number;
-  occurredAt?: number;
+  session?: bigint;
+  occurredAtUnixNanos?: bigint;
 }
 export interface EncodeResult {
   memoryId: string;
   wasDeduplicated: boolean;
   salience: number;
   kind: number;
-  createdAtUnixNanos: number;
+  createdAtUnixNanos: bigint;
   autoEdgesAdded: number;
 }
 
@@ -47,8 +60,19 @@ export interface RecallInput {
   /** `1..=1000` (the server rejects anything outside it). */
   maxResults?: number;
   subject?: string;
-  /** Return Brain's read-pipeline trace as `RecallResult.trace` (cloud
-   * gateway; ignored where unsupported). Several KB — leave off in hot paths. */
+  /** How wide to read: `"space"` (the default — the caller's own space) or
+   * `"namespace"`, which fans out across every space in the caller's
+   * namespace and merges the hits. Case-insensitive; any other value is
+   * rejected rather than quietly narrowed to the default. */
+  scope?: string;
+  /** Return Brain's read-pipeline trace as `RecallResult.trace`.
+   *
+   * It is large, and it does NOT scale with `maxResults`: the trace reports
+   * every candidate each lane considered, so it grows with the size of the
+   * space. A three-hit recall over ~700 memories measured 121 KB, nearly all
+   * of it per-lane candidate lists. Leave it off in hot paths; switch it on
+   * when chasing a bad answer. Free when off — the server only builds the
+   * trace when asked. */
   includeTrace?: boolean;
 }
 export interface MemoryHit {
@@ -58,13 +82,13 @@ export interface MemoryHit {
   confidence: number;
   salience: number;
   kind: number;
-  createdAtUnixNanos: number;
+  createdAtUnixNanos: bigint;
 }
 export interface RecallResult {
   answerKind: AnswerKind;
   memories: MemoryHit[];
   /** The read-pipeline trace as a JSON STRING (retrievers, fusion, filter
-   * chain, rerank), when `includeTrace` was set and the server supports it.
+   * chain, rerank), when `includeTrace` was set.
    * A string because its ids are 128-bit integers a JSON number would round;
    * parse with a big-integer-safe reader. */
   trace?: string;
@@ -93,7 +117,7 @@ export interface LinkResult {
   target: string;
   kind: EdgeKind;
   weight: number;
-  createdAtUnixNanos: number;
+  createdAtUnixNanos: bigint;
   alreadyExisted: boolean;
 }
 export interface UnlinkInput {
@@ -200,9 +224,9 @@ export interface MemoryListItem {
   text: string;
   kind: number;
   state: number;
-  createdAtUnixNanos: number;
-  occurredAtUnixNanos: number;
-  lastAccessedAtUnixNanos: number;
+  createdAtUnixNanos: bigint;
+  occurredAtUnixNanos: bigint;
+  lastAccessedAtUnixNanos: bigint;
   salience: number;
   accessCount: number;
   statementCount: number;
@@ -220,11 +244,11 @@ export interface StageRecord {
   memoryId: string;
   kind: number;
   salience: number;
-  createdAtUnixNanos: number;
-  occurredAtUnixNanos: number;
+  createdAtUnixNanos: bigint;
+  occurredAtUnixNanos: bigint;
   vectorDim: number;
   textLen: number;
-  lsn: number;
+  lsn: bigint;
 }
 export interface StageKeywordField {
   field: string;
@@ -243,7 +267,7 @@ export interface StageGraphEdge {
   kind: string;
   confidence: number;
   /** Absent when the edge carries no event time. */
-  eventAtUnixNanos?: number;
+  eventAtUnixNanos?: bigint;
 }
 export interface StageGraph {
   nodes: StageGraphNode[];
@@ -265,7 +289,7 @@ export interface MemoryEdge {
   /** Decimal string of the memory at the other end. */
   peer: string;
   weight: number;
-  createdAtUnixNanos: number;
+  createdAtUnixNanos: bigint;
   annotation?: string | null;
 }
 
@@ -318,11 +342,26 @@ export interface EntityDetail {
   entityTypeId: number;
   canonicalName: string;
   aliases: string[];
+  /** The opaque attribute blob as lowercase hex; absent when empty.
+   *
+   * `updateEntity` REPLACES the blob rather than merging into it, so an
+   * update that only meant to change a name wipes attributes the caller never
+   * saw. Reading it here is the only way to write it back. */
+  attributes?: string;
   mentionCount: number;
-  createdAtUnixNanos: number;
-  updatedAtUnixNanos: number;
+  createdAtUnixNanos: bigint;
+  updatedAtUnixNanos: bigint;
   /** The entity this one was merged into, or `null`. */
   mergedInto: string | null;
+  /** The merge redirects `getEntity` followed to reach this entity, oldest
+   * first and EXCLUDING the entity itself. Empty on a direct hit, and always
+   * empty on list/create, which do no redirecting.
+   *
+   * Non-empty means the row returned is NOT the one asked for: with
+   * `A -> B -> C`, `getEntity("A")` answers with `C`. Nothing else in the
+   * response says the id changed, so a caller that ignores this field
+   * silently attributes `C`'s name, aliases and mentions to `A`. */
+  resolvedFrom: string[];
 }
 export interface ListEntitiesResult {
   entities: EntityDetail[];
@@ -427,10 +466,42 @@ export interface RelationDetail {
   fromEntity: string;
   toEntity: string;
   confidence: number;
-  validFromUnixNanos: number;
-  /** `0` = still valid. */
-  validToUnixNanos: number;
+  validFromUnixNanos: bigint;
+  /** `0n` = still valid. */
+  validToUnixNanos: bigint;
   isSymmetric: boolean;
+  /** The opaque property blob as lowercase hex; absent when empty.
+   *
+   * A supersede REPLACES the blob, so revising only a relation's validity
+   * drops its properties unless the caller read them back first. */
+  properties?: string;
+
+  // --- supersession + provenance ---------------------------------------
+  //
+  // A relation's history was invisible from here: the read returned the head
+  // of a chain with nothing to say it WAS a head, what it replaced, or what
+  // replaced it. `followSupersession` defaults to true, so a caller asking
+  // for one id could silently be handed another, and `supersedeRelation`
+  // lets a client build a chain it could not then read.
+
+  /** Position in the supersession chain, 1-based. */
+  version: number;
+  /** The relation that replaced this one; absent while it is current. */
+  supersededBy?: string;
+  /** The relation this one replaced; absent if it is the first. */
+  supersedes?: string;
+  /** First relation in the chain — the edge's stable identity across every
+   * revision of it, and so the key to group revisions by. `relationId`
+   * changes on each supersede; this does not. */
+  chainRoot: string;
+  /** Which extractor produced it (`0` = written directly). */
+  extractorId: number;
+  /** When the extractor produced it — distinct from `validFromUnixNanos`,
+   * which is when the fact it asserts began. */
+  extractedAtUnixNanos: bigint;
+  /** When it was tombstoned (`0n` = not tombstoned). `tombstoned` says
+   * whether; this says when. */
+  tombstonedAtUnixNanos: bigint;
   tombstoned: boolean;
   /** Display name of `fromEntity`; absent when it could not be resolved.
    *
@@ -468,10 +539,10 @@ export type StatementObject =
 /** A scalar statement value: a tagged union discriminated by `type`. */
 export type StatementValue =
   | { type: "text"; value: string }
-  | { type: "integer"; value: number }
+  | { type: "integer"; value: bigint }
   | { type: "float"; value: number }
   | { type: "bool"; value: boolean }
-  | { type: "unix_nanos"; value: number }
+  | { type: "unix_nanos"; value: bigint }
   | { type: "blob"; value: number[] };
 
 /** `GET /v1/statements` filters. */
@@ -506,12 +577,45 @@ export interface StatementDetail {
   predicate: string;
   object: StatementObject;
   confidence: number;
-  /** When the content happened (`0` = unset). */
-  eventAtUnixNanos: number;
-  validFromUnixNanos: number;
-  /** `0` = still valid. */
-  validToUnixNanos: number;
+  /** When the content happened (`0n` = unset). */
+  eventAtUnixNanos: bigint;
+  validFromUnixNanos: bigint;
+  /** `0n` = still valid. */
+  validToUnixNanos: bigint;
   tombstoned: boolean;
+
+  // --- supersession + provenance ---------------------------------------
+  //
+  // A statement's history was invisible from here: the read returned the head
+  // of a chain with nothing to say it WAS a head, what it replaced, or what
+  // replaced it. `followSupersession` defaults to true, so a caller asking
+  // for one id could silently be handed another, and `supersedeStatement`
+  // lets a client build a chain it could not read.
+
+  /** Position in the supersession chain, 1-based. */
+  version: number;
+  /** The statement that replaced this one; absent while it is current. */
+  supersededBy?: string;
+  /** The statement this one replaced; absent if it is the first. */
+  supersedes?: string;
+  /** First statement in the chain — the claim's stable identity across every
+   * revision of it, and so the key to group revisions by. `statementId`
+   * changes on each supersede; this does not. */
+  chainRoot: string;
+  /** Which extractor produced it (`0` = written directly). */
+  extractorId: number;
+  /** When the extractor produced it — distinct from `eventAtUnixNanos`,
+   * which is when the content happened. */
+  extractedAtUnixNanos: bigint;
+  /** Schema version it was written against, for reading a predicate whose
+   * meaning moved between versions. */
+  schemaVersion: number;
+  /** When it was tombstoned (`0n` = not tombstoned). `tombstoned` says
+   * whether; this says when. */
+  tombstonedAtUnixNanos: bigint;
+  /** Tombstone reason code (`0` = none) — why it was retired, where
+   * `tombstoned` only says that it was. */
+  tombstoneReason: number;
   /** Display name of `subject`; absent when it could not be resolved.
    *
    * The server resolves these so a caller does not have to; without them every consumer re-queries each id just to print a name. */
@@ -575,7 +679,7 @@ export interface Schema {
   namespace: string;
   schemaVersion: number;
   schemaDocument: string;
-  uploadedAtUnixNanos: number;
+  uploadedAtUnixNanos: bigint;
   validatorVersion: number;
 }
 export interface SchemaError {
@@ -629,15 +733,15 @@ export interface CreateSpaceInput {
   metadata?: string;
 }
 export interface SpaceProvision {
-  spaceId: string;
+  space: string;
   /**
    * Whether THIS call created it. The op is idempotent, so the rest of the
    * body is identical either way and this is the only thing that tells
    * "made it" from "it was already there".
    */
   created: boolean;
-  createdAtUnixNanos: number;
-  lastActiveUnixNanos: number;
+  createdAtUnixNanos: bigint;
+  lastActiveUnixNanos: bigint;
   memoryCount: number;
   sessionCount: number;
 }
@@ -645,9 +749,9 @@ export interface ListSpacesQuery {
   limit?: number;
 }
 export interface SpaceSummary {
-  spaceId: string;
-  createdAtUnixNanos: number;
-  lastActiveUnixNanos: number;
+  space: string;
+  createdAtUnixNanos: bigint;
+  lastActiveUnixNanos: bigint;
   memoryCount: number;
   sessionCount: number;
 }
@@ -661,7 +765,7 @@ export interface ListSpacesResult {
   crossShardComplete: boolean;
 }
 export interface SpaceErased {
-  spaceId: string;
+  space: string;
   /** `false` when there was no registry row — already erased, or never written to. */
   existed: boolean;
   memoriesForgotten: number;
@@ -674,25 +778,25 @@ export interface CreateSessionInput {
    * Client-chosen, so a caller's own conversation id can BE the session id
    * rather than needing a mapping. The op is idempotent on it.
    */
-  sessionId: number;
+  sessionId: bigint;
   title?: string;
 }
 export interface SessionProvision {
   spaceId: string;
-  sessionId: number;
+  sessionId: bigint;
   /** Whether THIS call created it; the op is idempotent. */
   created: boolean;
-  createdAtUnixNanos: number;
-  lastActiveUnixNanos: number;
+  createdAtUnixNanos: bigint;
+  lastActiveUnixNanos: bigint;
   memoryCount: number;
 }
 export interface ListSessionsQuery {
   limit?: number;
 }
 export interface SessionSummary {
-  sessionId: number;
-  createdAtUnixNanos: number;
-  lastActiveUnixNanos: number;
+  sessionId: bigint;
+  createdAtUnixNanos: bigint;
+  lastActiveUnixNanos: bigint;
   title?: string;
   memoryCount: number;
 }
@@ -706,7 +810,7 @@ export interface DeleteSessionQuery {
 }
 export interface SessionErased {
   spaceId: string;
-  sessionId: number;
+  sessionId: bigint;
   existed: boolean;
   memoriesForgotten: number;
 }
@@ -750,7 +854,7 @@ export interface TombstoneEntityQuery {
   reason?: string;
 }
 export interface TombstoneResult {
-  tombstonedAtUnixNanos: number;
+  tombstonedAtUnixNanos: bigint;
 }
 
 // --- statement authoring ---------------------------------------------------
@@ -769,12 +873,12 @@ export interface CreateStatementInput {
   predicate: string;
   object: StatementObject;
   confidence?: number;
-  eventAtUnixNanos?: number;
-  validFromUnixNanos?: number;
-  validToUnixNanos?: number;
+  eventAtUnixNanos?: bigint;
+  validFromUnixNanos?: bigint;
+  validToUnixNanos?: bigint;
   extractorId?: number;
   schemaVersion?: number;
-  sessionId?: number;
+  sessionId?: bigint;
   /** Memory ids this claim rests on — 128-bit decimal strings. */
   evidence?: string[];
 }
@@ -798,12 +902,12 @@ export interface RetireStatementQuery {
   message?: string;
 }
 export interface RetractStatementResult {
-  retractedAtUnixNanos: number;
+  retractedAtUnixNanos: bigint;
   /**
    * When the content itself is scheduled to be zeroed. A retraction is
    * stronger than a tombstone for exactly this reason.
    */
-  willZeroAtUnixNanos: number;
+  willZeroAtUnixNanos: bigint;
 }
 export interface StatementHistoryQuery {
   includeTombstoned?: boolean;
@@ -824,10 +928,10 @@ export interface CreateRelationInput {
   fromEntity: string;
   toEntity: string;
   confidence?: number;
-  validFromUnixNanos?: number;
-  validToUnixNanos?: number;
+  validFromUnixNanos?: bigint;
+  validToUnixNanos?: bigint;
   extractorId?: number;
-  sessionId?: number;
+  sessionId?: bigint;
   evidence?: string[];
   /**
    * An opaque property blob, lowercase hex. A supersede REPLACES it, which is
@@ -854,7 +958,7 @@ export interface ListSchemasQuery {
 }
 export interface SchemaVersion {
   schemaVersion: number;
-  uploadedAtUnixNanos: number;
+  uploadedAtUnixNanos: bigint;
   /**
    * Which validator accepted it — a document an older validator passed is not
    * necessarily one the current validator would.
@@ -876,7 +980,7 @@ export interface Extractor {
   /** `0` = pattern, `1` = classifier, `2` = llm. */
   kind: number;
   schemaVersion: number;
-  createdAtUnixNanos: number;
+  createdAtUnixNanos: bigint;
 }
 export interface ListExtractorsResult {
   items: Extractor[];
@@ -918,13 +1022,13 @@ export interface EncodeVectorInput {
   vector: number[];
   /** 16 bytes as lowercase hex (32 characters). */
   modelFingerprint: string;
-  session?: number;
+  session?: bigint;
   kind?: number;
   salienceHint?: number;
   deduplicate?: boolean;
 }
 export interface MaterializeProceduralInput {
-  sessions?: number[];
+  sessions?: bigint[];
   topK?: number;
   minConfidence?: number;
   categories?: string[];
@@ -959,7 +1063,7 @@ export interface QueryInput {
   entityAnchor?: string;
   kinds?: string[];
   predicates?: string[];
-  sessions?: number[];
+  sessions?: bigint[];
   /** When the content was true. */
   timeRange?: TimeRange;
   /**
@@ -967,7 +1071,7 @@ export interface QueryInput {
    * `timeRange`. Collapsing them is how bi-temporal data stops being
    * bi-temporal.
    */
-  asOfRecordTimeUnixNanos?: number;
+  asOfRecordTimeUnixNanos?: bigint;
   confidenceMin?: number;
   includeTombstoned?: boolean;
   includeSuperseded?: boolean;
@@ -1036,25 +1140,25 @@ export interface LlmCredentialCheck {
 // --- change feed (SSE) -----------------------------------------------------
 
 export interface SubscribeQuery {
-  sessions?: number[];
+  sessions?: bigint[];
   kinds?: string[];
   memories?: string[];
   includeHistory?: boolean;
   /** Resume after this feed position. */
-  fromLsn?: number;
+  fromLsn?: bigint;
   maxInflight?: number;
 }
 export interface SubscriptionEvent {
   eventType: string;
   /** A 128-bit decimal string. */
   memoryId: string;
-  sessionId: number;
+  sessionId: bigint;
   text: string;
   kind: number;
   salience: number;
-  timestampUnixNanos: number;
+  timestampUnixNanos: bigint;
   /** The feed position. Pass the last one back as `fromLsn` to resume. */
-  lsn: number;
+  lsn: bigint;
   /**
    * Typed-graph detail, tagged by `type`. Left open: the 13 variants are a
    * closed set on the edge but an open one here, and a client that switches
@@ -1071,7 +1175,7 @@ export interface SubscriptionEvent {
  * connection resumes exactly rather than replaying or skipping.
  */
 export interface SubscriptionClosed {
-  finalLsn: number;
+  finalLsn: bigint;
   /** `unsubscribed` | `ended` | `error`. */
   reason: string;
 }

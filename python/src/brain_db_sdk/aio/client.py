@@ -29,7 +29,13 @@ from __future__ import annotations
 import time
 from typing import TypeVar
 
-from brain_db_sdk.client import Auth, ClientConfig, ConnectionInfo, decode_pong
+from brain_db_sdk.client import (
+    DEFAULT_DERIVED_WRITE_TIMEOUT,
+    Auth,
+    ClientConfig,
+    ConnectionInfo,
+    decode_pong,
+)
 from brain_db_sdk.errors import ProtocolError
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
@@ -161,6 +167,7 @@ from brain_db_sdk.wire.types import (
     TxnCommitResponse,
     UnlinkRequest,
     UnlinkResponse,
+    WaitMode,
     _WirePayload,
     decode_payload,
     encode_payload,
@@ -190,9 +197,15 @@ class AsyncBrainClient:
     :meth:`~brain_db_sdk.aio.mux.AsyncMuxConnection._check_loop`.
     """
 
-    def __init__(self, conn: AsyncMuxConnection, connection: ConnectionInfo) -> None:
+    def __init__(
+        self,
+        conn: AsyncMuxConnection,
+        connection: ConnectionInfo,
+        derived_write_timeout: float | None = DEFAULT_DERIVED_WRITE_TIMEOUT,
+    ) -> None:
         self._conn = conn
         self._connection = connection
+        self._derived_write_timeout = derived_write_timeout
 
     @classmethod
     async def connect(
@@ -250,7 +263,7 @@ class AsyncBrainClient:
             namespace=outcome.auth_ok.namespace,
             server_features=outcome.welcome.server_features,
         )
-        return cls(conn, connection)
+        return cls(conn, connection, config.derived_write_timeout)
 
     @property
     def connection(self) -> ConnectionInfo:
@@ -276,8 +289,14 @@ class AsyncBrainClient:
 
     async def encode(self, request: EncodeRequest) -> EncodeResponse:
         """Store a memory from text (ENCODE). The server owns the embedding,
-        kind classification, salience, and edge extraction."""
-        frame = await self._conn.request_one(Opcode.ENCODE_REQ, encode_payload(request))
+        kind classification, salience, and edge extraction.
+
+        A request built with ``WaitMode.DERIVED`` blocks on the asynchronous
+        half of the write and runs under ``derived_write_timeout`` instead of
+        the flat ``request_timeout``; see :meth:`_encode_timeout`."""
+        frame = await self._conn.request_one(
+            Opcode.ENCODE_REQ, encode_payload(request), self._encode_timeout(request)
+        )
         if frame.opcode != int(Opcode.ENCODE_RESP):
             raise ProtocolError(
                 f"expected ENCODE_RESP ({int(Opcode.ENCODE_RESP):#06x}), got {frame.opcode:#06x}"
@@ -987,6 +1006,20 @@ class AsyncBrainClient:
                 )
             out.append(decode_payload(resp_type, frame.payload))
         return out
+
+    def _encode_timeout(self, request: EncodeRequest) -> float | None:
+        """The deadline this one ENCODE waits under.
+
+        ``WaitMode.ACK`` returns on durability — milliseconds — and keeps the
+        connection default (``None`` defers to it). ``WaitMode.DERIVED`` waits
+        out embedding, HyPE and graph extraction, so it gets
+        ``derived_write_timeout``. Reading it off the request is what lets the
+        two populations differ without a second parameter on 71 verbs.
+
+        Not a coroutine: it does no I/O, and it is private, so the parity
+        suite's "every verb is async" rule does not reach it.
+        """
+        return self._derived_write_timeout if request.wait == WaitMode.DERIVED else None
 
     async def _unary(
         self,

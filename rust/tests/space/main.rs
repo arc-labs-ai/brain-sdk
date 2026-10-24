@@ -6,10 +6,10 @@
 //!
 //! Note on identity: the harness mints keys with a raw `space_id_hex`, so the
 //! server has no *human-readable* structured space string to echo back — the
-//! `space_id` field on both the create response and every `SpaceView` comes
+//! `space` field on both the create response and every `SpaceView` comes
 //! back empty. The listing also spans the whole shared test namespace. So the
 //! stable way to find *this* test's space in the listing is its unique
-//! `created_at_unix_nanos`, not the (empty) `space_id` string.
+//! `created_at_unix_nanos`, not the (empty) `space` string.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -18,7 +18,7 @@ use brain_db_sdk::new_id;
 use brain_db_sdk::wire::types::{SpaceCreateRequest, SpaceDeleteRequest, SpaceListRequest};
 
 /// A space is provisioned for the caller's *effective* space — the one bound to
-/// the auth token — so there is no space_id to pass; the token is the identity.
+/// the auth token — so there is no space to pass; the token is the identity.
 fn create() -> SpaceCreateRequest {
     SpaceCreateRequest {
         metadata: None,
@@ -38,7 +38,7 @@ async fn create_list_delete_round_trip() {
     let created = client.create_space(&create()).await.expect("create_space");
     assert!(created.created, "a brand-new space reports created = true");
     // This unique nanosecond stamp is our handle on the row in a shared-namespace
-    // listing (the space_id string is empty for hex-minted keys — see header).
+    // listing (the space string is empty for hex-minted keys — see header).
     let birth = created.created_at_unix_nanos;
     assert!(birth > 0, "create stamps a birth time");
 

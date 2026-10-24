@@ -7,7 +7,7 @@ gateway). The native wire client is :class:`brain_db_sdk.BrainClient`.
 from __future__ import annotations
 
 from .client import DEFAULT_BASE_URL, BrainHttpClient
-from .errors import BrainHttpError
+from .errors import BrainHttpError, FieldError
 from .retry import HttpRetryPolicy
 from .types import (
     Capabilities,
@@ -64,6 +64,7 @@ __all__ = [
     "CreateEntityResult",
     "EncodeResult",
     "EntityDetail",
+    "FieldError",
     "ForgetResult",
     "GraphEdge",
     "GraphNode",

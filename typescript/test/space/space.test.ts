@@ -44,7 +44,7 @@ describe.skipIf(T === null)("space (integration)", () => {
 
       const deleted = await client.deleteSpace({ requestId: newId(), actAs: null });
       expect(deleted.existed).toBe(true);
-      expect(deleted.spaceId).toBe(created.spaceId);
+      expect(deleted.space).toBe(created.space);
 
       // The registry row is genuinely gone: re-creating provisions afresh
       // (created = true), where a surviving row would replay as created = false.
@@ -68,7 +68,7 @@ describe.skipIf(T === null)("space (integration)", () => {
       // A create for an existing space returns the existing row, created=false.
       const second = await client.createSpace({ metadata: null, requestId: newId(), actAs: null });
       expect(second.created).toBe(false);
-      expect(second.spaceId).toBe(first.spaceId);
+      expect(second.space).toBe(first.space);
     } finally {
       await client.close();
     }

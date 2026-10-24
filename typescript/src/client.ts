@@ -253,10 +253,37 @@ import {
   encodeTxnBegin,
   encodeTxnCommit,
   encodeUnlink,
+  WaitMode,
 } from "./wire/types.js";
 
 /** Default `clientId` advertised in HELLO. */
 const DEFAULT_CLIENT_ID = "brain-db-sdk-typescript";
+
+/**
+ * Default deadline for an ENCODE that asked to block on derivation
+ * ({@link WaitMode.Derived}), as distinct from the flat `requestTimeoutMs`
+ * every other verb runs under.
+ *
+ * A write has two halves. The synchronous half is durable the instant it acks.
+ * The asynchronous half — embedding, HyPE question generation, knowledge-graph
+ * extraction — runs afterwards and makes LLM provider round trips, and a
+ * derived write is the caller blocking on *that*. Measured against a live
+ * server: three derived encodes in isolation took 26.9s end to end (~9s each);
+ * under concurrent load a single write's visibility latency ranged 1.9s to
+ * 22.5s; and a ten-way concurrent burst put three of the ten past 30s, the
+ * slowest at 45.5s. Under the flat 30s default those three failed as a
+ * client-side {@link BrainTimeout} that had nothing to do with the server, and
+ * a derived write is the only way to get read-your-writes or a populated
+ * `trace` — so the correct call was the one that broke.
+ *
+ * 120s is ~2.5x the slowest write yet observed, which is the headroom a
+ * provider hiccup on an already-saturated derivation queue needs. Do NOT fold
+ * this back into `requestTimeoutMs`: a read
+ * is milliseconds and a derived write is seconds to tens of seconds, and one
+ * number raised to cover both leaves every read hanging for two minutes on a
+ * dead connection.
+ */
+export const DEFAULT_DERIVED_WRITE_TIMEOUT_MS = 120_000;
 
 /** Mint a fresh 16-byte identifier. */
 export function newId(): Uint8Array {
@@ -341,6 +368,11 @@ export interface ClientConfig {
   connectTimeoutMs?: number;
   /** Per-response read deadline. Omit to wait indefinitely. */
   requestTimeoutMs?: number;
+  /** Deadline for a derived ENCODE only — the one verb that waits on the
+   * asynchronous half of a write. Everything else keeps `requestTimeoutMs`;
+   * see {@link DEFAULT_DERIVED_WRITE_TIMEOUT_MS} for the measurements behind
+   * the default. */
+  derivedWriteTimeoutMs?: number;
 }
 
 interface ResolvedConfig {
@@ -350,6 +382,7 @@ interface ResolvedConfig {
   auth: Auth;
   connectTimeoutMs: number | undefined;
   requestTimeoutMs: number | undefined;
+  derivedWriteTimeoutMs: number | undefined;
 }
 
 function withDefaults(config: ClientConfig): ResolvedConfig {
@@ -364,6 +397,7 @@ function withDefaults(config: ClientConfig): ResolvedConfig {
     auth: config.auth,
     connectTimeoutMs: config.connectTimeoutMs ?? 10_000,
     requestTimeoutMs: config.requestTimeoutMs ?? 30_000,
+    derivedWriteTimeoutMs: config.derivedWriteTimeoutMs ?? DEFAULT_DERIVED_WRITE_TIMEOUT_MS,
   };
 }
 
@@ -393,6 +427,9 @@ export class BrainClient {
   private constructor(
     private readonly conn: MuxConnection,
     public readonly connection: ConnectionInfo,
+    /** Deadline a {@link WaitMode.Derived} ENCODE runs under, carried from the
+     * config so {@link encode} can apply it per request. */
+    private readonly derivedWriteTimeoutMs: number | undefined,
   ) {}
 
   /**
@@ -426,7 +463,7 @@ export class BrainClient {
       namespace: authOk.namespace,
       serverFeatures: welcome.serverFeatures,
     };
-    return new BrainClient(conn, connection);
+    return new BrainClient(conn, connection, cfg.derivedWriteTimeoutMs);
   }
 
   /** The resolved space id this connection acts as, as the server assigned it. */
@@ -451,9 +488,17 @@ export class BrainClient {
   /**
    * Store a memory from text (ENCODE). Build the request by hand or with the
    * {@link EncodeBuilder}, which fills defaults and mints the `requestId`.
+   *
+   * A request built with {@link WaitMode.Derived} blocks on the asynchronous
+   * half of the write and runs under `derivedWriteTimeoutMs` instead of the
+   * flat `requestTimeoutMs`; see {@link encodeTimeoutMs}.
    */
   async encode(request: EncodeRequest): Promise<EncodeResponse> {
-    const frame = await this.conn.requestOne(Opcode.EncodeReq, encodeEncode(request));
+    const frame = await this.conn.requestOne(
+      Opcode.EncodeReq,
+      encodeEncode(request),
+      this.encodeTimeoutMs(request),
+    );
     if (frame.opcode !== Opcode.EncodeResp) {
       throw new ProtocolError(
         `expected ENCODE_RESP (0x${Opcode.EncodeResp.toString(16)}), got ` +
@@ -1239,6 +1284,19 @@ export class BrainClient {
       this.expect(frame.opcode, respOpcode, respName);
       return decode(frame.payload);
     });
+  }
+
+  /**
+   * The deadline this one ENCODE waits under.
+   *
+   * {@link WaitMode.Ack} returns on durability — milliseconds — and keeps the
+   * connection default (`undefined` defers to it). {@link WaitMode.Derived}
+   * waits out embedding, HyPE and graph extraction, so it gets
+   * `derivedWriteTimeoutMs`. Reading it off the request is what lets the two
+   * populations differ without a second argument on every verb.
+   */
+  private encodeTimeoutMs(request: EncodeRequest): number | undefined {
+    return request.wait === WaitMode.Derived ? this.derivedWriteTimeoutMs : undefined;
   }
 
   /** Assert a response carried the expected opcode, else a protocol error. */

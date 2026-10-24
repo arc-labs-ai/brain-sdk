@@ -47,7 +47,7 @@ pub struct EncodeInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub occurred_at: Option<u64>,
+    pub occurred_at_unix_nanos: Option<u64>,
 }
 
 /// `encode` result.
@@ -71,11 +71,22 @@ pub struct RecallInput {
     pub max_results: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+    /// How wide to read: `"space"` (the default — the caller's own space) or
+    /// `"namespace"`, which fans out across every space in the caller's
+    /// namespace and merges the hits. Case-insensitive; any other value is
+    /// rejected rather than quietly narrowed to the default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// Return Brain's read-pipeline trace as [`RecallResult::trace`] — which
     /// retrievers ran, how they were fused, what the filter chain dropped,
-    /// what the reranker moved. Several KB per call, so leave it off in hot
-    /// paths and switch it on when chasing a bad answer. Served by the cloud
-    /// gateway; a server without it ignores the field and returns no trace.
+    /// what the reranker moved.
+    ///
+    /// **It is large, and it does not scale with `max_results`.** The trace
+    /// reports every candidate each lane considered, so it grows with the size
+    /// of the space being searched: a three-hit recall over ~700 memories
+    /// measured 121 KB, nearly all of it the per-lane candidate lists. Leave it
+    /// off in hot paths and switch it on when chasing a bad answer. Free when
+    /// off — the server only builds the trace when the request asks for one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_trace: Option<bool>,
 }
@@ -98,7 +109,7 @@ pub struct RecallResult {
     pub answer_kind: String,
     pub memories: Vec<MemoryHit>,
     /// The read-pipeline trace as a JSON **string**, present only when
-    /// `include_trace` was asked for and the server supports it. A string
+    /// `include_trace` was asked for. A string
     /// rather than a parsed value because its ids are 128-bit integers that a
     /// JSON number would round; parse it with a big-integer-safe reader.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -457,11 +468,28 @@ pub struct EntityDetail {
     pub entity_type_id: u32,
     pub canonical_name: String,
     pub aliases: Vec<String>,
+    /// The opaque attribute blob as lowercase hex; `None` when empty.
+    ///
+    /// `update_entity` REPLACES the blob rather than merging into it, so an
+    /// update that only meant to change a name wipes attributes the caller
+    /// never saw. Reading it here is the only way to write it back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<String>,
     pub mention_count: u32,
     pub created_at_unix_nanos: u64,
     pub updated_at_unix_nanos: u64,
     /// The surviving entity when this one was merged away; `None` otherwise.
     pub merged_into: Option<String>,
+    /// The merge redirects `get_entity` followed to reach this entity, oldest
+    /// first and EXCLUDING the entity itself. Empty on a direct hit, and
+    /// always empty on list/create, which do no redirecting.
+    ///
+    /// Non-empty means the row returned is NOT the one asked for: with
+    /// `A → B → C`, `get_entity("A")` answers with `C`. Nothing else in the
+    /// response says the id changed, so a caller that ignores this field
+    /// silently attributes `C`'s name, aliases and mentions to `A`.
+    #[serde(default)]
+    pub resolved_from: Vec<String>,
 }
 
 /// `list_entities` result.
@@ -469,9 +497,9 @@ pub struct EntityDetail {
 pub struct ListEntitiesResult {
     pub entities: Vec<EntityDetail>,
     pub count: usize,
-    /// Present when more rows follow; pass it back as `cursor`. Served by the
-    /// cloud gateway's keyset pagination; a server without it omits the field
-    /// and the page is the whole result.
+    /// Present when more rows follow; pass it back as `cursor`. Absent (not
+    /// null) once the enumeration is exhausted, so `None` means "last page",
+    /// never "this server does not paginate".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
 }
@@ -597,6 +625,49 @@ pub struct RelationDetail {
     pub valid_from_unix_nanos: u64,
     pub valid_to_unix_nanos: u64,
     pub is_symmetric: bool,
+    /// The opaque property blob as lowercase hex; `None` when empty.
+    ///
+    /// A supersede REPLACES the blob, so revising only a relation's validity
+    /// drops its properties unless the caller read them back first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub properties: Option<String>,
+
+    // --- supersession + provenance ----------------------------------------
+    //
+    // A relation's history was invisible from here: the read returned the head
+    // of a chain with nothing to say it WAS a head, what it replaced, or what
+    // replaced it. `follow_supersession` defaults to true, so a caller asking
+    // for one id could silently be handed another, and `supersede_relation`
+    // lets a client build a chain it could not then read.
+    //
+    // `serde(default)` throughout: a current edge always sends these, one
+    // predating them sends none of them, and a field the server omits must
+    // not fail the whole decode.
+    /// Position in the supersession chain, 1-based.
+    #[serde(default)]
+    pub version: u32,
+    /// The relation that replaced this one; `None` while it is current.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<String>,
+    /// The relation this one replaced; `None` if it is the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<String>,
+    /// First relation in the chain — the edge's stable identity across every
+    /// revision of it, and so the key to group revisions by. `relation_id`
+    /// changes on each supersede; this does not.
+    #[serde(default)]
+    pub chain_root: String,
+    /// Which extractor produced it (`0` = written directly).
+    #[serde(default)]
+    pub extractor_id: u32,
+    /// When the extractor produced it (unix nanos) — distinct from
+    /// `valid_from_unix_nanos`, which is when the fact it asserts began.
+    #[serde(default)]
+    pub extracted_at_unix_nanos: u64,
+    /// When it was tombstoned (unix nanos; `0` = not tombstoned).
+    /// `tombstoned` says whether; this says when.
+    #[serde(default)]
+    pub tombstoned_at_unix_nanos: u64,
     pub tombstoned: bool,
     /// Display name of `from_entity` (absent when it could not be resolved).
     ///
@@ -614,9 +685,9 @@ pub struct RelationDetail {
 pub struct ListRelationsResult {
     pub relations: Vec<RelationDetail>,
     pub count: usize,
-    /// Present when more rows follow; pass it back as `cursor`. Served by the
-    /// cloud gateway's keyset pagination; a server without it omits the field
-    /// and the page is the whole result.
+    /// Present when more rows follow; pass it back as `cursor`. Absent (not
+    /// null) once the enumeration is exhausted, so `None` means "last page",
+    /// never "this server does not paginate".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
 }
@@ -733,6 +804,51 @@ pub struct StatementDetail {
     pub valid_from_unix_nanos: u64,
     pub valid_to_unix_nanos: u64,
     pub tombstoned: bool,
+
+    // --- supersession + provenance ----------------------------------------
+    //
+    // A statement's history was invisible from here: the read returned the
+    // head of a chain with nothing to say it WAS a head, what it replaced, or
+    // what replaced it. `follow_supersession` defaults to true, so a caller
+    // asking for one id could silently be handed another, and
+    // `supersede_statement` lets a client build a chain it could not read.
+    //
+    // `serde(default)` throughout: a current edge always sends these, one
+    // predating them sends none of them, and a field the server omits must
+    // not fail the whole decode.
+    /// Position in the supersession chain, 1-based.
+    #[serde(default)]
+    pub version: u32,
+    /// The statement that replaced this one; `None` while it is current.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<String>,
+    /// The statement this one replaced; `None` if it is the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<String>,
+    /// First statement in the chain — the claim's stable identity across every
+    /// revision of it, and so the key to group revisions by. `statement_id`
+    /// changes on each supersede; this does not.
+    #[serde(default)]
+    pub chain_root: String,
+    /// Which extractor produced it (`0` = written directly).
+    #[serde(default)]
+    pub extractor_id: u32,
+    /// When the extractor produced it (unix nanos) — distinct from
+    /// `event_at_unix_nanos`, which is when the content happened.
+    #[serde(default)]
+    pub extracted_at_unix_nanos: u64,
+    /// Schema version it was written against, for reading a predicate whose
+    /// meaning moved between versions.
+    #[serde(default)]
+    pub schema_version: u32,
+    /// When it was tombstoned (unix nanos; `0` = not tombstoned).
+    /// `tombstoned` says whether; this says when.
+    #[serde(default)]
+    pub tombstoned_at_unix_nanos: u64,
+    /// Tombstone reason code (`0` = none) — why it was retired, where
+    /// `tombstoned` only says that it was.
+    #[serde(default)]
+    pub tombstone_reason: u8,
     /// Display name of `subject` (absent when it could not be resolved).
     ///
     /// The server resolves these so a caller does not have to.
@@ -749,9 +865,9 @@ pub struct StatementDetail {
 pub struct ListStatementsResult {
     pub statements: Vec<StatementDetail>,
     pub count: usize,
-    /// Present when more rows follow; pass it back as `cursor`. Served by the
-    /// cloud gateway's keyset pagination; a server without it omits the field
-    /// and the page is the whole result.
+    /// Present when more rows follow; pass it back as `cursor`. Absent (not
+    /// null) once the enumeration is exhausted, so `None` means "last page",
+    /// never "this server does not paginate".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
 }
@@ -966,7 +1082,7 @@ pub struct CreateSpaceInput {
 /// `create_space` result.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SpaceProvision {
-    pub space_id: String,
+    pub space: String,
     /// Whether THIS call created it. The op is idempotent, so the rest of the
     /// body is identical either way and this is the only thing that tells
     /// "made it" from "it was already there".
@@ -987,7 +1103,7 @@ pub struct ListSpacesQuery {
 /// One row of a space listing.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SpaceSummary {
-    pub space_id: String,
+    pub space: String,
     pub created_at_unix_nanos: u64,
     pub last_active_unix_nanos: u64,
     pub memory_count: u64,
@@ -1007,7 +1123,7 @@ pub struct ListSpacesResult {
 /// `delete_space` result.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SpaceErased {
-    pub space_id: String,
+    pub space: String,
     /// `false` when there was no registry row — already erased, or never
     /// written to.
     pub existed: bool,

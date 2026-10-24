@@ -150,12 +150,18 @@ where
 
     /// Send `opcode`+`payload` as a single EOS frame on `stream_id`, then
     /// collect routed frames up to and including the inbound EOS.
+    ///
+    /// `timeout` overrides the per-frame deadline for this one request;
+    /// `None` means "whatever this connection was configured with", not "wait
+    /// forever" — an override exists to *raise* the limit, and a caller that
+    /// wants an unbounded wait sets `request_timeout: None` on the config.
     async fn request_on(
         &self,
         stream_id: u32,
         mut rx: mpsc::UnboundedReceiver<Frame>,
         opcode: Opcode,
         payload: Vec<u8>,
+        timeout: Option<Duration>,
     ) -> Result<Vec<Frame>> {
         let frame = Frame::new(opcode.as_u16(), FLAG_EOS, stream_id, payload);
         if let Err(e) = self.write(&frame).await {
@@ -163,9 +169,10 @@ where
             return Err(e);
         }
 
+        let deadline = timeout.or(self.request_timeout);
         let mut frames = Vec::new();
         loop {
-            let next = match self.request_timeout {
+            let next = match deadline {
                 Some(timeout) => match tokio::time::timeout(timeout, rx.recv()).await {
                     Ok(v) => v,
                     Err(_) => {
@@ -321,9 +328,26 @@ where
     /// EOS frame. Safe to call concurrently from many tasks on a shared
     /// connection; responses are routed back by `stream_id`.
     pub async fn request(&self, opcode: Opcode, payload: Vec<u8>) -> Result<Vec<Frame>> {
+        self.request_with_timeout(opcode, payload, None).await
+    }
+
+    /// [`Self::request`] under a deadline of this one request's choosing.
+    ///
+    /// The mux cannot tell which verb it is carrying, let alone that an ENCODE
+    /// asked to block on derivation, so the policy lives in the client and the
+    /// mechanism lives here. `None` defers to the connection's configured
+    /// `request_timeout`.
+    pub async fn request_with_timeout(
+        &self,
+        opcode: Opcode,
+        payload: Vec<u8>,
+        timeout: Option<Duration>,
+    ) -> Result<Vec<Frame>> {
         let stream_id = self.shared.alloc_stream_id();
         let rx = self.shared.register(stream_id)?;
-        self.shared.request_on(stream_id, rx, opcode, payload).await
+        self.shared
+            .request_on(stream_id, rx, opcode, payload, timeout)
+            .await
     }
 
     /// Send a CONNECTION-LEVEL request and collect its response frames.
@@ -345,13 +369,24 @@ where
     ) -> Result<Vec<Frame>> {
         let rx = self.shared.register(HANDSHAKE_STREAM_ID)?;
         self.shared
-            .request_on(HANDSHAKE_STREAM_ID, rx, opcode, payload)
+            .request_on(HANDSHAKE_STREAM_ID, rx, opcode, payload, None)
             .await
     }
 
     /// Send one request and require exactly one EOS response frame.
     pub async fn request_one(&self, opcode: Opcode, payload: Vec<u8>) -> Result<Frame> {
-        let mut frames = self.request(opcode, payload).await?;
+        self.request_one_with_timeout(opcode, payload, None).await
+    }
+
+    /// [`Self::request_one`] under a deadline of this one request's choosing;
+    /// `None` defers to the connection's configured `request_timeout`.
+    pub async fn request_one_with_timeout(
+        &self,
+        opcode: Opcode,
+        payload: Vec<u8>,
+        timeout: Option<Duration>,
+    ) -> Result<Frame> {
+        let mut frames = self.request_with_timeout(opcode, payload, timeout).await?;
         if frames.len() != 1 {
             return Err(BrainError::Protocol(format!(
                 "expected a single response frame, got {}",
@@ -501,7 +536,13 @@ where
         let rx = self.shared.register(stream_id)?;
         let mut frames = self
             .shared
-            .request_on(stream_id, rx, Opcode::UnsubscribeReq, to_cbor_bytes(&req))
+            .request_on(
+                stream_id,
+                rx,
+                Opcode::UnsubscribeReq,
+                to_cbor_bytes(&req),
+                None,
+            )
             .await?;
         if frames.len() != 1 {
             return Err(BrainError::Protocol(format!(

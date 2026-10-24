@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let insp = c
             .memory_inspect(&MemoryInspectRequest {
-                memory_id: a.to_be_bytes(),
+                memory_id: a,
                 act_as: None,
             })
             .await?;
@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         let after = c
             .memory_inspect(&MemoryInspectRequest {
-                memory_id: a.to_be_bytes(),
+                memory_id: a,
                 act_as: None,
             })
             .await?;
@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // flag — the same answer every sibling read gives.
     let miss = c
         .memory_inspect(&MemoryInspectRequest {
-            memory_id: 12345u128.to_be_bytes(),
+            memory_id: 12345,
             act_as: None,
         })
         .await;

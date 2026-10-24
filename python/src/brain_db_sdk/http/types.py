@@ -61,8 +61,8 @@ class RecallResult:
     memories: list[MemoryHit]
     #: Brain's read-pipeline trace — which retrievers ran, how they were
     #: fused, what the filter chain dropped, what the reranker moved — as a
-    #: JSON **string**, present only when ``include_trace`` was asked for and
-    #: the server supports it. A string rather than a parsed object because
+    #: JSON **string**, present only when ``include_trace`` was asked for.
+    #: A string rather than a parsed object because
     #: its ids are 128-bit integers that a JSON number would round; parse it
     #: with a big-integer-safe reader.
     trace: Optional[str] = None
@@ -255,6 +255,25 @@ class EntityDetail:
     updated_at_unix_nanos: int
     merged_into: Optional[str]
 
+    #: The merge redirects :meth:`BrainHttpClient.get_entity` followed to
+    #: reach this entity, oldest first and excluding the entity itself. Empty
+    #: on a direct hit, and always empty on list/create, which do no
+    #: redirecting.
+    #:
+    #: Non-empty means the row returned is not the one asked for: with
+    #: ``A -> B -> C``, ``get_entity("A")`` answers with ``C``. Nothing else
+    #: in the response says the id changed, so a caller that ignores this
+    #: silently attributes ``C``'s name, aliases and mentions to ``A``.
+    resolved_from: list[str] = field(default_factory=list)
+
+    #: The opaque attribute blob as lowercase hex; ``None`` when empty.
+    #:
+    #: :meth:`BrainHttpClient.update_entity` replaces the blob rather than
+    #: merging into it, so an update that only meant to change a name wipes
+    #: attributes the caller never saw. Reading it here is the only way to
+    #: write it back.
+    attributes: Optional[str] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> EntityDetail:
         return cls(
@@ -266,6 +285,8 @@ class EntityDetail:
             created_at_unix_nanos=d["created_at_unix_nanos"],
             updated_at_unix_nanos=d["updated_at_unix_nanos"],
             merged_into=d.get("merged_into"),
+            resolved_from=list(d.get("resolved_from", [])),
+            attributes=d.get("attributes"),
         )
 
 
@@ -274,9 +295,9 @@ class ListEntitiesResult:
     entities: list[EntityDetail]
     count: int
 
-    #: Present when more rows follow; pass it back as ``cursor``. Served by
-    #: the cloud gateway's keyset pagination; a server without it omits the
-    #: field and the page is the whole result.
+    #: Present when more rows follow; pass it back as ``cursor``. Absent (not
+    #: null) once the enumeration is exhausted, so ``None`` means "last page",
+    #: never "this server does not paginate".
     next_cursor: Optional[str] = None
 
     @classmethod
@@ -393,6 +414,43 @@ class RelationDetail:
     is_symmetric: bool
     tombstoned: bool
 
+    #: The opaque property blob as lowercase hex; ``None`` when empty.
+    #:
+    #: A supersede replaces the blob, so revising only a relation's validity
+    #: drops its properties unless the caller read them back first.
+    properties: Optional[str] = None
+
+    # --- supersession + provenance -----------------------------------------
+    #
+    # A relation's history was invisible from here: the read returned the head
+    # of a chain with nothing to say it was a head, what it replaced, or what
+    # replaced it. ``follow_supersession`` defaults to true, so a caller asking
+    # for one id could silently be handed another, and ``supersede_relation``
+    # lets a client build a chain it could not then read.
+    #
+    # Defaulted rather than required: a current edge always sends these, one
+    # predating them sends none of them, and a field the server omits must not
+    # fail the whole decode.
+
+    #: Position in the supersession chain, 1-based.
+    version: int = 0
+    #: The relation that replaced this one; ``None`` while it is current.
+    superseded_by: Optional[str] = None
+    #: The relation this one replaced; ``None`` if it is the first.
+    supersedes: Optional[str] = None
+    #: First relation in the chain — the edge's stable identity across every
+    #: revision of it, and so the key to group revisions by. ``relation_id``
+    #: changes on each supersede; this does not.
+    chain_root: str = ""
+    #: Which extractor produced it (``0`` = written directly).
+    extractor_id: int = 0
+    #: When the extractor produced it (unix nanos) — distinct from
+    #: ``valid_from_unix_nanos``, which is when the fact it asserts began.
+    extracted_at_unix_nanos: int = 0
+    #: When it was tombstoned (unix nanos; ``0`` = not tombstoned).
+    #: ``tombstoned`` says whether; this says when.
+    tombstoned_at_unix_nanos: int = 0
+
     #: The server resolves these so a caller does not have to; without
     #: them every consumer re-queries each id just to print a name.
     #: Display name of ``from_entity``; absent when it could not be resolved.
@@ -412,6 +470,14 @@ class RelationDetail:
             valid_to_unix_nanos=d["valid_to_unix_nanos"],
             is_symmetric=d["is_symmetric"],
             tombstoned=d["tombstoned"],
+            properties=d.get("properties"),
+            version=d.get("version", 0),
+            superseded_by=d.get("superseded_by"),
+            supersedes=d.get("supersedes"),
+            chain_root=d.get("chain_root", ""),
+            extractor_id=d.get("extractor_id", 0),
+            extracted_at_unix_nanos=d.get("extracted_at_unix_nanos", 0),
+            tombstoned_at_unix_nanos=d.get("tombstoned_at_unix_nanos", 0),
             from_name=d.get("from_name"),
             to_name=d.get("to_name"),
         )
@@ -422,9 +488,9 @@ class ListRelationsResult:
     relations: list[RelationDetail]
     count: int
 
-    #: Present when more rows follow; pass it back as ``cursor``. Served by
-    #: the cloud gateway's keyset pagination; a server without it omits the
-    #: field and the page is the whole result.
+    #: Present when more rows follow; pass it back as ``cursor``. Absent (not
+    #: null) once the enumeration is exhausted, so ``None`` means "last page",
+    #: never "this server does not paginate".
     next_cursor: Optional[str] = None
 
     @classmethod
@@ -513,6 +579,43 @@ class StatementDetail:
     valid_to_unix_nanos: int
     tombstoned: bool
 
+    # --- supersession + provenance -----------------------------------------
+    #
+    # A statement's history was invisible from here: the read returned the head
+    # of a chain with nothing to say it was a head, what it replaced, or what
+    # replaced it. ``follow_supersession`` defaults to true, so a caller asking
+    # for one id could silently be handed another, and ``supersede_statement``
+    # lets a client build a chain it could not read.
+    #
+    # Defaulted rather than required: a current edge always sends these, one
+    # predating them sends none of them, and a field the server omits must not
+    # fail the whole decode.
+
+    #: Position in the supersession chain, 1-based.
+    version: int = 0
+    #: The statement that replaced this one; ``None`` while it is current.
+    superseded_by: Optional[str] = None
+    #: The statement this one replaced; ``None`` if it is the first.
+    supersedes: Optional[str] = None
+    #: First statement in the chain — the claim's stable identity across every
+    #: revision of it, and so the key to group revisions by. ``statement_id``
+    #: changes on each supersede; this does not.
+    chain_root: str = ""
+    #: Which extractor produced it (``0`` = written directly).
+    extractor_id: int = 0
+    #: When the extractor produced it (unix nanos) — distinct from
+    #: ``event_at_unix_nanos``, which is when the content happened.
+    extracted_at_unix_nanos: int = 0
+    #: Schema version it was written against, for reading a predicate whose
+    #: meaning moved between versions.
+    schema_version: int = 0
+    #: When it was tombstoned (unix nanos; ``0`` = not tombstoned).
+    #: ``tombstoned`` says whether; this says when.
+    tombstoned_at_unix_nanos: int = 0
+    #: Tombstone reason code (``0`` = none) — why it was retired, where
+    #: ``tombstoned`` only says that it was.
+    tombstone_reason: int = 0
+
     #: The server resolves these so a caller does not have to; without
     #: them every consumer re-queries each id just to print a name.
     #: Display name of ``subject``; absent when it could not be resolved.
@@ -533,6 +636,15 @@ class StatementDetail:
             valid_from_unix_nanos=d["valid_from_unix_nanos"],
             valid_to_unix_nanos=d["valid_to_unix_nanos"],
             tombstoned=d["tombstoned"],
+            version=d.get("version", 0),
+            superseded_by=d.get("superseded_by"),
+            supersedes=d.get("supersedes"),
+            chain_root=d.get("chain_root", ""),
+            extractor_id=d.get("extractor_id", 0),
+            extracted_at_unix_nanos=d.get("extracted_at_unix_nanos", 0),
+            schema_version=d.get("schema_version", 0),
+            tombstoned_at_unix_nanos=d.get("tombstoned_at_unix_nanos", 0),
+            tombstone_reason=d.get("tombstone_reason", 0),
             subject_name=d.get("subject_name"),
             object_name=d.get("object_name"),
         )
@@ -543,9 +655,9 @@ class ListStatementsResult:
     statements: list[StatementDetail]
     count: int
 
-    #: Present when more rows follow; pass it back as ``cursor``. Served by
-    #: the cloud gateway's keyset pagination; a server without it omits the
-    #: field and the page is the whole result.
+    #: Present when more rows follow; pass it back as ``cursor``. Absent (not
+    #: null) once the enumeration is exhausted, so ``None`` means "last page",
+    #: never "this server does not paginate".
     next_cursor: Optional[str] = None
 
     @classmethod
@@ -926,7 +1038,7 @@ class SchemaReplace:
 
 @dataclass
 class SpaceProvision:
-    space_id: str
+    space: str
     #: Whether THIS call created it. The op is idempotent, so the rest of the
     #: body is identical either way and this is the only thing that tells
     #: "made it" from "it was already there".
@@ -939,7 +1051,7 @@ class SpaceProvision:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SpaceProvision:
         return cls(
-            space_id=d["space_id"],
+            space=d["space"],
             created=d["created"],
             created_at_unix_nanos=d["created_at_unix_nanos"],
             last_active_unix_nanos=d["last_active_unix_nanos"],
@@ -950,7 +1062,7 @@ class SpaceProvision:
 
 @dataclass
 class SpaceSummary:
-    space_id: str
+    space: str
     created_at_unix_nanos: int
     last_active_unix_nanos: int
     memory_count: int
@@ -959,7 +1071,7 @@ class SpaceSummary:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SpaceSummary:
         return cls(
-            space_id=d["space_id"],
+            space=d["space"],
             created_at_unix_nanos=d["created_at_unix_nanos"],
             last_active_unix_nanos=d["last_active_unix_nanos"],
             memory_count=d["memory_count"],
@@ -985,7 +1097,7 @@ class ListSpacesResult:
 
 @dataclass
 class SpaceErased:
-    space_id: str
+    space: str
     #: ``False`` when there was no registry row — already erased, or never
     #: written to.
     existed: bool
@@ -994,7 +1106,7 @@ class SpaceErased:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SpaceErased:
         return cls(
-            space_id=d["space_id"],
+            space=d["space"],
             existed=d["existed"],
             memories_forgotten=d["memories_forgotten"],
         )

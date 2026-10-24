@@ -187,8 +187,13 @@ export class MuxConnection {
   /**
    * Send one request and collect its response frames up to and including the
    * EOS frame. Safe to call concurrently; responses route back by `streamId`.
+   *
+   * `timeoutMs` raises the per-frame deadline for this one request. The mux
+   * cannot tell which verb it is carrying, let alone that an ENCODE asked to
+   * block on derivation; the client can, so the policy lives there and the
+   * mechanism lives here.
    */
-  async request(opcode: number, payload: Uint8Array): Promise<Frame[]> {
+  async request(opcode: number, payload: Uint8Array, timeoutMs?: number): Promise<Frame[]> {
     if (this.closedError) throw this.closedError;
     const streamId = this.takeStreamId();
     const sink = new StreamSink();
@@ -197,7 +202,7 @@ export class MuxConnection {
       await this.writeFrame(opcode, streamId, payload);
       const frames: Frame[] = [];
       for (;;) {
-        const frame = await this.nextFrame(sink);
+        const frame = await this.nextFrame(sink, timeoutMs);
         if (frame.opcode === Opcode.Error) {
           throw new ServerError(decodeError(frame.payload));
         }
@@ -243,9 +248,10 @@ export class MuxConnection {
     }
   }
 
-  /** Send one request and require exactly one EOS response frame. */
-  async requestOne(opcode: number, payload: Uint8Array): Promise<Frame> {
-    const frames = await this.request(opcode, payload);
+  /** Send one request and require exactly one EOS response frame.
+   * `timeoutMs` overrides the per-frame deadline as in {@link request}. */
+  async requestOne(opcode: number, payload: Uint8Array, timeoutMs?: number): Promise<Frame> {
+    const frames = await this.request(opcode, payload, timeoutMs);
     if (frames.length !== 1) {
       throw new ProtocolError(`expected a single response frame, got ${frames.length}`);
     }
@@ -307,13 +313,15 @@ export class MuxConnection {
 
   // ---- internals ----
 
-  private nextFrame(sink: StreamSink): Promise<Frame> {
-    if (this.requestTimeoutMs === undefined) return sink.next();
+  private nextFrame(sink: StreamSink, timeoutMs?: number): Promise<Frame> {
+    // `undefined` means "the deadline this connection was configured with",
+    // not "no deadline": an override exists to *raise* the limit for one
+    // request, and a caller that wants an unbounded wait omits
+    // `requestTimeoutMs` on the config.
+    const deadlineMs = timeoutMs ?? this.requestTimeoutMs;
+    if (deadlineMs === undefined) return sink.next();
     return new Promise<Frame>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new BrainTimeout(this.requestTimeoutMs!)),
-        this.requestTimeoutMs,
-      );
+      const timer = setTimeout(() => reject(new BrainTimeout(deadlineMs)), deadlineMs);
       sink.next().then(
         (f) => {
           clearTimeout(timer);

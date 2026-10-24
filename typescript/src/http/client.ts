@@ -7,6 +7,7 @@
  * management), use {@link BrainClient} instead.
  */
 import { BrainHttpError } from "./errors.js";
+import { decodeJsonBody, snakeCase, stringifyJsonWithBigInts, toSnakeKeys } from "./json.js";
 import { describeThrown } from "../transport.js";
 import { Subscription } from "./sse.js";
 import type {
@@ -168,43 +169,6 @@ function parseRetryAfter(header: string | null): number | undefined {
 }
 
 /**
- * The edge speaks snake_case JSON; this SDK speaks camelCase, as its wire types
- * already do. Converting at the transport seam keeps one convention in the
- * public API instead of two — Rust and Python have no such split because
- * snake_case is idiomatic there, so their HTTP types match the wire by
- * coincidence rather than by a different rule.
- *
- * Generic rather than a hand-written mapping per field of every DTO across the
- * edge's 25 routes: every HTTP type here is a fixed-shape struct with plain
- * snake_case keys, so the transform is total and mechanical. There are no
- * free-form maps whose keys would be wrongly rewritten, and the tagged unions
- * carry their tag in a value, which the transform does not touch.
- */
-function snakeCase(key: string): string {
-  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-}
-
-function toSnakeKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(toSnakeKeys);
-  if (value === null || typeof value !== "object") return value;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[snakeCase(k)] = toSnakeKeys(v);
-  }
-  return out;
-}
-
-function toCamelKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(toCamelKeys);
-  if (value === null || typeof value !== "object") return value;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase())] = toCamelKeys(v);
-  }
-  return out;
-}
-
-/**
  * Render a query object as a URL query string, snake_casing its names.
  *
  * The body seam above cannot do this: a query string is not JSON and never
@@ -221,15 +185,20 @@ function encodeQuery(query: Query | undefined): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(query as Record<string, unknown>)) {
     if (v === undefined) continue;
-    // Every query field on every route is a string, number or boolean. `Query`
-    // cannot say so in the type — a TypeScript `interface` is not assignable to
-    // an index-signature type, and all of these are interfaces — so the
-    // guarantee is enforced here instead. Without it a nested object would
-    // stringify to the literal `[object Object]` and the request would go out
-    // silently wrong; the edge would answer 400 or, worse, apply a default.
-    if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") {
+    // Every query field on every route is a string, number, bigint or boolean.
+    // `Query` cannot say so in the type — a TypeScript `interface` is not
+    // assignable to an index-signature type, and all of these are interfaces —
+    // so the guarantee is enforced here instead. Without it a nested object
+    // would stringify to the literal `[object Object]` and the request would go
+    // out silently wrong; the edge would answer 400 or, worse, apply a default.
+    if (
+      typeof v !== "string" &&
+      typeof v !== "number" &&
+      typeof v !== "bigint" &&
+      typeof v !== "boolean"
+    ) {
       throw new TypeError(
-        `query parameter \`${k}\` must be a string, number or boolean, got ${
+        `query parameter \`${k}\` must be a string, number, bigint or boolean, got ${
           v === null ? "null" : typeof v
         }`,
       );
@@ -484,7 +453,7 @@ export class BrainHttpClient {
   }
 
   /** Erase a session. Soft unless `hard` is asked for by name. */
-  deleteSession(sessionId: number, query?: DeleteSessionQuery): Promise<SessionErased> {
+  deleteSession(sessionId: bigint, query?: DeleteSessionQuery): Promise<SessionErased> {
     return this.requestWithRetry(
       "DELETE",
       `/v1/sessions/${pathId(String(sessionId))}`,
@@ -877,7 +846,7 @@ export class BrainHttpClient {
     const init: RequestInit = { method, headers, signal: controller.signal };
     if (body !== undefined) {
       headers["content-type"] = "application/json";
-      init.body = JSON.stringify(toSnakeKeys(body));
+      init.body = stringifyJsonWithBigInts(toSnakeKeys(body));
     }
 
     let res: Response;
@@ -913,7 +882,7 @@ export class BrainHttpClient {
       if (retryAfterMs !== undefined) err.retryAfterMs = retryAfterMs;
       throw err;
     }
-    return (text ? toCamelKeys(JSON.parse(text)) : undefined) as T;
+    return (text ? decodeJsonBody(text) : undefined) as T;
   }
 }
 

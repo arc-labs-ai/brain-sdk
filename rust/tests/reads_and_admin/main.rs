@@ -22,13 +22,16 @@ use brain_db_sdk::wire::types::{
     MemoryInspectRequest, MemoryInspectResponse, MemoryListDirWire, MemoryListItem,
     MemoryListRequest, MemoryListResponseFrame, MemoryListSortWire, MemoryListTimeAxisWire,
     PingRequest, PongResponse, SchemaDropRequest, SchemaDropResponse, ServerFeatures,
-    SpacePermissions, WelcomePayload,
+    SpacePermissions, WelcomePayload, WireMemoryId,
 };
 use brain_db_sdk::{Auth, BrainClient};
 
 const SERVER_AGENT: [u8; 16] = [0x22; 16];
+/// A graph node id. Graph nodes are opaque 16-byte ids; a memory id is a
+/// packed u128, so the two are no longer interchangeable in a fixture.
+const NODE_ID: [u8; 16] = [0x55; 16];
 const REQUEST_ID: [u8; 16] = [0x44; 16];
-const MEMORY_ID: [u8; 16] = [0x55; 16];
+const MEMORY_ID: WireMemoryId = u128::from_be_bytes([0x55; 16]);
 const ENTITY_ID: [u8; 16] = [0x66; 16];
 
 async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u32, p: &T) {
@@ -251,7 +254,7 @@ async fn serve(mut sock: TcpStream) {
             }],
             edges: vec![GraphEdge {
                 from_id: ENTITY_ID,
-                to_id: MEMORY_ID,
+                to_id: NODE_ID,
                 kind: 3,
                 label: String::new(),
             }],

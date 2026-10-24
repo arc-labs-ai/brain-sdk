@@ -107,15 +107,7 @@ describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
         txnId: null,
       });
     }
-    const idBytes = (v: bigint) => {
-      const out = new Uint8Array(16);
-      for (let i = 15; i >= 0; i--) {
-        out[i] = Number(v & 0xffn);
-        v >>= 8n;
-      }
-      return out;
-    };
-    const insp: any = await c.memoryInspect({ memoryId: idBytes(a.memoryId), actAs: null });
+    const insp: any = await c.memoryInspect({ memoryId: a.memoryId, actAs: null });
     note(
       "edges read back",
       `n=${insp.edges.length}`,
@@ -130,7 +122,7 @@ describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
       requestId: rid(),
       txnId: null,
     });
-    const after: any = await c.memoryInspect({ memoryId: idBytes(a.memoryId), actAs: null });
+    const after: any = await c.memoryInspect({ memoryId: a.memoryId, actAs: null });
     const stillCaused = after.edges.some(
       (e: any) => e.kind === EdgeKindWire.Caused && e.peer === b.memoryId,
     );
@@ -153,7 +145,7 @@ describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
     // An unknown id is a `MemoryNotFound` error now, not a success carrying a
     // flag — the same answer every sibling read gives.
     try {
-      await c.memoryInspect({ memoryId: idBytes(12345n), actAs: null });
+      await c.memoryInspect({ memoryId: 12345n, actAs: null });
       note("inspect unknown id", "UNEXPECTED ok");
     } catch (e) {
       note("inspect unknown id", "rejected", String(e).slice(0, 80));

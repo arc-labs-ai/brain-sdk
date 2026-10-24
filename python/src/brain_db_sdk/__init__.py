@@ -54,6 +54,7 @@ from . import (
 )
 from .aio import AsyncBrainClient, AsyncMuxConnection, AsyncPool, AsyncSubscription
 from .client import (
+    DEFAULT_DERIVED_WRITE_TIMEOUT,
     Auth,
     BrainClient,
     ClientConfig,
@@ -97,6 +98,7 @@ __all__ = [
     "BrainClient",
     "ClientConfig",
     "ConnectionInfo",
+    "DEFAULT_DERIVED_WRITE_TIMEOUT",
     "Auth",
     "new_id",
     "derive_space_id",

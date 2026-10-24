@@ -49,6 +49,26 @@ UNIMPLEMENTED_OPCODE_PREFIXES: dict[str, str] = {
 }
 
 
+# Server-side `serde(with = ...)` codecs whose SERIALIZED form is identical to
+# the default for that type, so an SDK that omits them is not drift.
+#
+# These exist for data the server persists, not for the wire. `EncodeStageArtifact`
+# is both the MEMORY_INSPECT payload and the JSON Brain writes to
+# `memory_artifacts`, so its two id fields accept the pre-rename 16-byte form on
+# the way IN; they always write the new form on the way out. The SDK never reads
+# Brain's storage, so it has nothing to be lenient about — and adding the
+# attribute there would be cargo-culting a compatibility shim into a client that
+# cannot encounter the old data.
+#
+# Only ever list a codec here whose output equals the default's. A codec that
+# changes the bytes belongs in the diff.
+WIRE_EQUIVALENT_CODECS: dict[str, str] = {
+    "memory_id_at_rest": "serializes as a plain u128; the leniency is read-side "
+    "and exists for Brain's persisted artifact JSON, which no SDK reads",
+    "opt_memory_id_at_rest": "same, for the optional form",
+}
+
+
 def cmp_serde(a: dict, b: dict) -> list[str]:
     """Differences in the serde attributes that change the wire."""
     out = []
@@ -57,6 +77,10 @@ def cmp_serde(a: dict, b: dict) -> list[str]:
         # `skip_serializing_if` values are predicate paths; only presence matters.
         if key == "skip_serializing_if":
             av, bv = bool(av), bool(bv)
+        # A server codec that encodes exactly as the default does is not a wire
+        # difference, so an SDK declaring nothing matches it.
+        if key == "with" and bv is None and av in WIRE_EQUIVALENT_CODECS:
+            continue
         if av != bv:
             out.append(f"serde({key}): server={av!r} sdk={bv!r}")
     return out

@@ -51,11 +51,35 @@ use crate::wire::types::{
     StatementSupersedeRequest, StatementSupersedeResponse, StatementTombstoneRequest,
     StatementTombstoneResponse, StatementView, SubscribeRequest, TraversalPathWire,
     TxnAbortRequest, TxnAbortResponse, TxnBeginRequest, TxnBeginResponse, TxnCommitRequest,
-    TxnCommitResponse, UnlinkRequest, UnlinkResponse,
+    TxnCommitResponse, UnlinkRequest, UnlinkResponse, WaitMode,
 };
 
 /// Default `client_id` advertised in HELLO.
 const DEFAULT_CLIENT_ID: &str = "brain-db-sdk-rust";
+
+/// Default deadline for an ENCODE that asked to block on derivation
+/// ([`WaitMode::Derived`]), as distinct from the flat `request_timeout` every
+/// other verb runs under.
+///
+/// A write has two halves. The synchronous half is durable the instant it
+/// acks. The asynchronous half — embedding, HyPE question generation,
+/// knowledge-graph extraction — runs afterwards and makes LLM provider round
+/// trips, and a derived write is the caller blocking on *that*. Measured
+/// against a live server: three derived encodes in isolation took 26.9s end to
+/// end (~9s each); under concurrent load a single write's visibility latency
+/// ranged 1.9s to 22.5s; and a ten-way concurrent burst put three of the ten
+/// past 30s, the slowest at 45.5s. Under the flat 30s default those three
+/// failed as a client-side `Timeout` that had nothing to do with the server,
+/// and a derived write is the only way to get read-your-writes or a populated
+/// `EncodeTrace` — so the correct call was the one that broke.
+///
+/// 120s is ~2.5x the slowest write yet observed, which is the headroom a
+/// provider hiccup on an already-saturated derivation queue needs. Do NOT fold
+/// this back into `request_timeout`: a read
+/// is milliseconds and a derived write is seconds to tens of seconds, and one
+/// number raised to cover both leaves every read hanging for two minutes on a
+/// dead connection.
+pub const DEFAULT_DERIVED_WRITE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// How the client authenticates after WELCOME. Auth is mandatory: there is no
 /// anonymous mode. The credential is the connection's whole identity — the
@@ -105,6 +129,10 @@ pub struct ClientConfig {
     pub connect_timeout: Option<Duration>,
     /// Per-response read deadline applied after connecting.
     pub request_timeout: Option<Duration>,
+    /// Deadline for a derived ENCODE only — the one verb that waits on the
+    /// asynchronous half of a write. Everything else keeps `request_timeout`;
+    /// see [`DEFAULT_DERIVED_WRITE_TIMEOUT`] for the measurements behind it.
+    pub derived_write_timeout: Option<Duration>,
 }
 
 impl ClientConfig {
@@ -122,6 +150,7 @@ impl ClientConfig {
             auth,
             connect_timeout: Some(Duration::from_secs(10)),
             request_timeout: Some(Duration::from_secs(30)),
+            derived_write_timeout: Some(DEFAULT_DERIVED_WRITE_TIMEOUT),
         }
     }
 }
@@ -185,6 +214,9 @@ impl RecallAnswer {
 pub struct BrainClient {
     conn: MuxConnection<TcpStream>,
     connection: ConnectionInfo,
+    /// Deadline a [`WaitMode::Derived`] ENCODE runs under, carried from the
+    /// config so [`Self::encode`] can apply it per request.
+    derived_write_timeout: Option<Duration>,
 }
 
 impl std::fmt::Debug for BrainClient {
@@ -258,7 +290,11 @@ impl BrainClient {
             namespace: auth_ok.namespace,
             server_features: welcome.server_features,
         };
-        Ok(Self { conn, connection })
+        Ok(Self {
+            conn,
+            connection,
+            derived_write_timeout: config.derived_write_timeout,
+        })
     }
 
     /// Whether this connection is dead (the server closed it, e.g. on
@@ -289,14 +325,33 @@ impl BrainClient {
     }
 
     /// Store a memory from text (ENCODE).
+    ///
+    /// A request built with [`WaitMode::Derived`] blocks on the asynchronous
+    /// half of the write and runs under `derived_write_timeout` instead of the
+    /// flat `request_timeout`; see [`Self::encode_timeout`].
     pub async fn encode(&self, request: &EncodeRequest) -> Result<EncodeResponse> {
-        self.unary(
+        self.unary_with_timeout(
             Opcode::EncodeReq,
             Opcode::EncodeResp,
             "ENCODE_RESP",
             request,
+            self.encode_timeout(request),
         )
         .await
+    }
+
+    /// The deadline this one ENCODE waits under.
+    ///
+    /// [`WaitMode::Ack`] returns on durability — milliseconds — and keeps the
+    /// connection default (`None` defers to it). [`WaitMode::Derived`] waits
+    /// out embedding, HyPE and graph extraction, so it gets
+    /// `derived_write_timeout`. Reading it off the request is what lets the two
+    /// populations differ without a second argument on every verb.
+    fn encode_timeout(&self, request: &EncodeRequest) -> Option<Duration> {
+        match request.wait {
+            WaitMode::Derived => self.derived_write_timeout,
+            WaitMode::Ack => None,
+        }
     }
 
     /// Retrieve a memory by cue. RECALL streams one or more `RECALL_RESP`
@@ -1378,9 +1433,27 @@ impl BrainClient {
         Req: serde::Serialize,
         Resp: serde::de::DeserializeOwned,
     {
+        self.unary_with_timeout(req_opcode, resp_opcode, resp_name, request, None)
+            .await
+    }
+
+    /// [`Self::unary`] under a deadline of this one request's choosing; `None`
+    /// defers to the connection's configured `request_timeout`.
+    async fn unary_with_timeout<Req, Resp>(
+        &self,
+        req_opcode: Opcode,
+        resp_opcode: Opcode,
+        resp_name: &str,
+        request: &Req,
+        timeout: Option<Duration>,
+    ) -> Result<Resp>
+    where
+        Req: serde::Serialize,
+        Resp: serde::de::DeserializeOwned,
+    {
         let frame = self
             .conn
-            .request_one(req_opcode, to_cbor_bytes(request))
+            .request_one_with_timeout(req_opcode, to_cbor_bytes(request), timeout)
             .await?;
         if frame.opcode != resp_opcode as u16 {
             return Err(BrainError::Protocol(format!(

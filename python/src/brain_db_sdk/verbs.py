@@ -66,13 +66,13 @@ class EncodeBuilder:
         self.wait_mode = WaitMode.DERIVED
         return self
 
-    def act_as(self, namespace: str, space_id: str) -> EncodeBuilder:
-        """Run this encode as the effective identity ``(namespace, space_id)``
-        on behalf of the connection principal. ``space_id`` is the human-readable
+    def act_as(self, namespace: str, space: str) -> EncodeBuilder:
+        """Run this encode as the effective identity ``(namespace, space)``
+        on behalf of the connection principal. ``space`` is the human-readable
         structured space string (empty selects the key-bound space). Requires the
         connection's key to hold ``can_act_as``; otherwise the server rejects with
         ``ActAsDenied``. Per-request, so one pooled client can serve many tenants."""
-        self.act_as_identity = ActAs(namespace=namespace, space_id=space_id)
+        self.act_as_identity = ActAs(namespace=namespace, space=space)
         return self
 
     def allow_duplicates(self, allow: bool = True) -> EncodeBuilder:
@@ -188,13 +188,13 @@ class RecallBuilder:
         self.scope_selector = scope
         return self
 
-    def act_as(self, namespace: str, space_id: str) -> RecallBuilder:
-        """Run this recall as the effective identity ``(namespace, space_id)``
-        on behalf of the connection principal. ``space_id`` is the human-readable
+    def act_as(self, namespace: str, space: str) -> RecallBuilder:
+        """Run this recall as the effective identity ``(namespace, space)``
+        on behalf of the connection principal. ``space`` is the human-readable
         structured space string (empty selects the key-bound space). Requires the
         connection's key to hold ``can_act_as``; otherwise the server rejects with
         ``ActAsDenied``. Per-request, so one pooled client can serve many tenants."""
-        self.act_as_identity = ActAs(namespace=namespace, space_id=space_id)
+        self.act_as_identity = ActAs(namespace=namespace, space=space)
         return self
 
     def build(self) -> RecallRequest:
@@ -240,13 +240,13 @@ class ForgetBuilder:
         self.mode = mode
         return self
 
-    def act_as(self, namespace: str, space_id: str) -> ForgetBuilder:
-        """Run this forget as the effective identity ``(namespace, space_id)``
-        on behalf of the connection principal. ``space_id`` is the human-readable
+    def act_as(self, namespace: str, space: str) -> ForgetBuilder:
+        """Run this forget as the effective identity ``(namespace, space)``
+        on behalf of the connection principal. ``space`` is the human-readable
         structured space string (empty selects the key-bound space). Requires the
         connection's key to hold ``can_act_as``; otherwise the server rejects with
         ``ActAsDenied``. Per-request, so one pooled client can serve many tenants."""
-        self.act_as_identity = ActAs(namespace=namespace, space_id=space_id)
+        self.act_as_identity = ActAs(namespace=namespace, space=space)
         return self
 
     def build(self) -> ForgetRequest:
