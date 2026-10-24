@@ -106,12 +106,22 @@ class MuxConnection:
         request_timeout: float | None = 30.0,
     ) -> tuple[MuxConnection, HandshakeOutcome]:
         """Connect to ``host:port``, run the handshake, and return the live
-        connection plus the negotiated outcome."""
+        connection plus the negotiated outcome.
+
+        A failure anywhere after the socket opens — a timeout, a rejected
+        credential, a version mismatch — closes that socket before propagating,
+        so a caller that retries in a loop does not accumulate half-open
+        connections and reader threads.
+        """
         sock = socket.create_connection((host, port), timeout=connect_timeout)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sock.settimeout(None)  # the reader thread blocks; per-request waits use the queue
         conn = cls(sock, request_timeout=request_timeout)
-        outcome = conn.handshake(hello, auth)
+        try:
+            outcome = conn.handshake(hello, auth)
+        except BaseException:
+            conn.close()
+            raise
         return conn, outcome
 
     def handshake(self, hello: HelloPayload, auth: AuthPayload) -> HandshakeOutcome:
