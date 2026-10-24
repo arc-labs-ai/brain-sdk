@@ -132,7 +132,11 @@ class Subscription:
         try:
             payload: dict[str, Any] = json.loads(frame.data)
         except ValueError as exc:
-            raise BrainHttpError.transport(f"decode subscription frame: {exc}") from exc
+            # `BrainHttpError(0, "transport", ...)` is how every other transport
+            # failure in this tier is raised; there is no `.transport`
+            # constructor, and calling one turned a malformed frame into an
+            # AttributeError from inside the error path itself.
+            raise BrainHttpError(0, "transport", f"decode subscription frame: {exc}") from exc
         if frame.event == "closed":
             return SubscriptionClosed.from_dict(payload)
         return SubscriptionEvent.from_dict(payload)

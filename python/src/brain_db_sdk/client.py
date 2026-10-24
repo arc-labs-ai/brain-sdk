@@ -477,9 +477,14 @@ class BrainClient:
         """Inspect one memory's durable write-artifact bundle (MEMORY_INSPECT):
         its text plus the per-stage record of what the write built — the
         embedding vector, the stored record, the analyzed keyword terms, the
-        write-time HyPE questions, and the extracted knowledge graph. Returns
-        ``found = False`` (with an empty ``artifact``) for an id that doesn't
-        exist under the caller's scope."""
+        write-time HyPE questions, the extracted knowledge graph, and the
+        memory's outgoing ``edges``.
+
+        An id that does not exist under the caller's scope is refused with
+        ``MemoryNotFound`` in the ``NotFound`` category, like every other read
+        — not reported as a success carrying a flag. A memory that exists but
+        whose bundle has not been written yet is a different answer and stays
+        one: a normal response with an empty ``artifact``."""
         return self._unary(
             Opcode.MEMORY_INSPECT_REQ,
             Opcode.MEMORY_INSPECT_RESP,
