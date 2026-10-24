@@ -326,6 +326,29 @@ where
         self.shared.request_on(stream_id, rx, opcode, payload).await
     }
 
+    /// Send a CONNECTION-LEVEL request and collect its response frames.
+    ///
+    /// `PING`/`PONG`, like `HELLO` and `BYE`, are connection-level opcodes:
+    /// the server rejects them on any stream but 0 with
+    /// `connection-level opcode requires stream_id = 0`. They therefore
+    /// cannot go through [`Self::request`], which allocates an odd op-stream
+    /// id — a `ping()` built on that path never completed a round trip.
+    ///
+    /// Stream 0 is also the handshake stream, but it is free by the time any
+    /// request runs: `HELLO`/`AUTH` complete before the reader loop starts,
+    /// and the server's own `SERVER_PING` keepalive is intercepted by the
+    /// reader before routing, so it never lands in the table.
+    pub async fn request_on_connection(
+        &self,
+        opcode: Opcode,
+        payload: Vec<u8>,
+    ) -> Result<Vec<Frame>> {
+        let rx = self.shared.register(HANDSHAKE_STREAM_ID)?;
+        self.shared
+            .request_on(HANDSHAKE_STREAM_ID, rx, opcode, payload)
+            .await
+    }
+
     /// Send one request and require exactly one EOS response frame.
     pub async fn request_one(&self, opcode: Opcode, payload: Vec<u8>) -> Result<Frame> {
         let mut frames = self.request(opcode, payload).await?;

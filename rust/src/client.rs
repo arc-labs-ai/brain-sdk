@@ -869,8 +869,30 @@ impl BrainClient {
         let request = PingRequest {
             client_timestamp_unix_nanos: ts,
         };
-        self.unary(Opcode::Ping, Opcode::Pong, "PONG", &request)
-            .await
+        // Connection-level, so stream 0 — NOT the unary path, which allocates
+        // an odd op-stream id. Brain classifies PING/PONG alongside
+        // HELLO/AUTH/BYE and answers anything else with
+        // `connection-level opcode requires stream_id = 0`, so the unary form
+        // this used to take could never complete a round trip.
+        let mut frames = self
+            .conn
+            .request_on_connection(Opcode::Ping, to_cbor_bytes(&request))
+            .await?;
+        if frames.len() != 1 {
+            return Err(BrainError::Protocol(format!(
+                "expected a single PONG frame, got {}",
+                frames.len()
+            )));
+        }
+        let frame = frames.remove(0);
+        if frame.opcode != Opcode::Pong as u16 {
+            return Err(BrainError::Protocol(format!(
+                "expected PONG ({:#06x}), got {:#06x}",
+                Opcode::Pong as u16,
+                frame.opcode
+            )));
+        }
+        Ok(from_cbor_bytes(&frame.payload)?)
     }
 
     /// Cancel an in-flight stream (CANCEL_STREAM).
