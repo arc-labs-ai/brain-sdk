@@ -7,13 +7,22 @@ library, is the source of truth — and is verified byte-for-byte against
 Brain's conformance corpus.
 
 Status: the wire codec (L1 frame + L2 CBOR payload + typed payloads) is
-corpus-verified, and on top of it a synchronous connection layer — transport,
+corpus-verified, and on top of it a connection layer — transport,
 handshake, a multiplexed :class:`MuxConnection`, a high-level
 :class:`BrainClient` serving the full v1 + typed-graph verb surface
 (encode, recall, forget, link, the entity / statement / relation / schema
 graph ops, transactions, and subscriptions), a connection
 :class:`Pool`, and a retry helper.
 
+That layer comes in two tiers over one codec. :class:`BrainClient` is
+synchronous and demultiplexes on a reader thread;
+:class:`~brain_db_sdk.aio.AsyncBrainClient` in :mod:`brain_db_sdk.aio` is
+its asyncio twin — the same verbs with the same signatures, each a
+coroutine, demultiplexing on a reader task. Pick one per program: the
+sync client blocks the event loop from inside a coroutine, and the async
+one needs a running loop. :class:`BrainHttpClient` is a third, separate
+thing — the hosted-edge REST client, not a transport choice for the same
+API.
 """
 
 from __future__ import annotations
@@ -37,10 +46,13 @@ except PackageNotFoundError:  # pragma: no cover — only when run uninstalled
     __version__ = "0.0.0+unknown"
 
 # HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).
+# `aio` — the asyncio tier over the same wire protocol.
 from . import (
+    aio,
     http,
     wire,
 )
+from .aio import AsyncBrainClient, AsyncMuxConnection, AsyncPool, AsyncSubscription
 from .client import (
     Auth,
     BrainClient,
@@ -68,6 +80,14 @@ from .wire.types import AnswerKind, RecallAnswer, RecallScope, WaitMode
 
 __all__ = [
     "wire",
+    # The asyncio tier. Exported as a submodule *and* by name: `aio.with_retry`
+    # and `retry.with_retry` are different functions that must not be confused,
+    # so the retry helpers stay reachable only through their own module.
+    "aio",
+    "AsyncBrainClient",
+    "AsyncMuxConnection",
+    "AsyncSubscription",
+    "AsyncPool",
     # The HTTP tier was imported here for re-export but never listed, so
     # `from brain_db_sdk import *` did not carry it and strict type checkers
     # treated it as a private re-export for downstream users.

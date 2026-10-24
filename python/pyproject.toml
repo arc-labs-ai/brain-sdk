@@ -39,7 +39,15 @@ Homepage = "https://github.com/arc-labs-ai/brain-sdk"
 Repository = "https://github.com/arc-labs-ai/brain-sdk"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.16", "pyright>=1.1.400"]
+dev = [
+  "pytest>=8",
+  # Dev-only, and only for the `tests/aio_*` suites: it is what lets an `async
+  # def test_…` be collected at all. The shipped package has no async
+  # dependency — `brain_db_sdk.aio` is built on `asyncio` from the stdlib.
+  "pytest-asyncio>=1.0",
+  "ruff>=0.16",
+  "pyright>=1.1.400",
+]
 
 [tool.ruff]
 target-version = "py310"
@@ -198,6 +206,20 @@ ignore = [
 # `scripts/it-server.sh`) and skip without one; offline tests always run.
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
+# Makes `tests/aio_harness.py` importable from the feature folders. Under
+# importlib import mode nothing is added to `sys.path` implicitly, so without
+# this the only module a folder could share with another is `conftest.py` —
+# and importing conftest by name is exactly what import mode is meant to stop.
+pythonpath = ["tests"]
+# `auto` rather than `strict`: every `async def test_…` in this suite is an
+# asyncio test and there is no second async framework to disambiguate from, so
+# a per-test marker would be 100-odd lines of pure ceremony.
+asyncio_mode = "auto"
+# One fresh event loop per test. The default already is function scope; it is
+# pinned because these suites assert on loop affinity — a client opened on one
+# loop must refuse the next — and a shared loop would quietly make those tests
+# pass for the wrong reason.
+asyncio_default_fixture_loop_scope = "function"
 markers = [
   "slow: builds a wheel; excluded from the default run with -m 'not slow'",
 ]

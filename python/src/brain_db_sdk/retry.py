@@ -81,6 +81,26 @@ def _server_retry_after_seconds(exc: BaseException) -> Optional[float]:
     return None
 
 
+def sleep_before_retry(policy: RetryPolicy, attempt: int, exc: BaseException) -> Optional[float]:
+    """How long to wait after ``attempt`` (1-based) failed with ``exc``, or
+    ``None`` when the next try should go straight out.
+
+    The whole decision — the server's ``retry_after`` hint, the exponential
+    schedule, the cap, and the jitter that keeps a herd from retrying in
+    lockstep — lives here so the synchronous :func:`with_retry` and the
+    asyncio one cannot drift into two different backoff curves. They differ
+    only in how they wait out the number this returns.
+    """
+    server_floor = _server_retry_after_seconds(exc)
+    delay = policy.backoff(attempt, server_floor)
+    if not delay:
+        return None
+    # The server hint is the floor; jitter spreads the actual sleep across
+    # [floor, delay]. `backoff` already capped the hint at max_delay.
+    floor = min(server_floor, policy.max_delay) if server_floor is not None else 0.0
+    return _jittered(delay, floor)
+
+
 def with_retry(op: Callable[[], T], policy: Optional[RetryPolicy] = None) -> T:
     """Run ``op``, retrying per ``policy`` while the error is retryable and
     attempts remain. ``op`` is re-invoked from scratch each try, so pass a
@@ -95,17 +115,12 @@ def with_retry(op: Callable[[], T], policy: Optional[RetryPolicy] = None) -> T:
             return op()
         except Exception as exc:
             if attempt < policy.max_attempts and is_retryable(exc):
-                server_floor = _server_retry_after_seconds(exc)
-                delay = policy.backoff(attempt, server_floor)
+                delay = sleep_before_retry(policy, attempt, exc)
                 if delay:
-                    # The server hint is the floor; jitter spreads the actual
-                    # sleep across [floor, delay] so a herd doesn't retry in
-                    # lockstep. `backoff` already capped the hint at max_delay.
-                    floor = min(server_floor, policy.max_delay) if server_floor is not None else 0.0
-                    time.sleep(_jittered(delay, floor))
+                    time.sleep(delay)
                 attempt += 1
                 continue
             raise
 
 
-__all__ = ["RetryPolicy", "with_retry"]
+__all__ = ["RetryPolicy", "sleep_before_retry", "with_retry"]

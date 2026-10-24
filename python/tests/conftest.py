@@ -15,6 +15,7 @@ never share an agent unless they mint the same id on purpose.
 
 from __future__ import annotations
 
+import asyncio
 import http.client
 import json
 import os
@@ -26,6 +27,7 @@ from typing import Optional
 import pytest
 
 from brain_db_sdk import Auth, BrainClient, RecallAnswer, new_id
+from brain_db_sdk.aio import AsyncBrainClient
 from brain_db_sdk.wire.types import RecallRequest
 
 # How long ``recall_until`` polls before giving up. ENCODE is durable on ack,
@@ -100,6 +102,24 @@ class It:
         """Mint + connect as a brand-new random agent; returns ``(client, space_id)``."""
         agent = new_id()
         return self.connect_as(agent), agent
+
+    async def connect_as_async(self, space_id: bytes) -> AsyncBrainClient:
+        """The asyncio twin of :meth:`connect_as`.
+
+        Minting is a blocking HTTP call on the admin plane, so it runs on a
+        worker thread rather than stalling the loop the test is driving — the
+        same thing a real caller would have to do with any synchronous
+        provisioning step.
+        """
+        token = await asyncio.to_thread(self.mint, space_id)
+        return await AsyncBrainClient.connect(
+            self.data_host, self.data_port, Auth.token(token.encode())
+        )
+
+    async def connect_fresh_async(self) -> tuple[AsyncBrainClient, bytes]:
+        """Mint + connect as a brand-new random agent, asynchronously."""
+        agent = new_id()
+        return await self.connect_as_async(agent), agent
 
 
 def _split_hostport(s: str) -> tuple[str, int]:

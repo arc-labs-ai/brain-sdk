@@ -21,7 +21,7 @@ trusted principal targets via `act_as`. `BrainClient` is built on a
 `stream_id`, so **every verb is concurrency-safe** and many requests run in
 flight at once over one connection from multiple threads. A `Pool` opens a fixed
 set of such connections and hands them out round-robin for socket-level
-parallelism. Transparent reconnect and an `asyncio` client are later phases.
+parallelism. Transparent reconnect is a later phase.
 
 The full build plan is in the repo-root [`../PLAN.md`](../PLAN.md); the
 layered architecture is in [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
@@ -65,7 +65,58 @@ src/brain_db_sdk/
   client.py    high-level BrainClient: connect, handshake, encode/recall/forget
   verbs.py     ergonomic EncodeBuilder / RecallBuilder / ForgetBuilder
   retry.py     RetryPolicy + with_retry (exponential backoff, server retry_after)
+  aio/         the asyncio tier: AsyncBrainClient, AsyncPool, async transport+mux
 ```
+
+## asyncio tier
+
+`brain_db_sdk.aio.AsyncBrainClient` is the asyncio twin of `BrainClient`: the
+same verbs with the same signatures, every one a coroutine. It speaks the same
+BRN0 frames over the same multiplexed connection — a request in flight suspends
+its task instead of blocking a thread, so one connection carries thousands of
+concurrent requests on a single OS thread. No new dependency: it is built on
+`asyncio` from the standard library.
+
+```python
+import asyncio
+from brain_db_sdk import Auth, EncodeBuilder, RecallBuilder
+from brain_db_sdk.aio import AsyncBrainClient
+
+async def main() -> None:
+    async with await AsyncBrainClient.connect(
+        "127.0.0.1", 18080, Auth.token(b"brain_...")
+    ) as client:
+        # Independent writes cost one round trip, not three.
+        await asyncio.gather(
+            client.encode(EncodeBuilder("Ada works at Arc Labs").build()),
+            client.encode(EncodeBuilder("Arc Labs builds Brain").build()),
+            client.encode(EncodeBuilder("Brain is a memory database").build()),
+        )
+        answer = await client.recall(RecallBuilder("where does Ada work?").build())
+        for memory in answer.memories:
+            print(memory.text)
+
+asyncio.run(main())
+```
+
+`AsyncPool`, `AsyncSubscription` (drained with `async for`) and an awaiting
+`with_retry` come with it. Everything below the transport is shared rather than
+duplicated: the frame codec, the CBOR payload types, the request builders, the
+error taxonomy, the retry policy and its backoff curve, and the `Auth` /
+`ClientConfig` / `ConnectionInfo` configuration types are the same objects both
+tiers use. `tests/aio_parity` compares the two surfaces by reflection and fails
+the build if a verb, a signature or a default ever drifts.
+
+Two things worth knowing:
+
+- **Pick one tier per program, not per call.** The sync client blocks the event
+  loop from inside a coroutine; wrapping the async one in `asyncio.run` from
+  sync code opens and tears down a loop per call and raises outright if a loop
+  is already running (FastAPI, Jupyter).
+- **A connection belongs to the loop it was opened on.** That binding is checked
+  on every call rather than left to chance, because a connection driven from a
+  second loop does not raise — it waits forever on a future nothing will
+  complete.
 
 ## HTTP tier
 
@@ -86,7 +137,8 @@ answer = brain.recall(query="what whistled?", max_results=3)
 who = brain.whoami()  # namespace + space_id + permissions
 ```
 
-Dependencies: `cbor2` (runtime), `pytest` (dev). CRC32C is pure Python.
+Dependencies: `cbor2` (runtime), `pytest` + `pytest-asyncio` (dev). CRC32C is
+pure Python; the asyncio tier adds no runtime dependency.
 
 The live HTTP edge smoke tests cover identity, capabilities, and a memory
 encode/recall/list/forget lifecycle across all SDKs. Run them from the repo
