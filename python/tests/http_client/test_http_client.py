@@ -501,7 +501,6 @@ def test_memory_inspect_tolerates_a_stage_artifact_with_no_record_or_graph(edge)
         (
             200,
             {
-                "found": True,
                 "memory_id": "mem-1",
                 "text": "the sky is teal",
                 "artifact": {
@@ -511,12 +510,13 @@ def test_memory_inspect_tolerates_a_stage_artifact_with_no_record_or_graph(edge)
                     "keyword_fields": [{"field": "body", "terms": ["sky", "teal"]}],
                     "graph": None,
                 },
+                "edges": [],
             },
             {},
         )
     ]
     out = client.memory_inspect("mem-1")
-    assert out.found is True
+    assert out.memory_id == "mem-1"
     assert out.artifact.record is None and out.artifact.graph is None
     assert out.artifact.keyword_fields[0].terms == ["sky", "teal"]
 

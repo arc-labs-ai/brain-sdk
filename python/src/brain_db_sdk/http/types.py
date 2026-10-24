@@ -7,7 +7,7 @@ Python, and TypeScript SDKs. Each type parses from the edge's JSON via
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 
@@ -773,19 +773,56 @@ class StageArtifact:
 
 
 @dataclass
+class MemoryEdge:
+    """One memory<->memory edge, as returned by ``memory_inspect``."""
+
+    #: Snake-case kind name -- the same vocabulary ``link`` accepts.
+    kind: str
+    #: ``"outgoing"`` when this memory is the edge's source, else ``"incoming"``.
+    direction: str
+    #: Decimal string of the memory at the other end.
+    peer: str
+    weight: float
+    created_at_unix_nanos: int
+    annotation: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> MemoryEdge:
+        return cls(
+            kind=d["kind"],
+            direction=d["direction"],
+            peer=d["peer"],
+            weight=d["weight"],
+            created_at_unix_nanos=d["created_at_unix_nanos"],
+            annotation=d.get("annotation"),
+        )
+
+
+@dataclass
 class MemoryInspect:
-    found: bool
+    """``memory_inspect`` result.
+
+    There is no ``found`` flag: the edge answers an unknown (or another
+    tenant's) id with ``404``, which surfaces here as a ``BrainHttpError``.
+    """
+
     memory_id: str
     text: str
     artifact: StageArtifact
+    #: Memory<->memory edges anchored at this memory, both directions.
+    #:
+    #: The read side of ``link``. Distinct from ``artifact.graph``, which is
+    #: the extractor's write-time knowledge graph and never contains an edge
+    #: asserted through ``link``.
+    edges: list[MemoryEdge] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> MemoryInspect:
         return cls(
-            found=d["found"],
             memory_id=d["memory_id"],
             text=d["text"],
             artifact=StageArtifact.from_dict(d["artifact"]),
+            edges=[MemoryEdge.from_dict(e) for e in d.get("edges", [])],
         )
 
 

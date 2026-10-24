@@ -114,7 +114,7 @@ describe.skipIf(!configured)("every HTTP operation, live", () => {
       expect(answer.memories.some((m) => m.memoryId === id)).toBe(true);
 
       const inspected = await c.memoryInspect(id);
-      expect(inspected.found).toBe(true);
+      expect(inspected.memoryId).toBe(id);
 
       const page = await c.memoryList({ limit: 100 });
       expect(page.items.some((m) => m.memoryId === id)).toBe(true);
@@ -321,10 +321,13 @@ describe.skipIf(!configured)("every HTTP operation, live", () => {
     expect((await errorFrom(() => client().getEntity(ABSENT_UUID)))?.status).toBe(404);
   });
 
-  it("reports an unknown memory as not-found without throwing", async () => {
-    // `inspect` answers 200 with `found: false` rather than 404 — it is a
-    // debugging view, and "no such memory" is one of its answers.
-    expect((await client().memoryInspect("1")).found).toBe(false);
+  it("reports an unknown memory as 404", async () => {
+    // `inspect` is a single-resource read, so an id that does not exist — or
+    // belongs to another tenant, which the engine deliberately reports the
+    // same way — is a 404, like `/v1/entities/{id}` and its siblings. It used
+    // to answer 200 with a `found: false` body, which made it the one read
+    // where a caller had to look inside a success to learn it was missing.
+    expect((await errorFrom(() => client().memoryInspect("1")))?.status).toBe(404);
   });
 
   it("forgets an unknown memory without erroring", async () => {

@@ -19,7 +19,7 @@ pub use types::{
     EntityDetail, ForgetInput, ForgetResult, GetRelationQuery, GetStatementQuery, GraphEdge,
     GraphFetchQuery, GraphNode, GraphPage, InferenceStep, LinkInput, LinkResult, ListEntitiesQuery,
     ListEntitiesResult, ListRelationsQuery, ListRelationsResult, ListStatementsQuery,
-    ListStatementsResult, MemoryHit, MemoryInspect, MemoryListItem, MemoryListPage,
+    ListStatementsResult, MemoryEdge, MemoryHit, MemoryInspect, MemoryListItem, MemoryListPage,
     MemoryListQuery, Permissions, PlanInput, PlanResult, PlanStep, ReasonInput, ReasonResult,
     RecallInput, RecallResult, RelationDetail, ResolveEntityInput, ResolveEntityResult, Schema,
     SchemaError, SchemaGetQuery, SchemaReplaceInput, SchemaReplaceResult, SchemaUploadInput,

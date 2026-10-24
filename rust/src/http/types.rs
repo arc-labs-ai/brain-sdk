@@ -394,13 +394,37 @@ pub struct StageArtifact {
     pub graph: Option<StageGraph>,
 }
 
-/// `memory_inspect` result. `found == false` leaves the rest empty.
+/// `memory_inspect` result.
+///
+/// There is no `found` flag: the edge answers an unknown (or another
+/// tenant's) id with `404`, which surfaces here as a `BrainHttpError`.
 #[derive(Clone, Debug, Deserialize)]
 pub struct MemoryInspect {
-    pub found: bool,
     pub memory_id: String,
     pub text: String,
     pub artifact: StageArtifact,
+    /// Memory↔memory edges anchored at this memory, both directions.
+    ///
+    /// The read side of [`crate::http::BrainHttpClient::link`]. Distinct from
+    /// `artifact.graph`, which is the extractor's write-time knowledge graph
+    /// and never contains an edge asserted through `link`.
+    #[serde(default)]
+    pub edges: Vec<MemoryEdge>,
+}
+
+/// One memory↔memory edge, as returned by `memory_inspect`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MemoryEdge {
+    /// Snake-case kind name — the same vocabulary `link` accepts.
+    pub kind: String,
+    /// `"outgoing"` when this memory is the edge's source, else `"incoming"`.
+    pub direction: String,
+    /// Decimal string of the memory at the other end.
+    pub peer: String,
+    pub weight: f32,
+    pub created_at_unix_nanos: u64,
+    #[serde(default)]
+    pub annotation: Option<String>,
 }
 
 // --- entities ---------------------------------------------------------------

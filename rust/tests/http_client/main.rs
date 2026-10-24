@@ -169,7 +169,9 @@ const WHOAMI: &str = r#"{"namespace":"ns","space_id":"00000000-0000-0000-0000-00
 
 /// A `MemoryInspectDto` shaped as the manifest declares it, including a
 /// `StageGraphEdgeDto` with its optional `event_at_unix_nanos` absent.
-const INSPECT: &str = r#"{"found":true,"memory_id":"m1","text":"the kettle whistled",
+const INSPECT: &str = r#"{"memory_id":"m1","text":"the kettle whistled",
+  "edges":[{"kind":"caused","direction":"outgoing","peer":"m2","weight":0.8,
+    "created_at_unix_nanos":3}],
   "artifact":{"vector":[0.25,0.5],
     "record":{"memory_id":"m1","kind":0,"salience":0.5,"created_at_unix_nanos":1,
       "occurred_at_unix_nanos":2,"vector_dim":768,"text_len":19,"lsn":9},
@@ -311,7 +313,17 @@ async fn memory_reads_hit_their_routes() {
         .await
         .expect("memory_inspect");
     assert_route(&edge, "GET", "/v1/memories/m1/inspect");
-    assert!(out.found);
+    assert_eq!(out.memory_id, "m1");
+    // The memory↔memory edges are the read side of `link`, and decoding them
+    // is the only way a caller sees an edge they asserted — `artifact.graph`
+    // is the extractor's own graph and never carries one.
+    assert_eq!(out.edges.len(), 1);
+    assert_eq!(out.edges[0].kind, "caused");
+    assert_eq!(out.edges[0].direction, "outgoing");
+    assert_eq!(out.edges[0].peer, "m2");
+    // Absent on the wire when the edge carries no note; it must decode as
+    // None rather than fail the whole inspect.
+    assert!(out.edges[0].annotation.is_none());
     let record = out.artifact.record.expect("record");
     assert_eq!(record.vector_dim, 768);
     assert_eq!(record.lsn, 9);

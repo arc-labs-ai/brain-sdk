@@ -161,7 +161,7 @@ async fn encode_recall_inspect_and_list() {
         assert!(answer.memories.iter().any(|m| m.memory_id == id));
 
         let inspected = c.memory_inspect(&id).await.expect("inspect");
-        assert!(inspected.found);
+        assert_eq!(inspected.memory_id, id);
 
         let page = c
             .memory_list(&MemoryListQuery {
@@ -630,14 +630,23 @@ async fn an_unknown_entity_is_404_and_carries_a_code() {
 }
 
 #[tokio::test]
-async fn unknown_memories_are_reported_without_erroring() {
+async fn an_unknown_memory_is_a_404_and_an_unknown_forget_is_not() {
     let _serial = serial().await;
     let Some(client) = client() else { return };
-    // `inspect` answers 200 with `found: false` rather than 404 — it is a
-    // debugging view, and "no such memory" is one of its answers.
-    let inspected = client.memory_inspect("1").await.expect("inspect");
-    assert!(!inspected.found);
+    // `inspect` is a single-resource read, so an id that does not exist (or
+    // belongs to another tenant, which the engine deliberately reports the
+    // same way) is a 404 — the same answer `/v1/entities/{id}` and friends
+    // give. It used to answer 200 with a `found: false` body, which made it
+    // the one read where a caller had to look inside a success to find out
+    // the resource was missing.
+    let err = client
+        .memory_inspect("1")
+        .await
+        .expect_err("an unknown memory must not read as a success");
+    assert_eq!(err.status, 404, "got {err}");
 
+    // `forget`, by contrast, is idempotent: forgetting what is already gone
+    // is the outcome the caller asked for, not a failure.
     let forgotten = client
         .forget(&ForgetInput {
             memory_id: "1".into(),

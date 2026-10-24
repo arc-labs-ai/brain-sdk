@@ -1320,11 +1320,6 @@
   "MemoryInspectDto": {
    "fields": [
     {
-     "name": "found",
-     "serde": {},
-     "shape": "bool"
-    },
-    {
      "name": "memory_id",
      "serde": {},
      "shape": "string"

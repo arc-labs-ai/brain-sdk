@@ -256,11 +256,37 @@ export interface StageArtifact {
   keywordFields: StageKeywordField[];
   graph: StageGraph | null;
 }
+/** One memory↔memory edge, as returned by `memoryInspect`. */
+export interface MemoryEdge {
+  /** Snake-case kind name — the same vocabulary `link` accepts. */
+  kind: string;
+  /** `"outgoing"` when this memory is the edge's source, else `"incoming"`. */
+  direction: string;
+  /** Decimal string of the memory at the other end. */
+  peer: string;
+  weight: number;
+  createdAtUnixNanos: number;
+  annotation?: string | null;
+}
+
+/**
+ * `memoryInspect` result.
+ *
+ * There is no `found` flag: the edge answers an unknown (or another tenant's)
+ * id with `404`, which surfaces here as a thrown `BrainHttpError`.
+ */
 export interface MemoryInspect {
-  found: boolean;
   memoryId: string;
   text: string;
   artifact: StageArtifact;
+  /**
+   * Memory↔memory edges anchored at this memory, both directions.
+   *
+   * The read side of `link`. Distinct from `artifact.graph`, which is the
+   * extractor's write-time knowledge graph and never contains an edge
+   * asserted through `link`.
+   */
+  edges: MemoryEdge[];
 }
 
 // --- entities --------------------------------------------------------------

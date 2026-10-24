@@ -123,7 +123,6 @@ def test_encode_recall_inspect_list_forget(client: BrainHttpClient, stored) -> N
     assert any(m.memory_id == result.memory_id for m in answer.memories)
 
     inspected = client.memory_inspect(result.memory_id)
-    assert inspected.found is True
     assert inspected.memory_id == result.memory_id
 
     page = client.memory_list(limit=100)
@@ -347,12 +346,18 @@ def test_an_unknown_entity_is_404(client: BrainHttpClient) -> None:
     assert excinfo.value.status == 404
 
 
-def test_inspecting_an_unknown_memory_reports_not_found_without_raising(
-    client: BrainHttpClient,
-) -> None:
-    """`inspect` answers 200 with `found=False` rather than 404 — it is a
-    debugging view, and "no such memory" is one of its answers."""
-    assert client.memory_inspect("1").found is False
+def test_inspecting_an_unknown_memory_is_a_404(client: BrainHttpClient) -> None:
+    """`inspect` is a single-resource read, so an id that does not exist --
+    or belongs to another tenant, which the engine deliberately reports the
+    same way -- is a 404, like ``/v1/entities/{id}`` and its siblings.
+
+    It used to answer 200 with a ``found=False`` body, which made it the one
+    read where a caller had to look inside a success to learn the resource
+    was missing.
+    """
+    with pytest.raises(BrainHttpError) as excinfo:
+        client.memory_inspect("1")
+    assert excinfo.value.status == 404
 
 
 def test_forgetting_an_unknown_memory_is_not_an_error(client: BrainHttpClient) -> None:
