@@ -592,3 +592,464 @@ export interface SchemaReplaceResult {
   droppedCount: number;
   validationErrors: SchemaError[];
 }
+
+// --- space lifecycle -------------------------------------------------------
+//
+// All three act on the caller's effective space: Brain resolves it from the
+// credential and never takes it from the request, so none of them names one.
+
+export interface CreateSpaceInput {
+  /** Opaque caller metadata. Write-only: no op returns it. */
+  metadata?: string;
+}
+export interface SpaceProvision {
+  spaceId: string;
+  /**
+   * Whether THIS call created it. The op is idempotent, so the rest of the
+   * body is identical either way and this is the only thing that tells
+   * "made it" from "it was already there".
+   */
+  created: boolean;
+  createdAtUnixNanos: number;
+  lastActiveUnixNanos: number;
+  memoryCount: number;
+  sessionCount: number;
+}
+export interface ListSpacesQuery {
+  limit?: number;
+}
+export interface SpaceSummary {
+  spaceId: string;
+  createdAtUnixNanos: number;
+  lastActiveUnixNanos: number;
+  memoryCount: number;
+  sessionCount: number;
+}
+export interface ListSpacesResult {
+  spaces: SpaceSummary[];
+  /**
+   * `false` when the listing covered only the caller's shard. Treat a `false`
+   * as partial: concluding a space is gone from an incomplete listing is the
+   * failure this field exists to prevent.
+   */
+  crossShardComplete: boolean;
+}
+export interface SpaceErased {
+  spaceId: string;
+  /** `false` when there was no registry row — already erased, or never written to. */
+  existed: boolean;
+  memoriesForgotten: number;
+}
+
+// --- session lifecycle -----------------------------------------------------
+
+export interface CreateSessionInput {
+  /**
+   * Client-chosen, so a caller's own conversation id can BE the session id
+   * rather than needing a mapping. The op is idempotent on it.
+   */
+  sessionId: number;
+  title?: string;
+}
+export interface SessionProvision {
+  spaceId: string;
+  sessionId: number;
+  /** Whether THIS call created it; the op is idempotent. */
+  created: boolean;
+  createdAtUnixNanos: number;
+  lastActiveUnixNanos: number;
+  memoryCount: number;
+}
+export interface ListSessionsQuery {
+  limit?: number;
+}
+export interface SessionSummary {
+  sessionId: number;
+  createdAtUnixNanos: number;
+  lastActiveUnixNanos: number;
+  title?: string;
+  memoryCount: number;
+}
+export interface ListSessionsResult {
+  spaceId: string;
+  sessions: SessionSummary[];
+}
+export interface DeleteSessionQuery {
+  /** The irreversible form, which has to be asked for by name. */
+  hard?: boolean;
+}
+export interface SessionErased {
+  spaceId: string;
+  sessionId: number;
+  existed: boolean;
+  memoriesForgotten: number;
+}
+
+// --- entity authoring ------------------------------------------------------
+
+/**
+ * A WHOLESALE replace, matching the edge's `PUT`: an omitted `aliases` or
+ * `attributes` CLEARS it. `getEntity` returns both, so a read-modify-write
+ * round-trips.
+ */
+export interface UpdateEntityInput {
+  canonicalName: string;
+  aliases?: string[];
+  /** The complete attribute blob, lowercase hex. */
+  attributes?: string;
+}
+export interface RenameEntityInput {
+  newCanonicalName: string;
+  /**
+   * Keep the old canonical name as an alias. Defaults to `true`: a name an
+   * entity was known by is how a later mention still resolves to it.
+   */
+  moveToAlias?: boolean;
+}
+export interface MergeEntitiesInput {
+  /** The entity to fold into the survivor. */
+  merged: string;
+  confidence?: number;
+  reason?: string;
+}
+export interface MergeEntitiesResult {
+  auditId: string;
+  /** How long the merge stays reversible. */
+  gracePeriodSeconds: number;
+}
+export interface UnmergeEntityResult {
+  restoredEntityId: string;
+}
+export interface TombstoneEntityQuery {
+  reason?: string;
+}
+export interface TombstoneResult {
+  tombstonedAtUnixNanos: number;
+}
+
+// --- statement authoring ---------------------------------------------------
+
+/**
+ * Assert a claim.
+ *
+ * `eventAt` is when the thing HAPPENED; `validFrom`/`validTo` are when the
+ * claim is held to be true. A meeting that happened Monday and is believed
+ * from Tuesday has different values for the two.
+ */
+export interface CreateStatementInput {
+  /** `fact` | `preference` | `event` | `attribute` | `relation` | `directive`. */
+  kind: string;
+  subject: string;
+  predicate: string;
+  object: StatementObject;
+  confidence?: number;
+  eventAtUnixNanos?: number;
+  validFromUnixNanos?: number;
+  validToUnixNanos?: number;
+  extractorId?: number;
+  schemaVersion?: number;
+  sessionId?: number;
+  /** Memory ids this claim rests on — 128-bit decimal strings. */
+  evidence?: string[];
+}
+export interface CreateStatementResult {
+  statementId: string;
+  /**
+   * A statement this one automatically superseded, when Brain recognised it
+   * as a revision of an existing claim.
+   */
+  autoSuperseded?: string;
+  /** The chain this claim belongs to — its identity across revisions. */
+  chainRoot: string;
+}
+export interface SupersedeStatementResult {
+  newStatementId: string;
+  chainRoot: string;
+  version: number;
+}
+export interface RetireStatementQuery {
+  reason?: number;
+  message?: string;
+}
+export interface RetractStatementResult {
+  retractedAtUnixNanos: number;
+  /**
+   * When the content itself is scheduled to be zeroed. A retraction is
+   * stronger than a tombstone for exactly this reason.
+   */
+  willZeroAtUnixNanos: number;
+}
+export interface StatementHistoryQuery {
+  includeTombstoned?: boolean;
+  limit?: number;
+  cursor?: string;
+}
+export interface StatementHistoryResult {
+  items: StatementDetail[];
+  chainRoot: string;
+  totalVersions: number;
+  nextCursor?: string;
+}
+
+// --- relation authoring ----------------------------------------------------
+
+export interface CreateRelationInput {
+  relationType: string;
+  fromEntity: string;
+  toEntity: string;
+  confidence?: number;
+  validFromUnixNanos?: number;
+  validToUnixNanos?: number;
+  extractorId?: number;
+  sessionId?: number;
+  evidence?: string[];
+  /**
+   * An opaque property blob, lowercase hex. A supersede REPLACES it, which is
+   * why `getRelation` returns it.
+   */
+  properties?: string;
+}
+export interface CreateRelationResult {
+  relationId: string;
+}
+export interface SupersedeRelationResult {
+  newRelationId: string;
+  version: number;
+}
+export interface TombstoneRelationQuery {
+  reason?: string;
+}
+
+// --- schema introspection + drop -------------------------------------------
+
+export interface ListSchemasQuery {
+  limit?: number;
+  cursor?: string;
+}
+export interface SchemaVersion {
+  schemaVersion: number;
+  uploadedAtUnixNanos: number;
+  /**
+   * Which validator accepted it — a document an older validator passed is not
+   * necessarily one the current validator would.
+   */
+  validatorVersion: number;
+  hasSourceText: boolean;
+}
+export interface ListSchemasResult {
+  namespace: string;
+  items: SchemaVersion[];
+  total: number;
+  nextCursor?: string;
+}
+export interface Extractor {
+  /** The id statements carry as `extractorId`. */
+  extractorId: number;
+  namespace: string;
+  name: string;
+  /** `0` = pattern, `1` = classifier, `2` = llm. */
+  kind: number;
+  schemaVersion: number;
+  createdAtUnixNanos: number;
+}
+export interface ListExtractorsResult {
+  items: Extractor[];
+  total: number;
+}
+export interface DropSchemaQuery {
+  /**
+   * Consent to orphan live rows — they survive as plain memories no longer
+   * enriched from the typed-graph tables. A type nothing uses drops without
+   * it, so this is not a generic "yes I'm sure".
+   */
+  force?: boolean;
+}
+export interface DropSchemaResult {
+  namespace: string;
+  /** The new active version, or `0` when nothing was dropped. */
+  schemaVersion: number;
+  targetKind: number;
+  targetName: string;
+  /**
+   * `false` with `liveRows > 0` means the type is still in use and `force`
+   * was not set — nothing changed.
+   */
+  dropped: boolean;
+  liveRows: number;
+  validationErrors: SchemaError[];
+}
+
+// --- memory extras ---------------------------------------------------------
+
+/**
+ * A memory whose embedding the caller computed.
+ *
+ * `modelFingerprint` is required because vectors from different models are
+ * not comparable: a recall that mixed them would rank nonsense confidently.
+ */
+export interface EncodeVectorInput {
+  text: string;
+  vector: number[];
+  /** 16 bytes as lowercase hex (32 characters). */
+  modelFingerprint: string;
+  session?: number;
+  kind?: number;
+  salienceHint?: number;
+  deduplicate?: boolean;
+}
+export interface MaterializeProceduralInput {
+  sessions?: number[];
+  topK?: number;
+  minConfidence?: number;
+  categories?: string[];
+}
+export interface MaterializeProceduralResult {
+  systemBlock: string;
+  /** The statements it was rendered from, so a caller can show its work. */
+  statementIds: string[];
+  totalCandidates: number;
+  /**
+   * `true` means directives did not make it in — do not read the block as the
+   * whole set.
+   */
+  trimmedByBudget: boolean;
+}
+
+// --- query introspection ---------------------------------------------------
+
+export interface FusionConfig {
+  k: number;
+  semanticWeight: number;
+  lexicalWeight: number;
+  graphWeight: number;
+}
+/** A bi-temporal window. Milliseconds, matching the edge. */
+export interface TimeRange {
+  fromUnixMs?: number;
+  toUnixMs?: number;
+}
+export interface QueryInput {
+  text: string;
+  entityAnchor?: string;
+  kinds?: string[];
+  predicates?: string[];
+  sessions?: number[];
+  /** When the content was true. */
+  timeRange?: TimeRange;
+  /**
+   * What was BELIEVED at a point in time — a different axis from
+   * `timeRange`. Collapsing them is how bi-temporal data stops being
+   * bi-temporal.
+   */
+  asOfRecordTimeUnixNanos?: number;
+  confidenceMin?: number;
+  includeTombstoned?: boolean;
+  includeSuperseded?: boolean;
+  limit?: number;
+  /**
+   * `auto`, or a pinned list of `semantic` / `lexical` / `graph`. Pinning is
+   * what makes an explain answer "what would THIS plan cost" rather than
+   * "what would the router pick today".
+   */
+  retrievers?: string[];
+  fusion?: FusionConfig;
+}
+export interface QueryExplainResult {
+  planText: string;
+  /** An estimate — nothing ran. For the real figure, trace it. */
+  estimatedCostMs: number;
+}
+export interface QueryTraceResult {
+  traceText: string;
+  /** A measurement — the query RAN to produce this. */
+  totalLatencyMs: number;
+}
+
+// --- BYOK provider credentials ---------------------------------------------
+
+export interface PutLlmCredentialInput {
+  /** `openai` | `anthropic`. */
+  provider: string;
+  model: string;
+  /** Sealed by the edge on arrival; never returned. */
+  apiKey: string;
+}
+export interface LlmCredential {
+  provider: string;
+  model: string;
+  /**
+   * Display-safe tail so an operator can tell which key is installed. Not
+   * reversible into the key.
+   */
+  fingerprint: string;
+  createdAtUnixSecs: number;
+}
+export interface LlmCredentialDeleted {
+  /**
+   * `false` when there was nothing to remove — which matters when the call is
+   * part of an incident response.
+   */
+  deleted: boolean;
+}
+/**
+ * What a provider said about a key.
+ *
+ * Three outcomes, not a boolean: "the provider rejected this key" and "I
+ * could not reach the provider" demand opposite responses. On `unreachable`,
+ * `valid` is absent — the probe learned nothing about the key, and reporting
+ * `false` would read as a rejection.
+ */
+export interface LlmCredentialCheck {
+  /** `valid` | `rejected` | `unreachable`. */
+  status: string;
+  valid?: boolean;
+  reason?: string;
+  provider: string;
+}
+
+// --- change feed (SSE) -----------------------------------------------------
+
+export interface SubscribeQuery {
+  sessions?: number[];
+  kinds?: string[];
+  memories?: string[];
+  includeHistory?: boolean;
+  /** Resume after this feed position. */
+  fromLsn?: number;
+  maxInflight?: number;
+}
+export interface SubscriptionEvent {
+  eventType: string;
+  /** A 128-bit decimal string. */
+  memoryId: string;
+  sessionId: number;
+  text: string;
+  kind: number;
+  salience: number;
+  timestampUnixNanos: number;
+  /** The feed position. Pass the last one back as `fromLsn` to resume. */
+  lsn: number;
+  /**
+   * Typed-graph detail, tagged by `type`. Left open: the 13 variants are a
+   * closed set on the edge but an open one here, and a client that switches
+   * on `type` reads the same either way.
+   */
+  graph?: { type: string } & Record<string, unknown>;
+  edge?: Record<string, unknown>;
+  stageKind?: string;
+  stageOutcome?: string;
+  stage?: { type: string } & Record<string, unknown>;
+}
+/**
+ * The terminal item on a feed. Carries where the feed got to, so the next
+ * connection resumes exactly rather than replaying or skipping.
+ */
+export interface SubscriptionClosed {
+  finalLsn: number;
+  /** `unsubscribed` | `ended` | `error`. */
+  reason: string;
+}
+/** What arrives on the feed: a change, or the terminal close. */
+export type FeedItem =
+  | { kind: "event"; event: SubscriptionEvent }
+  | { kind: "closed"; closed: SubscriptionClosed };

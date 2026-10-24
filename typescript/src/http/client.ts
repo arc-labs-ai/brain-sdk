@@ -8,12 +8,23 @@
  */
 import { BrainHttpError } from "./errors.js";
 import { describeThrown } from "../transport.js";
+import { Subscription } from "./sse.js";
 import type {
   Capabilities,
   CreateEntityInput,
   CreateEntityResult,
+  CreateRelationInput,
+  CreateRelationResult,
+  CreateSessionInput,
+  CreateSpaceInput,
+  CreateStatementInput,
+  CreateStatementResult,
+  DeleteSessionQuery,
+  DropSchemaQuery,
+  DropSchemaResult,
   EncodeInput,
   EncodeResult,
+  EncodeVectorInput,
   EntityDetail,
   ForgetInput,
   ForgetResult,
@@ -25,22 +36,43 @@ import type {
   LinkResult,
   ListEntitiesQuery,
   ListEntitiesResult,
+  ListExtractorsResult,
   ListRelationsQuery,
   ListRelationsResult,
+  ListSchemasQuery,
+  ListSchemasResult,
+  ListSessionsQuery,
+  ListSessionsResult,
+  ListSpacesQuery,
+  ListSpacesResult,
   ListStatementsQuery,
   ListStatementsResult,
+  LlmCredential,
+  LlmCredentialCheck,
+  LlmCredentialDeleted,
+  MaterializeProceduralInput,
+  MaterializeProceduralResult,
   MemoryInspect,
   MemoryListPage,
   MemoryListQuery,
+  MergeEntitiesInput,
+  MergeEntitiesResult,
   PlanInput,
   PlanResult,
+  PutLlmCredentialInput,
+  QueryExplainResult,
+  QueryInput,
+  QueryTraceResult,
   ReasonInput,
   ReasonResult,
   RecallInput,
   RecallResult,
   RelationDetail,
+  RenameEntityInput,
   ResolveEntityInput,
   ResolveEntityResult,
+  RetireStatementQuery,
+  RetractStatementResult,
   Schema,
   SchemaGetQuery,
   SchemaReplaceInput,
@@ -49,11 +81,25 @@ import type {
   SchemaUploadResult,
   SchemaValidateInput,
   SchemaValidateResult,
+  SessionErased,
+  SessionProvision,
+  SpaceErased,
+  SpaceProvision,
   StatementDetail,
+  StatementHistoryQuery,
+  StatementHistoryResult,
+  SubscribeQuery,
+  SupersedeRelationResult,
+  SupersedeStatementResult,
+  TombstoneEntityQuery,
+  TombstoneRelationQuery,
+  TombstoneResult,
   TraverseInput,
   TraverseResult,
   UnlinkInput,
   UnlinkResult,
+  UnmergeEntityResult,
+  UpdateEntityInput,
   Whoami,
 } from "./types.js";
 
@@ -392,6 +438,391 @@ export class BrainHttpClient {
       attempt < this.retry.maxAttempts &&
       (err.status === 0 || err.status === 503 || err.status === 429)
     );
+  }
+
+  // --- space lifecycle -----------------------------------------------------
+  //
+  // All three act on the caller's effective space: Brain resolves it from the
+  // credential and never takes it from the request, so none of them names one.
+
+  /**
+   * Provision the caller's space. Idempotent — read `created` to tell whether
+   * this call made it.
+   */
+  createSpace(input?: CreateSpaceInput): Promise<SpaceProvision> {
+    return this.requestWithRetry("POST", "/v1/spaces", input ?? {});
+  }
+
+  /**
+   * The spaces in the caller's namespace.
+   *
+   * Check `crossShardComplete`: `false` means the listing covered one shard,
+   * and treating a partial listing as complete is how a caller concludes a
+   * space is gone.
+   */
+  listSpaces(query?: ListSpacesQuery): Promise<ListSpacesResult> {
+    return this.requestWithRetry("GET", "/v1/spaces", undefined, query);
+  }
+
+  /** Erase the caller's space and everything under it. Hard, immediate. */
+  deleteSpace(): Promise<SpaceErased> {
+    // Retryable: a repeat reaches the same end state and answers
+    // `existed: false`, which the result models.
+    return this.requestWithRetry("DELETE", "/v1/spaces");
+  }
+
+  // --- session lifecycle ---------------------------------------------------
+
+  /** Provision a session in the caller's space. Idempotent on the id. */
+  createSession(input: CreateSessionInput): Promise<SessionProvision> {
+    return this.requestWithRetry("POST", "/v1/sessions", input);
+  }
+
+  /** The sessions in the caller's space. */
+  listSessions(query?: ListSessionsQuery): Promise<ListSessionsResult> {
+    return this.requestWithRetry("GET", "/v1/sessions", undefined, query);
+  }
+
+  /** Erase a session. Soft unless `hard` is asked for by name. */
+  deleteSession(sessionId: number, query?: DeleteSessionQuery): Promise<SessionErased> {
+    return this.requestWithRetry(
+      "DELETE",
+      `/v1/sessions/${pathId(String(sessionId))}`,
+      undefined,
+      query,
+    );
+  }
+
+  // --- entity authoring ----------------------------------------------------
+
+  /**
+   * Replace an entity's name, aliases and attribute blob.
+   *
+   * A REPLACE, not a patch: an omitted `aliases` or `attributes` CLEARS it.
+   * {@link getEntity} returns both, so a read-modify-write round-trips.
+   */
+  updateEntity(entityId: string, input: UpdateEntityInput): Promise<EntityDetail> {
+    // The same replace applied twice is the same end state.
+    return this.requestWithRetry("PUT", `/v1/entities/${pathId(entityId)}`, input);
+  }
+
+  /**
+   * Change an entity's canonical name. `moveToAlias` defaults to true on the
+   * edge: a name an entity was known by is how a later mention still resolves
+   * to it, so dropping it should be asked for.
+   */
+  renameEntity(entityId: string, input: RenameEntityInput): Promise<EntityDetail> {
+    return this.requestWithRetry("POST", `/v1/entities/${pathId(entityId)}/rename`, input);
+  }
+
+  /**
+   * Fold another entity into this one. `survivorId` is what remains.
+   *
+   * Reversible for `gracePeriodSeconds`, which the result carries so a caller
+   * need not know the deployment's configuration.
+   */
+  mergeEntities(survivorId: string, input: MergeEntitiesInput): Promise<MergeEntitiesResult> {
+    // Single-shot: a merge writes an audit record, and a retried one writes a
+    // second.
+    return this.requestOnce("POST", `/v1/entities/${pathId(survivorId)}/merge`, input);
+  }
+
+  /** Undo a merge. The id is the entity that was merged away. */
+  unmergeEntity(mergedEntityId: string): Promise<UnmergeEntityResult> {
+    return this.requestOnce("POST", `/v1/entities/${pathId(mergedEntityId)}/unmerge`);
+  }
+
+  /**
+   * Tombstone an entity. The row stays and reads stop resolving to it, which
+   * is what keeps statements that referenced it interpretable.
+   */
+  tombstoneEntity(entityId: string, query?: TombstoneEntityQuery): Promise<TombstoneResult> {
+    return this.requestWithRetry("DELETE", `/v1/entities/${pathId(entityId)}`, undefined, query);
+  }
+
+  // --- statement authoring -------------------------------------------------
+
+  /**
+   * Assert a claim.
+   *
+   * Brain may recognise it as a revision of an existing claim and supersede
+   * that one; `autoSuperseded` says when it did.
+   */
+  createStatement(input: CreateStatementInput): Promise<CreateStatementResult> {
+    return this.requestOnce("POST", "/v1/statements", input);
+  }
+
+  /**
+   * Replace a claim with a revised one, keeping both and the link between
+   * them. The replacement is a whole statement rather than a patch.
+   */
+  supersedeStatement(
+    statementId: string,
+    input: CreateStatementInput,
+  ): Promise<SupersedeStatementResult> {
+    return this.requestOnce("POST", `/v1/statements/${pathId(statementId)}/supersede`, input);
+  }
+
+  /** Retire a claim. The row stays; reads stop returning it. */
+  tombstoneStatement(statementId: string, query?: RetireStatementQuery): Promise<TombstoneResult> {
+    return this.requestWithRetry(
+      "DELETE",
+      `/v1/statements/${pathId(statementId)}`,
+      undefined,
+      query,
+    );
+  }
+
+  /**
+   * Withdraw a claim. Stronger than {@link tombstoneStatement}: the content
+   * itself is scheduled to be zeroed, and the result says when.
+   */
+  retractStatement(
+    statementId: string,
+    query?: RetireStatementQuery,
+  ): Promise<RetractStatementResult> {
+    return this.requestWithRetry(
+      "POST",
+      `/v1/statements/${pathId(statementId)}/retract`,
+      undefined,
+      query,
+    );
+  }
+
+  /** Every version of one claim, oldest first. */
+  statementHistory(
+    statementId: string,
+    query?: StatementHistoryQuery,
+  ): Promise<StatementHistoryResult> {
+    return this.requestWithRetry(
+      "GET",
+      `/v1/statements/${pathId(statementId)}/history`,
+      undefined,
+      query,
+    );
+  }
+
+  // --- relation authoring --------------------------------------------------
+
+  /** Assert a typed edge between two entities. */
+  createRelation(input: CreateRelationInput): Promise<CreateRelationResult> {
+    return this.requestOnce("POST", "/v1/relations", input);
+  }
+
+  /**
+   * Replace an edge with a revised one.
+   *
+   * The replacement REPLACES the property blob, which is why
+   * {@link getRelation} returns `properties` — a revision that only meant to
+   * change validity can carry the old ones back.
+   */
+  supersedeRelation(
+    relationId: string,
+    input: CreateRelationInput,
+  ): Promise<SupersedeRelationResult> {
+    return this.requestOnce("POST", `/v1/relations/${pathId(relationId)}/supersede`, input);
+  }
+
+  /** Retire an edge. */
+  tombstoneRelation(relationId: string, query?: TombstoneRelationQuery): Promise<TombstoneResult> {
+    return this.requestWithRetry("DELETE", `/v1/relations/${pathId(relationId)}`, undefined, query);
+  }
+
+  // --- schema introspection + drop -----------------------------------------
+
+  /**
+   * The namespace's schema version history.
+   *
+   * Distinct from {@link getSchema}, which returns one document: this is what
+   * a caller about to upload needs to see what it is adding to.
+   */
+  listSchemas(query?: ListSchemasQuery): Promise<ListSchemasResult> {
+    return this.requestWithRetry("GET", "/v1/schemas", undefined, query);
+  }
+
+  /**
+   * The extractors registered on the shard. Read-only: extraction is
+   * always-on and cannot be toggled. Here so a caller reading `extractorId`
+   * on a statement can find out what produced it.
+   */
+  listExtractors(): Promise<ListExtractorsResult> {
+    return this.requestWithRetry("GET", "/v1/extractors");
+  }
+
+  /**
+   * Drop one declared predicate or relation type.
+   *
+   * `kind` is `predicate` or `relation_type`. Entity types are not droppable:
+   * they are global in the v1 storage model, so dropping one would race rows
+   * in other namespaces.
+   */
+  dropSchema(kind: string, name: string, query?: DropSchemaQuery): Promise<DropSchemaResult> {
+    return this.requestOnce(
+      "DELETE",
+      `/v1/schema/${pathId(kind)}/${pathId(name)}`,
+      undefined,
+      query,
+    );
+  }
+
+  // --- memory extras -------------------------------------------------------
+
+  /**
+   * Store a memory with a caller-supplied embedding.
+   *
+   * `modelFingerprint` is required: vectors from different models are not
+   * comparable, so a recall that mixed them would rank nonsense confidently.
+   */
+  encodeVector(input: EncodeVectorInput): Promise<EncodeResult> {
+    return this.requestWithRetry("POST", "/v1/memories/vector", input, undefined, {
+      "idempotency-key": newIdempotencyKey(),
+    });
+  }
+
+  /**
+   * Render the caller's remembered directives into a system-prompt block.
+   *
+   * Check `trimmedByBudget`: `true` means directives did not make it in, so
+   * the block is not the whole set.
+   */
+  materializeProcedural(input?: MaterializeProceduralInput): Promise<MaterializeProceduralResult> {
+    return this.requestWithRetry("POST", "/v1/procedural/materialize", input ?? {});
+  }
+
+  // --- query introspection -------------------------------------------------
+
+  /**
+   * The plan Brain would run, and its estimated cost. Does NOT run it.
+   *
+   * Pin `retrievers` to answer "what would THIS plan cost"; leaving it to
+   * `auto` answers "what would the router pick today".
+   */
+  queryExplain(input: QueryInput): Promise<QueryExplainResult> {
+    return this.requestWithRetry("POST", "/v1/query/explain", input);
+  }
+
+  /**
+   * Run the query and report what happened, with the measured latency.
+   * Unlike {@link queryExplain}, this costs what the query costs.
+   */
+  queryTrace(input: QueryInput): Promise<QueryTraceResult> {
+    return this.requestWithRetry("POST", "/v1/query/trace", input);
+  }
+
+  // --- BYOK provider credentials -------------------------------------------
+
+  /**
+   * Register (or replace) this tenant's provider key.
+   *
+   * The edge verifies the key with the provider before storing it, and seals
+   * it on arrival; it is never returned.
+   */
+  putLlmCredential(input: PutLlmCredentialInput): Promise<LlmCredential> {
+    return this.requestOnce("PUT", "/v1/llm-credential", input);
+  }
+
+  /** What is installed for this tenant. Carries no key material. */
+  getLlmCredential(): Promise<LlmCredential> {
+    return this.requestWithRetry("GET", "/v1/llm-credential");
+  }
+
+  /**
+   * Remove this tenant's provider key. `deleted: false` means there was
+   * nothing there — which matters during an incident response.
+   */
+  deleteLlmCredential(): Promise<LlmCredentialDeleted> {
+    return this.requestWithRetry("DELETE", "/v1/llm-credential");
+  }
+
+  /**
+   * Check a key WITHOUT storing it. Nothing is written and nothing existing
+   * is touched, so this is safe against a namespace that already has a
+   * working credential.
+   */
+  testLlmCredential(input: PutLlmCredentialInput): Promise<LlmCredentialCheck> {
+    return this.requestWithRetry("POST", "/v1/llm-credential/test", input);
+  }
+
+  /**
+   * Re-check the key already stored. A key that worked at registration can be
+   * revoked or run out of credit later, where the first sign is otherwise an
+   * opaque upstream 401 on a write.
+   */
+  verifyLlmCredential(): Promise<LlmCredentialCheck> {
+    return this.requestWithRetry("POST", "/v1/llm-credential/verify");
+  }
+
+  // --- change feed ---------------------------------------------------------
+
+  /**
+   * Open the caller's change feed.
+   *
+   * Returns a {@link Subscription} you iterate:
+   *
+   * ```ts
+   * for await (const item of await client.subscribe()) {
+   *   if (item.kind === "event") console.log(item.event.lsn);
+   * }
+   * ```
+   *
+   * Unsubscribing is closing it — the edge tears the Brain-side subscription
+   * down when the response closes — and breaking out of the `for await` does
+   * that for you.
+   *
+   * Every event carries an `lsn`, and the subscription remembers the last one
+   * ({@link Subscription.lastEventId}). Pass it back as `fromLsn` on a
+   * reconnect to resume exactly rather than replay or skip.
+   *
+   * Not retried, deliberately: a retry would reopen the feed at the original
+   * position and re-deliver everything already seen. Where to resume is the
+   * caller's decision, because only the caller knows where it got to.
+   */
+  async subscribe(query?: SubscribeQuery): Promise<Subscription> {
+    return this.openStream("GET", "/v1/subscribe", {
+      // Comma-separated on the wire, so a feed subscription is one readable
+      // URL that survives being pasted into a shell.
+      sessions: query?.sessions?.join(","),
+      kinds: query?.kinds?.join(","),
+      memories: query?.memories?.join(","),
+      includeHistory: query?.includeHistory,
+      fromLsn: query?.fromLsn,
+      maxInflight: query?.maxInflight,
+    });
+  }
+
+  /**
+   * Open a streaming response rather than reading a body to completion.
+   *
+   * Separate from {@link requestOnce} because the two differ in every way
+   * that matters: no retry, no body read, and no request timeout — a
+   * subscription is long-lived by definition, and its liveness signal is the
+   * edge's keep-alive comment rather than a deadline.
+   */
+  private async openStream(method: Method, path: string, query?: Query): Promise<Subscription> {
+    const url = this.base + path + encodeQuery(query);
+    let res: Response;
+    try {
+      res = await this.fetchImpl(url, {
+        method,
+        headers: {
+          authorization: `Bearer ${this.apiKey}`,
+          accept: "text/event-stream",
+        },
+      });
+    } catch (e) {
+      // biome-ignore lint/style/useErrorCause: cause is passed in the options bag below
+      throw new BrainHttpError(0, "transport", `subscribe to ${url} failed: ${describeThrown(e)}`, {
+        cause: e,
+      });
+    }
+    if (!res.ok) {
+      const { code, message, fieldErrors } = parseErrorBody(res.status, await res.text());
+      throw new BrainHttpError(res.status, code, message, { fieldErrors });
+    }
+    if (!res.body) {
+      throw new BrainHttpError(0, "transport", `subscribe to ${url} returned no body`);
+    }
+    return new Subscription(res.body);
   }
 
   /** Milliseconds to wait after `attempt` (1-based) failed; a server hint wins. */
