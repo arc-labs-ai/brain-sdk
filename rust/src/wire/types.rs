@@ -559,11 +559,14 @@ pub struct MemoryInspectRequest {
 }
 
 /// `MEMORY_INSPECT_RESP` — the durable per-memory artifact bundle plus text.
-/// `found = false` (with an empty `artifact`) when no memory / no bundle
-/// exists for the id under the caller's scope.
+///
+/// There is no `found` flag. An id with no memory behind it — or one owned by
+/// another `(namespace, space)`, which is deliberately indistinguishable — is
+/// answered with `MemoryNotFound` in the `NotFound` category, like every
+/// sibling read. A memory that exists but whose bundle has not been written
+/// yet is still a success, with an empty `artifact`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemoryInspectResponse {
-    pub found: bool,
     #[serde(with = "serde_bytes")]
     pub memory_id: [u8; 16],
     pub text: String,

@@ -191,12 +191,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         }
     }
+    // An unknown id is a `MemoryNotFound` error now, not a success carrying a
+    // flag — the same answer every sibling read gives.
     let miss = c
         .memory_inspect(&MemoryInspectRequest {
             memory_id: 12345u128.to_be_bytes(),
             act_as: None,
         })
-        .await?;
-    println!("inspect unknown id     found={}", miss.found);
+        .await;
+    match miss {
+        Ok(_) => println!("inspect unknown id     UNEXPECTED ok"),
+        Err(e) => println!("inspect unknown id     rejected: {e}"),
+    }
     Ok(())
 }

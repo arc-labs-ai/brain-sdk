@@ -1848,10 +1848,14 @@ export function decodeMemoryInspect(bytes: Uint8Array): MemoryInspectRequest {
 
 /** MEMORY_INSPECT_RESP (`0x00A8`): the durable per-memory artifact bundle —
  * what each write stage produced (embedding vector, redb record, keyword terms,
- * HyPE questions, extracted graph) plus the memory text. `found = false` (with
- * an empty `artifact`) when no memory / no bundle exists for the id. */
+ * HyPE questions, extracted graph) plus the memory text.
+ *
+ * There is no `found` flag. An id with no memory behind it — or one owned by
+ * another `(namespace, space)`, which is deliberately indistinguishable — is
+ * answered with `MemoryNotFound` in the `NotFound` category, like every
+ * sibling read. A memory that exists but whose bundle has not been written yet
+ * is still a success, with an empty `artifact`. */
 export interface MemoryInspectResponse {
-  found: boolean;
   memoryId: Uint8Array;
   text: string;
   artifact: EncodeStageArtifact;
@@ -1893,7 +1897,6 @@ export interface MemoryEdge {
 export function encodeMemoryInspectResponse(p: MemoryInspectResponse): Uint8Array {
   return toCbor(
     new Map<string, unknown>([
-      ["found", p.found],
       ["memory_id", p.memoryId],
       ["text", p.text],
       ["artifact", encodeStageArtifact(p.artifact)],
@@ -1919,7 +1922,6 @@ export function encodeMemoryInspectResponse(p: MemoryInspectResponse): Uint8Arra
 export function decodeMemoryInspectResponse(bytes: Uint8Array): MemoryInspectResponse {
   const m = asMap(fromCbor(bytes));
   return {
-    found: asBool(field(m, "found")),
     memoryId: asBytes(field(m, "memory_id")),
     text: asStr(field(m, "text")),
     artifact: decodeStageArtifact(field(m, "artifact")),

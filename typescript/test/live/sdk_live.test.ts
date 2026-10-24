@@ -150,8 +150,14 @@ describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
     } catch (e) {
       note("link unknown target", "rejected", String(e).slice(0, 80));
     }
-    const miss: any = await c.memoryInspect({ memoryId: idBytes(12345n), actAs: null });
-    note("inspect unknown id", `found=${miss.found}`);
+    // An unknown id is a `MemoryNotFound` error now, not a success carrying a
+    // flag — the same answer every sibling read gives.
+    try {
+      await c.memoryInspect({ memoryId: idBytes(12345n), actAs: null });
+      note("inspect unknown id", "UNEXPECTED ok");
+    } catch (e) {
+      note("inspect unknown id", "rejected", String(e).slice(0, 80));
+    }
 
     await c.close?.();
     console.log("\n" + results.join("\n"));

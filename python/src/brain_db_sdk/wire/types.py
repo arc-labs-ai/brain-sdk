@@ -1265,10 +1265,15 @@ class MemoryEdge:
 @dataclass
 class MemoryInspectResponse:
     """MEMORY_INSPECT_RESP (``0x00A8``). The durable per-memory artifact bundle
-    plus text. ``found = False`` (with an empty ``artifact``) when no memory /
-    no bundle exists for the id under the caller's scope."""
+    plus text.
 
-    found: bool
+    There is no ``found`` flag. An id with no memory behind it -- or one owned
+    by another ``(namespace, space)``, which is deliberately indistinguishable
+    -- is answered with ``MemoryNotFound`` in the ``NotFound`` category, like
+    every sibling read. A memory that exists but whose bundle has not been
+    written yet is still a success, with an empty ``artifact``.
+    """
+
     memory_id: bytes  # 16-byte byte string
     text: str
     artifact: EncodeStageArtifact
@@ -1283,7 +1288,6 @@ class MemoryInspectResponse:
 
     def to_map(self) -> dict[str, Any]:
         return {
-            "found": self.found,
             "memory_id": self.memory_id,
             "text": self.text,
             "artifact": self.artifact.to_map(),
@@ -1293,7 +1297,6 @@ class MemoryInspectResponse:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> MemoryInspectResponse:
         return cls(
-            m["found"],
             m["memory_id"],
             m["text"],
             EncodeStageArtifact.from_map(m["artifact"]),

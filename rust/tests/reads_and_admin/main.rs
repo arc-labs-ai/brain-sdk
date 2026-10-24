@@ -206,7 +206,6 @@ async fn serve(mut sock: TcpStream) {
         Opcode::MemoryInspectResp,
         f.stream_id,
         &MemoryInspectResponse {
-            found: true,
             memory_id: MEMORY_ID,
             text: "the kettle is on".to_string(),
             artifact: EncodeStageArtifact {
@@ -372,7 +371,7 @@ async fn reads_and_admin_verbs_over_connection() {
         })
         .await
         .expect("memory_inspect");
-    assert!(inspected.found);
+    assert_eq!(inspected.memory_id, MEMORY_ID);
     let record = inspected.artifact.record.expect("record");
     assert_eq!(record.vector_dim, 384);
     assert_eq!(record.lsn, 9);
