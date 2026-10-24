@@ -349,7 +349,7 @@ async fn reads_and_admin_verbs_over_connection() {
 
     // EXTRACTOR_LIST — read-only introspection over the always-on extractors.
     let extractors = client
-        .extractor_list(&ExtractorListRequest {})
+        .extractor_list(&ExtractorListRequest { act_as: None })
         .await
         .expect("extractor_list");
     assert_eq!(extractors.total, 2);

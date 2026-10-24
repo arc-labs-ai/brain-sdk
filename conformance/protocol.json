@@ -5035,9 +5035,7 @@
    "fields": [
     {
      "name": "memory_id",
-     "serde": {
-      "with": "memory_id_at_rest"
-     },
+     "serde": {},
      "type": "u128"
     },
     {
@@ -5137,9 +5135,7 @@
     },
     {
      "name": "matched_memory_id",
-     "serde": {
-      "with": "opt_memory_id_at_rest"
-     },
+     "serde": {},
      "type": "Option<u128>"
     }
    ],
@@ -5335,6 +5331,14 @@
      "name": "deduplicate",
      "serde": {},
      "type": "bool"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -5660,6 +5664,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -5747,6 +5759,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -5889,6 +5909,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -5952,6 +5980,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -6024,6 +6060,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -6272,7 +6316,16 @@
    "serde": {}
   },
   "ExtractorListRequest": {
-   "fields": [],
+   "fields": [
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
    "serde": {}
   },
   "ExtractorListResponseFrame": {
@@ -6885,6 +6938,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -7676,6 +7737,14 @@
      "name": "query",
      "serde": {},
      "type": "QueryRequest"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -7780,6 +7849,14 @@
      "name": "query",
      "serde": {},
      "type": "QueryRequest"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -8839,6 +8916,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -8899,6 +8984,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -10502,6 +10595,14 @@
      "name": "cursor",
      "serde": {},
      "type": "Vec<u8>"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -10653,6 +10754,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -10692,6 +10801,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}
@@ -10771,6 +10888,14 @@
       "with": "serde_bytes"
      },
      "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
     }
    ],
    "serde": {}

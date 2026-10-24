@@ -57,6 +57,7 @@ async fn encode_vector_direct_round_trips() {
         request_id: new_id(),
         txn_id: None,
         deduplicate: false,
+        act_as: None,
     };
     let resp = client
         .encode_vector_direct(&req)
@@ -90,6 +91,7 @@ fn request(fingerprint: [u8; 16], vector: Vec<f32>, label: &str) -> EncodeVector
         request_id: new_id(),
         txn_id: None,
         deduplicate: false,
+        act_as: None,
     }
 }
 

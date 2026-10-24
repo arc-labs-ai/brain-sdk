@@ -700,8 +700,12 @@ class EncodeVectorDirectRequest:
     deduplicate: bool
     vector: list[float] = field(default_factory=list)
 
+    # Effective identity this direct-vector encode runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "text": self.text,
             "model_fingerprint": self.model_fingerprint,
             "session_id": self.session_id,
@@ -712,9 +716,13 @@ class EncodeVectorDirectRequest:
             "txn_id": self.txn_id,
             "deduplicate": self.deduplicate,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EncodeVectorDirectRequest:
+        act_as = m.get("act_as")
         return cls(
             m["text"],
             m["model_fingerprint"],
@@ -725,6 +733,7 @@ class EncodeVectorDirectRequest:
             m["request_id"],
             m["txn_id"],
             m["deduplicate"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -3197,8 +3206,12 @@ class MaterializeProceduralRequest:
     categories: list[str]
     request_id: bytes
 
+    # Effective identity this materialization runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "space_id": self.space_id,
             "session_filter": (None if self.session_filter is None else list(self.session_filter)),
             "top_k": self.top_k,
@@ -3206,9 +3219,13 @@ class MaterializeProceduralRequest:
             "categories": list(self.categories),
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> MaterializeProceduralRequest:
+        act_as = m.get("act_as")
         return cls(
             m["space_id"],
             None if m["session_filter"] is None else list(m["session_filter"]),
@@ -3216,6 +3233,7 @@ class MaterializeProceduralRequest:
             m["min_confidence"],
             list(m["categories"]),
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -5020,19 +5038,26 @@ class GetCapabilitiesResponse:
 
 @dataclass
 class ExtractorListRequest:
-    """EXTRACTOR_LIST (``0x0124``). Empty request — every registered
-    extractor is returned. Extraction is always-on; this is read-only
-    introspection with no runtime enable/disable. Encodes as an empty CBOR
-    map, matching every other request body."""
+    """EXTRACTOR_LIST (``0x0124``). Every extractor registered for the
+    effective namespace is returned. Extraction is always-on; this is
+    read-only introspection with no runtime enable/disable. Encodes as a CBOR
+    map — empty when no ``act_as`` selector is set, matching every other
+    request body."""
+
+    # Effective identity this listing runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
 
     def to_map(self) -> dict[str, Any]:
-        return {}
+        m: dict[str, Any] = {}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
-    def from_map(cls, m: dict[str, Any]) -> ExtractorListRequest:  # noqa: ARG003
-        # Empty body; the parameter exists so every payload's `from_map` has
-        # one signature.
-        return cls()
+    def from_map(cls, m: dict[str, Any]) -> ExtractorListRequest:
+        act_as = m.get("act_as")
+        return cls(None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6087,23 +6112,32 @@ class EntityUpdateRequest:
     attributes_blob: list[int]
     request_id: bytes
 
+    # Effective identity this update runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "entity_id": self.entity_id,
             "canonical_name": self.canonical_name,
             "aliases": list(self.aliases),
             "attributes_blob": list(self.attributes_blob),
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityUpdateRequest:
+        act_as = m.get("act_as")
         return cls(
             m["entity_id"],
             m["canonical_name"],
             list(m["aliases"]),
             list(m["attributes_blob"]),
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -6130,17 +6164,25 @@ class EntityRenameRequest:
     move_to_alias: bool
     request_id: bytes
 
+    # Effective identity this rename runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "entity_id": self.entity_id,
             "new_canonical_name": self.new_canonical_name,
             "move_to_alias": self.move_to_alias,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityRenameRequest:
-        return cls(m["entity_id"], m["new_canonical_name"], m["move_to_alias"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(m["entity_id"], m["new_canonical_name"], m["move_to_alias"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6167,18 +6209,26 @@ class EntityMergeRequest:
     reason: str
     request_id: bytes
 
+    # Effective identity this merge runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "survivor": self.survivor,
             "merged": self.merged,
             "confidence": round_f32(self.confidence),
             "reason": self.reason,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityMergeRequest:
-        return cls(m["survivor"], m["merged"], m["confidence"], m["reason"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(m["survivor"], m["merged"], m["confidence"], m["reason"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6203,12 +6253,20 @@ class EntityUnmergeRequest:
     merged_entity: bytes
     request_id: bytes
 
+    # Effective identity this unmerge runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {"merged_entity": self.merged_entity, "request_id": self.request_id}
+        m: dict[str, Any] = {"merged_entity": self.merged_entity, "request_id": self.request_id}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityUnmergeRequest:
-        return cls(m["merged_entity"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(m["merged_entity"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6233,16 +6291,24 @@ class EntityTombstoneRequest:
     reason: str
     request_id: bytes
 
+    # Effective identity this tombstone runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "entity_id": self.entity_id,
             "reason": self.reason,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityTombstoneRequest:
-        return cls(m["entity_id"], m["reason"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(m["entity_id"], m["reason"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6273,19 +6339,28 @@ class StatementSupersedeRequest:
     new_statement: StatementCreateRequest
     request_id: bytes
 
+    # Effective identity this supersede runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "old_statement_id": self.old_statement_id,
             "new_statement": self.new_statement.to_map(),
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StatementSupersedeRequest:
+        act_as = m.get("act_as")
         return cls(
             m["old_statement_id"],
             StatementCreateRequest.from_map(m["new_statement"]),
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -6318,17 +6393,25 @@ class StatementTombstoneRequest:
     reason_message: str
     request_id: bytes
 
+    # Effective identity this tombstone runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "statement_id": self.statement_id,
             "reason": self.reason,
             "reason_message": self.reason_message,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StatementTombstoneRequest:
-        return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6354,17 +6437,25 @@ class StatementRetractRequest:
     reason_message: str
     request_id: bytes
 
+    # Effective identity this retraction runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "statement_id": self.statement_id,
             "reason": self.reason,
             "reason_message": self.reason_message,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StatementRetractRequest:
-        return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6398,21 +6489,30 @@ class StatementHistoryRequest:
     # it encodes as a CBOR array of unsigned ints, NOT a byte string.
     cursor: list[int] = field(default_factory=list)
 
+    # Effective identity this history read runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "anchor_id": self.anchor_id,
             "include_tombstoned": self.include_tombstoned,
             "limit": self.limit,
             "cursor": list(self.cursor),
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StatementHistoryRequest:
+        act_as = m.get("act_as")
         return cls(
             m["anchor_id"],
             m["include_tombstoned"],
             m["limit"],
             list(m["cursor"]),
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -6515,19 +6615,28 @@ class RelationSupersedeRequest:
     new_relation: RelationCreateRequest
     request_id: bytes
 
+    # Effective identity this supersede runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "old_relation_id": self.old_relation_id,
             "new_relation": self.new_relation.to_map(),
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> RelationSupersedeRequest:
+        act_as = m.get("act_as")
         return cls(
             m["old_relation_id"],
             RelationCreateRequest.from_map(m["new_relation"]),
             m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
         )
 
 
@@ -6555,16 +6664,24 @@ class RelationTombstoneRequest:
     reason: str
     request_id: bytes
 
+    # Effective identity this tombstone runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {
+        m: dict[str, Any] = {
             "relation_id": self.relation_id,
             "reason": self.reason,
             "request_id": self.request_id,
         }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> RelationTombstoneRequest:
-        return cls(m["relation_id"], m["reason"], m["request_id"])
+        act_as = m.get("act_as")
+        return cls(m["relation_id"], m["reason"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6713,12 +6830,20 @@ class QueryExplainRequest:
 
     query: QueryRequest
 
+    # Effective identity this explain runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {"query": self.query.to_map()}
+        m: dict[str, Any] = {"query": self.query.to_map()}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> QueryExplainRequest:
-        return cls(QueryRequest.from_map(m["query"]))
+        act_as = m.get("act_as")
+        return cls(QueryRequest.from_map(m["query"]), None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass
@@ -6746,12 +6871,20 @@ class QueryTraceRequest:
 
     query: QueryRequest
 
+    # Effective identity this trace runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
     def to_map(self) -> dict[str, Any]:
-        return {"query": self.query.to_map()}
+        m: dict[str, Any] = {"query": self.query.to_map()}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> QueryTraceRequest:
-        return cls(QueryRequest.from_map(m["query"]))
+        act_as = m.get("act_as")
+        return cls(QueryRequest.from_map(m["query"]), None if act_as is None else ActAs.from_map(act_as))
 
 
 @dataclass

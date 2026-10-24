@@ -77,6 +77,7 @@ async fn get_supersede_tombstone() {
             old_relation_id: rel.relation_id,
             new_relation: relation(a, b),
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("supersede");
@@ -88,6 +89,7 @@ async fn get_supersede_tombstone() {
             relation_id: sup.new_relation_id,
             reason: "test cleanup".to_string(),
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("tombstone");

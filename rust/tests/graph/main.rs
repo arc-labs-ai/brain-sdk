@@ -250,6 +250,7 @@ async fn typed_graph_verbs_round_trip() {
             min_confidence: 0.5,
             categories: vec!["style".to_string()],
             request_id: rid(),
+            act_as: None,
         })
         .await
         .expect("materialize_procedural");

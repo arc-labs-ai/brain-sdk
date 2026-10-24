@@ -46,6 +46,7 @@ async fn materialize_returns_a_coherent_block() {
             min_confidence: 0.0,
             categories: vec![],
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("materialize_procedural");
@@ -95,6 +96,7 @@ async fn materialize_on_empty_space_is_empty_not_error() {
             min_confidence: 0.5,
             categories: vec!["style".to_string()],
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("materialize_procedural on an empty space");

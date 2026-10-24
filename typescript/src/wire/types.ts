@@ -1271,22 +1271,28 @@ export interface EncodeVectorDirectRequest {
   requestId: WireUuid;
   txnId: WireUuid | null;
   deduplicate: boolean;
+  /** Effective identity this direct-vector encode runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENCODE_VECTOR_DIRECT (`0x002A`) request, appending the raw f32 vector after the CBOR map. */
 export function encodeEncodeVectorDirect(p: EncodeVectorDirectRequest): Uint8Array {
   const cbor = toCbor(
-    new Map<string, unknown>([
-      ["text", p.text],
-      ["model_fingerprint", p.modelFingerprint],
-      ["session_id", p.sessionId],
-      ["kind", p.kind],
-      ["salience_hint", f32(p.salienceHint)],
-      ["edges", p.edges.map(encodeEdge)],
-      ["request_id", p.requestId],
-      ["txn_id", p.txnId],
-      ["deduplicate", p.deduplicate],
-    ]),
+    requestMapWithActAs(
+      [
+        ["text", p.text],
+        ["model_fingerprint", p.modelFingerprint],
+        ["session_id", p.sessionId],
+        ["kind", p.kind],
+        ["salience_hint", f32(p.salienceHint)],
+        ["edges", p.edges.map(encodeEdge)],
+        ["request_id", p.requestId],
+        ["txn_id", p.txnId],
+        ["deduplicate", p.deduplicate],
+      ],
+      p.actAs,
+    ),
   );
   const vec = f32ToLeBytes(p.vector);
   const out = new Uint8Array(cbor.length + vec.length);
@@ -1311,6 +1317,7 @@ export function decodeEncodeVectorDirect(bytes: Uint8Array): EncodeVectorDirectR
     requestId: asBytes(field(m, "request_id")),
     txnId: asOptBytes(field(m, "txn_id")),
     deduplicate: asBool(field(m, "deduplicate")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -3702,19 +3709,25 @@ export interface MaterializeProceduralRequest {
   minConfidence: number;
   categories: string[];
   requestId: WireUuid;
+  /** Effective identity this materialization runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a MATERIALIZE_PROCEDURAL (`0x0164`) request. */
 export function encodeMaterializeProcedural(p: MaterializeProceduralRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["space_id", p.spaceId],
       ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
       ["top_k", p.topK],
       ["min_confidence", f32(p.minConfidence)],
       ["categories", p.categories],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -3728,6 +3741,7 @@ export function decodeMaterializeProcedural(bytes: Uint8Array): MaterializeProce
     minConfidence: asNum(field(m, "min_confidence")),
     categories: asArray(field(m, "categories")).map(asStr),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -5299,22 +5313,30 @@ export function decodeGetCapabilitiesResponse(bytes: Uint8Array): GetCapabilitie
 // EXTRACTOR_LIST.
 // ---------------------------------------------------------------------------
 
-/** Empty request body — the registry is server-side state. Extraction is
- * always-on, so `EXTRACTOR_LIST` is the only extractor wire op and it takes no
- * arguments: every registered extractor is returned.
+/** The registry is server-side state. Extraction is always-on, so
+ * `EXTRACTOR_LIST` is the only extractor wire op and it takes no arguments
+ * beyond the identity to run as: every extractor registered for the effective
+ * namespace is returned.
  *
- * `Record<string, never>` rather than `{}`: an empty interface accepts every
- * non-nullish value, so `encodeExtractorList(0)` would typecheck. */
-export type ExtractorListRequest = Record<string, never>;
+ * Was `Record<string, never>` while the body was genuinely empty. It now has
+ * one optional field, so it is an ordinary interface — which does not accept
+ * every non-nullish value the way a bare `{}` would. */
+export interface ExtractorListRequest {
+  /** Effective identity this extractor listing runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
+}
 
-/** Encode an EXTRACTOR_LIST (`0x0124`) request (empty payload). */
-export function encodeExtractorList(_p: ExtractorListRequest): Uint8Array {
-  return toCbor(new Map<string, unknown>());
+/** Encode an EXTRACTOR_LIST (`0x0124`) request. Encodes to an empty CBOR map
+ * when no selector is set, matching the pre-`act_as` goldens. */
+export function encodeExtractorList(p: ExtractorListRequest): Uint8Array {
+  return toCbor(requestMapWithActAs([], p.actAs));
 }
 
 /** Decode an EXTRACTOR_LIST (`0x0124`) request payload. */
-export function decodeExtractorList(_bytes: Uint8Array): ExtractorListRequest {
-  return {};
+export function decodeExtractorList(bytes: Uint8Array): ExtractorListRequest {
+  const m = asMap(fromCbor(bytes));
+  return { actAs: decodeOptActAs(m) };
 }
 
 /** One row in an {@link ExtractorListResponseFrame}: the extractor's id,
@@ -6214,17 +6236,23 @@ export interface RelationSupersedeRequest {
   oldRelationId: WireUuid;
   newRelation: RelationCreateRequest;
   requestId: WireUuid;
+  /** Effective identity this relation supersede runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a RELATION_SUPERSEDE (`0x0152`) request. */
 export function encodeRelationSupersede(p: RelationSupersedeRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["old_relation_id", p.oldRelationId],
       // Nest the relation map directly — no re-encode round-trip.
       ["new_relation", relationCreateMap(p.newRelation)],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -6235,6 +6263,7 @@ export function decodeRelationSupersede(bytes: Uint8Array): RelationSupersedeReq
     oldRelationId: asBytes(field(m, "old_relation_id")),
     newRelation: relationCreateFromMap(asMap(field(m, "new_relation"))),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -6270,16 +6299,22 @@ export interface RelationTombstoneRequest {
   relationId: WireUuid;
   reason: string;
   requestId: WireUuid;
+  /** Effective identity this relation tombstone runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a RELATION_TOMBSTONE (`0x0153`) request. */
 export function encodeRelationTombstone(p: RelationTombstoneRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["relation_id", p.relationId],
       ["reason", p.reason],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -6290,6 +6325,7 @@ export function decodeRelationTombstone(bytes: Uint8Array): RelationTombstoneReq
     relationId: asBytes(field(m, "relation_id")),
     reason: asStr(field(m, "reason")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -6452,11 +6488,14 @@ export function decodeRelationTraverseResponse(bytes: Uint8Array): RelationTrave
  * running it. */
 export interface QueryExplainRequest {
   query: QueryRequest;
+  /** Effective identity this explain runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a QUERY_EXPLAIN (`0x0161`) request. */
 export function encodeQueryExplain(p: QueryExplainRequest): Uint8Array {
-  return toCbor(new Map<string, unknown>([["query", queryMap(p.query)]]));
+  return toCbor(requestMapWithActAs([["query", queryMap(p.query)]], p.actAs));
 }
 
 /** Decode a QUERY_EXPLAIN (`0x0161`) request payload. */
@@ -6495,11 +6534,14 @@ export function decodeQueryExplainResponse(bytes: Uint8Array): QueryExplainRespo
  * execution trace. */
 export interface QueryTraceRequest {
   query: QueryRequest;
+  /** Effective identity this trace runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a QUERY_TRACE (`0x0162`) request. */
 export function encodeQueryTrace(p: QueryTraceRequest): Uint8Array {
-  return toCbor(new Map<string, unknown>([["query", queryMap(p.query)]]));
+  return toCbor(requestMapWithActAs([["query", queryMap(p.query)]], p.actAs));
 }
 
 /** Decode a QUERY_TRACE (`0x0162`) request payload. */
@@ -7541,18 +7583,24 @@ export interface EntityUpdateRequest {
   aliases: string[];
   attributesBlob: Uint8Array;
   requestId: WireUuid;
+  /** Effective identity this entity update runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_UPDATE (`0x0132`) request. */
 export function encodeEntityUpdate(p: EntityUpdateRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["entity_id", p.entityId],
       ["canonical_name", p.canonicalName],
       ["aliases", p.aliases],
       ["attributes_blob", Array.from(p.attributesBlob)],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -7565,6 +7613,7 @@ export function decodeEntityUpdate(bytes: Uint8Array): EntityUpdateRequest {
     aliases: asArray(field(m, "aliases")).map(asStr),
     attributesBlob: Uint8Array.from(asArray(field(m, "attributes_blob")).map(asNum)),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -7603,17 +7652,23 @@ export interface EntityRenameRequest {
   newCanonicalName: string;
   moveToAlias: boolean;
   requestId: WireUuid;
+  /** Effective identity this entity rename runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_RENAME (`0x0133`) request. */
 export function encodeEntityRename(p: EntityRenameRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["entity_id", p.entityId],
       ["new_canonical_name", p.newCanonicalName],
       ["move_to_alias", p.moveToAlias],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -7625,6 +7680,7 @@ export function decodeEntityRename(bytes: Uint8Array): EntityRenameRequest {
     newCanonicalName: asStr(field(m, "new_canonical_name")),
     moveToAlias: asBool(field(m, "move_to_alias")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -7635,18 +7691,24 @@ export interface EntityMergeRequest {
   confidence: number;
   reason: string;
   requestId: WireUuid;
+  /** Effective identity this entity merge runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_MERGE (`0x0134`) request. */
 export function encodeEntityMerge(p: EntityMergeRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["survivor", p.survivor],
       ["merged", p.merged],
       ["confidence", f32(p.confidence)],
       ["reason", p.reason],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -7659,6 +7721,7 @@ export function decodeEntityMerge(bytes: Uint8Array): EntityMergeRequest {
     confidence: asNum(field(m, "confidence")),
     reason: asStr(field(m, "reason")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -7691,15 +7754,21 @@ export function decodeEntityMergeResponse(bytes: Uint8Array): EntityMergeRespons
 export interface EntityUnmergeRequest {
   mergedEntity: WireUuid;
   requestId: WireUuid;
+  /** Effective identity this entity unmerge runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_UNMERGE (`0x0135`) request. */
 export function encodeEntityUnmerge(p: EntityUnmergeRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["merged_entity", p.mergedEntity],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -7709,6 +7778,7 @@ export function decodeEntityUnmerge(bytes: Uint8Array): EntityUnmergeRequest {
   return {
     mergedEntity: asBytes(field(m, "merged_entity")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -7733,16 +7803,22 @@ export interface EntityTombstoneRequest {
   entityId: WireUuid;
   reason: string;
   requestId: WireUuid;
+  /** Effective identity this entity tombstone runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode an ENTITY_TOMBSTONE (`0x0138`) request. */
 export function encodeEntityTombstone(p: EntityTombstoneRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["entity_id", p.entityId],
       ["reason", p.reason],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -7753,6 +7829,7 @@ export function decodeEntityTombstone(bytes: Uint8Array): EntityTombstoneRequest
     entityId: asBytes(field(m, "entity_id")),
     reason: asStr(field(m, "reason")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -7782,17 +7859,23 @@ export interface StatementSupersedeRequest {
   oldStatementId: WireUuid;
   newStatement: StatementCreateRequest;
   requestId: WireUuid;
+  /** Effective identity this statement supersede runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a STATEMENT_SUPERSEDE (`0x0142`) request, nesting the replacement statement's map. */
 export function encodeStatementSupersede(p: StatementSupersedeRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["old_statement_id", p.oldStatementId],
       // Nest the statement map directly — no re-encode round-trip.
       ["new_statement", statementCreateMap(p.newStatement)],
       ["request_id", p.requestId],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -7803,6 +7886,7 @@ export function decodeStatementSupersede(bytes: Uint8Array): StatementSupersedeR
     oldStatementId: asBytes(field(m, "old_statement_id")),
     newStatement: statementCreateFromMap(asMap(field(m, "new_statement"))),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -7840,17 +7924,23 @@ export interface StatementReasonRequest {
   reason: number;
   reasonMessage: string;
   requestId: WireUuid;
+  /** Effective identity this tombstone/retraction runs as. `null`
+   * (CBOR-omitted) runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a STATEMENT_TOMBSTONE (`0x0143`) / STATEMENT_RETRACT (`0x0144`) request (shared reason shape). */
 export function encodeStatementReason(p: StatementReasonRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
-      ["statement_id", p.statementId],
-      ["reason", p.reason],
-      ["reason_message", p.reasonMessage],
-      ["request_id", p.requestId],
-    ]),
+    requestMapWithActAs(
+      [
+        ["statement_id", p.statementId],
+        ["reason", p.reason],
+        ["reason_message", p.reasonMessage],
+        ["request_id", p.requestId],
+      ],
+      p.actAs,
+    ),
   );
 }
 
@@ -7862,6 +7952,7 @@ export function decodeStatementReason(bytes: Uint8Array): StatementReasonRequest
     reason: asNum(field(m, "reason")),
     reasonMessage: asStr(field(m, "reason_message")),
     requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
   };
 }
 
@@ -7932,19 +8023,25 @@ export interface StatementHistoryRequest {
    * unsigned ints (a plain byte vector), NOT a byte string — contrast
    * `anchorId`. */
   cursor: Uint8Array;
+  /** Effective identity this history read runs as. `null` (CBOR-omitted)
+   * runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
 }
 
 /** Encode a STATEMENT_HISTORY (`0x0145`) request. */
 export function encodeStatementHistory(p: StatementHistoryRequest): Uint8Array {
   return toCbor(
-    new Map<string, unknown>([
+    requestMapWithActAs(
+      [
       ["anchor_id", p.anchorId],
       ["include_tombstoned", p.includeTombstoned],
       ["limit", p.limit],
       // A plain byte vector: CBOR array of unsigned ints (empty -> 0x80), not a
       // byte string. `Array.from` yields the number[] the codec emits as MAJOR_ARRAY.
       ["cursor", Array.from(p.cursor)],
-    ]),
+    ],
+      p.actAs,
+    ),
   );
 }
 
@@ -7956,6 +8053,7 @@ export function decodeStatementHistory(bytes: Uint8Array): StatementHistoryReque
     includeTombstoned: asBool(field(m, "include_tombstoned")),
     limit: asNum(field(m, "limit")),
     cursor: Uint8Array.from(asArray(field(m, "cursor")).map(asNum)),
+    actAs: decodeOptActAs(m),
   };
 }
 

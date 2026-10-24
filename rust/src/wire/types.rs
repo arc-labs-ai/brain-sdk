@@ -116,6 +116,45 @@ pub struct MtlsClaim {
     pub asserted_subject: String,
 }
 
+/// The permission bitfield, mirroring the server's own table.
+///
+/// The wire carries a `u32`; [`SpacePermissions`] is its decoded form for the
+/// *connection*. These constants exist for the one case the booleans cannot
+/// answer: computing what an `act_as` identity may do, which is a function of
+/// the delegator's bits and the per-request grant rather than of either alone.
+pub mod permissions {
+    /// May ENCODE memories.
+    pub const ENCODE: u32 = 1 << 0;
+    /// May RECALL / QUERY / PLAN / REASON.
+    pub const RECALL: u32 = 1 << 1;
+    /// May FORGET memories.
+    pub const FORGET: u32 = 1 << 2;
+    /// May LINK / UNLINK edges.
+    pub const LINK: u32 = 1 << 3;
+    /// May upload schemas.
+    pub const SCHEMA_UPLOAD: u32 = 1 << 4;
+    /// May call ADMIN_* ops.
+    pub const ADMIN: u32 = 1 << 5;
+    /// May run ops on behalf of another identity via `act_as`.
+    pub const ACT_AS: u32 = 1 << 6;
+
+    /// The fixed mask every delegated (`act_as`) identity receives.
+    pub const STANDARD_SPACE: u32 = ENCODE | RECALL | FORGET | LINK;
+    /// The only bits an `act_as.grant` may add on top of [`STANDARD_SPACE`].
+    /// Excludes [`ACT_AS`]: a delegated op can never itself delegate.
+    pub const DELEGABLE: u32 = SCHEMA_UPLOAD | ADMIN;
+
+    /// What a delegated identity ends up with.
+    ///
+    /// The server computes exactly this at ingress — a grant is bounded both
+    /// by what is delegable at all and by what the delegator itself holds, so
+    /// a gateway cannot hand a tenant more than it has.
+    #[must_use]
+    pub const fn delegated(delegator: u32, grant: u32) -> u32 {
+        STANDARD_SPACE | (grant & delegator & DELEGABLE)
+    }
+}
+
 /// Agent permissions confirmed in AUTH_OK.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SpacePermissions {
@@ -130,6 +169,55 @@ pub struct SpacePermissions {
     /// principal (an edge / gateway); a normal agent's key never carries it,
     /// and it does not widen what the connection's own agent may do.
     pub can_act_as: bool,
+}
+
+impl SpacePermissions {
+    /// Decode the bitfield into the booleans AUTH_OK carries.
+    ///
+    /// `can_plan` and `can_reason` are both [`permissions::RECALL`]: planning
+    /// and reasoning are reads, and the server gates all three on one bit.
+    #[must_use]
+    pub const fn from_bits(bits: u32) -> Self {
+        use permissions as p;
+        Self {
+            can_encode: bits & p::ENCODE != 0,
+            can_recall: bits & p::RECALL != 0,
+            can_plan: bits & p::RECALL != 0,
+            can_reason: bits & p::RECALL != 0,
+            can_forget: bits & p::FORGET != 0,
+            can_admin: bits & p::ADMIN != 0,
+            can_act_as: bits & p::ACT_AS != 0,
+        }
+    }
+
+    /// Re-encode as the bitfield.
+    ///
+    /// Lossy in one direction only: `can_plan` and `can_reason` fold back into
+    /// [`permissions::RECALL`], which they were decoded from. [`Self::SCHEMA_UPLOAD`]
+    /// has no boolean and is therefore never set here.
+    ///
+    /// [`Self::SCHEMA_UPLOAD`]: permissions::SCHEMA_UPLOAD
+    #[must_use]
+    pub const fn to_bits(self) -> u32 {
+        use permissions as p;
+        let mut bits = 0;
+        if self.can_encode {
+            bits |= p::ENCODE;
+        }
+        if self.can_recall {
+            bits |= p::RECALL;
+        }
+        if self.can_forget {
+            bits |= p::FORGET;
+        }
+        if self.can_admin {
+            bits |= p::ADMIN;
+        }
+        if self.can_act_as {
+            bits |= p::ACT_AS;
+        }
+        bits
+    }
 }
 
 /// Server-declared parameters carried in WELCOME.
@@ -342,6 +430,10 @@ pub struct EncodeVectorDirectRequest {
     #[serde(with = "crate::wire::cbor::opt_byte_array16")]
     pub txn_id: Option<WireUuid>,
     pub deduplicate: bool,
+    /// Effective identity this direct-vector encode runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// ENCODE_RESP (`0x00A0`).
@@ -1980,6 +2072,10 @@ pub struct EntityUpdateRequest {
     pub attributes_blob: Vec<u8>,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this update runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// ENTITY_UPDATE_RESP (`0x01B2`). The post-update view.
@@ -1999,6 +2095,10 @@ pub struct EntityRenameRequest {
     pub move_to_alias: bool,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this rename runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// ENTITY_RENAME_RESP (`0x01B3`). The post-rename view.
@@ -2021,6 +2121,10 @@ pub struct EntityMergeRequest {
     pub reason: String,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this merge runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// ENTITY_MERGE_RESP (`0x01B4`). `audit_id` is the merge record (not an
@@ -2040,6 +2144,10 @@ pub struct EntityUnmergeRequest {
     pub merged_entity: WireUuid,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this unmerge runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// ENTITY_UNMERGE_RESP (`0x01B5`). The id the restored entity now lives under.
@@ -2059,6 +2167,10 @@ pub struct EntityTombstoneRequest {
     pub reason: String,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this tombstone runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// ENTITY_TOMBSTONE_RESP (`0x01B8`). When the retirement took effect.
@@ -2126,6 +2238,13 @@ pub struct StatementSupersedeRequest {
     pub new_statement: StatementCreateRequest,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this supersede runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    ///
+    /// The server reads the selector off this outer request, not off
+    /// `new_statement` — setting it there has no effect.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// STATEMENT_SUPERSEDE_RESP (`0x01C2`). The new statement plus its chain root
@@ -2149,6 +2268,10 @@ pub struct StatementTombstoneRequest {
     pub reason_message: String,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this tombstone runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// STATEMENT_TOMBSTONE_RESP (`0x01C3`). When the retirement took effect.
@@ -2168,6 +2291,10 @@ pub struct StatementRetractRequest {
     pub reason_message: String,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this retraction runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// STATEMENT_RETRACT_RESP (`0x01C4`). When it was retracted, and when the
@@ -2189,6 +2316,10 @@ pub struct StatementHistoryRequest {
     pub include_tombstoned: bool,
     pub limit: u32,
     pub cursor: Vec<u8>,
+    /// Effective identity this history read runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// STATEMENT_HISTORY_RESP (`0x01C5`), one streamed frame. `is_final` marks the
@@ -2481,6 +2612,10 @@ pub struct MaterializeProceduralRequest {
     pub categories: Vec<String>,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this materialization runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// MATERIALIZE_PROCEDURAL_RESP (`0x01E4`).
@@ -3153,12 +3288,19 @@ pub struct GetCapabilitiesResponse {
 // EXTRACTOR_LIST.
 // ===========================================================================
 
-/// EXTRACTOR_LIST (`0x0124`). Empty request — extraction is always-on and
-/// takes no arguments, so every registered extractor is returned. Kept as a
-/// struct (not a unit type) so the encoding matches every other request body
-/// (a CBOR map, here empty).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExtractorListRequest {}
+/// EXTRACTOR_LIST (`0x0124`). Extraction is always-on and takes no arguments,
+/// so every extractor registered for the effective namespace is returned. Kept
+/// as a struct (not a unit type) so the encoding matches every other request
+/// body (a CBOR map, empty when no selector is set).
+///
+/// Not `Copy`: the `act_as` selector owns two `String`s.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractorListRequest {
+    /// Effective identity this listing runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
 
 /// One registered extractor row in [`ExtractorListResponseFrame`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3681,6 +3823,13 @@ pub struct RelationSupersedeRequest {
     pub new_relation: RelationCreateRequest,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this supersede runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    ///
+    /// The server reads the selector off this outer request, not off
+    /// `new_relation` — setting it there has no effect.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// RELATION_SUPERSEDE_RESP (`0x01D2`). New id + monotonic version.
@@ -3699,6 +3848,10 @@ pub struct RelationTombstoneRequest {
     pub reason: String,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
+    /// Effective identity this tombstone runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// RELATION_TOMBSTONE_RESP (`0x01D3`).
@@ -3767,6 +3920,10 @@ pub struct RelationTraverseResponseFrame {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QueryExplainRequest {
     pub query: QueryRequest,
+    /// Effective identity this explain runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// QUERY_EXPLAIN_RESP (`0x01E1`). The plan plus an estimated cost.
@@ -3780,6 +3937,10 @@ pub struct QueryExplainResponse {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QueryTraceRequest {
     pub query: QueryRequest,
+    /// Effective identity this trace runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
 }
 
 /// QUERY_TRACE_RESP (`0x01E2`). The trace plus total latency.

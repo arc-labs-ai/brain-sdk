@@ -46,6 +46,7 @@ async fn update_then_rename_then_tombstone() {
             aliases: vec!["Ada".to_string()],
             attributes_blob: b"role=mathematician".to_vec(),
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("update");
@@ -58,6 +59,7 @@ async fn update_then_rename_then_tombstone() {
             new_canonical_name: "Countess Lovelace".to_string(),
             move_to_alias: true,
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("rename");
@@ -92,6 +94,7 @@ async fn update_then_rename_then_tombstone() {
             entity_id: id,
             reason: "test cleanup".to_string(),
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("tombstone");
@@ -139,6 +142,7 @@ async fn merge_then_unmerge() {
             confidence: 0.95,
             reason: "same city".to_string(),
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("merge");
@@ -152,6 +156,7 @@ async fn merge_then_unmerge() {
         .unmerge_entity(&EntityUnmergeRequest {
             merged_entity: merged,
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("unmerge");

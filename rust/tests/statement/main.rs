@@ -69,6 +69,7 @@ async fn supersede_builds_a_history_chain() {
             old_statement_id: first.statement_id,
             new_statement: fact(subject, "brain-db"),
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("supersede");
@@ -87,6 +88,7 @@ async fn supersede_builds_a_history_chain() {
             // "limit must be in 1..=1000". Matches the Python SDK's default.
             limit: 100,
             cursor: Vec::new(),
+            act_as: None,
         })
         .await
         .expect("history");
@@ -134,6 +136,7 @@ async fn tombstone_and_retract_are_accepted() {
             reason: 1,
             reason_message: "superseded by hand".to_string(),
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("tombstone");
@@ -149,6 +152,7 @@ async fn tombstone_and_retract_are_accepted() {
             reason: 1,
             reason_message: "was wrong".to_string(),
             request_id: new_id(),
+            act_as: None,
         })
         .await
         .expect("retract");

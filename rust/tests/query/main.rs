@@ -41,6 +41,7 @@ async fn explain_returns_a_plan() {
     let resp = client
         .query_explain(&QueryExplainRequest {
             query: query("coffee"),
+            act_as: None,
         })
         .await
         .expect("query_explain");
@@ -66,6 +67,7 @@ async fn trace_returns_an_execution_trace() {
     let resp = client
         .query_trace(&QueryTraceRequest {
             query: query("coffee"),
+            act_as: None,
         })
         .await
         .expect("query_trace");
