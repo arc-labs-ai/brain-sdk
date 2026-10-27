@@ -281,7 +281,16 @@ class BrainHttpClient:
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
     ) -> ListEntitiesResult:
-        """Entities in the space, optionally filtered.
+        """Entities in the space, filtered.
+
+        ``type_id`` is **required by Brain v1.0**, despite being optional in
+        this signature: an ENTITY_LIST without it is refused with
+        ``400 entity_type_id filter is required in v1.0 ENTITY_LIST``. It is
+        typed optional because the requirement is the engine's current
+        version, not the shape of the verb — a later Brain is expected to
+        allow an unfiltered listing, and narrowing the signature now would be
+        a breaking change to undo later.
+
         ``cursor`` resumes after a previous page's ``next_cursor``; keep the
         other filters identical across pages, because the cursor is bound to
         them.

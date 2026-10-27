@@ -311,7 +311,17 @@ export class BrainHttpClient {
     return this.requestWithRetry("GET", `/v1/memories/${pathId(memoryId)}/inspect`);
   }
 
-  /** A page of entities matching the filters. Idempotent GET — retried. */
+  /**
+   * A page of entities matching the filters. Idempotent GET — retried.
+   *
+   * `typeId` is **required by Brain v1.0** even though `query` is optional
+   * here: a listing without it is refused with
+   * `400 entity_type_id filter is required in v1.0 ENTITY_LIST`. The
+   * parameter stays optional because the requirement is the engine's current
+   * version rather than the shape of the verb — a later Brain is expected to
+   * allow an unfiltered listing, and tightening the type now would be a
+   * breaking change to undo later.
+   */
   listEntities(query?: ListEntitiesQuery): Promise<ListEntitiesResult> {
     return this.requestWithRetry("GET", "/v1/entities", undefined, query);
   }
