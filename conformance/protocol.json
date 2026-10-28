@@ -10374,6 +10374,11 @@
      "name": "cost_micro_usd",
      "serde": {},
      "type": "u64"
+    },
+    {
+     "name": "error_message",
+     "serde": {},
+     "type": "String"
     }
    ],
    "serde": {}

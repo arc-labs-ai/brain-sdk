@@ -650,6 +650,7 @@ describe("SUBSCRIBE round-trip", () => {
         value: {
           questionsWritten: 4,
           costMicroUsd: 1200n,
+          errorMessage: "",
         },
       },
     };

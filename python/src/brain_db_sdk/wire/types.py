@@ -4349,21 +4349,27 @@ class StageTemporalEdgePayload:
 @dataclass
 class StageHypePayload:
     """HyPE stage detail: how many hypothetical questions were embedded and
-    persisted, and the LLM micro-USD spent generating them (``0`` on a cache
-    hit)."""
+    persisted, the LLM micro-USD spent generating them (``0`` on a cache
+    hit), and why the stage failed when it did."""
 
     questions_written: int
     cost_micro_usd: int
+    error_message: str
 
     def to_map(self) -> dict[str, Any]:
         return {
             "questions_written": self.questions_written,
             "cost_micro_usd": self.cost_micro_usd,
+            "error_message": self.error_message,
         }
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StageHypePayload:
-        return cls(m["questions_written"], m["cost_micro_usd"])
+        return cls(
+            m["questions_written"],
+            m["cost_micro_usd"],
+            m["error_message"],
+        )
 
 
 @dataclass

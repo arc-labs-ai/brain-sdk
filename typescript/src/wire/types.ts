@@ -6881,10 +6881,11 @@ export interface StageExtractorPayload {
   errorMessage: string;
 }
 
-/** StageCompleted detail for the HyPE stage: how many hypothetical questions were embedded/persisted/indexed, and LLM spend (0 on a cache hit). */
+/** StageCompleted detail for the HyPE stage: how many hypothetical questions were embedded/persisted/indexed, LLM spend (0 on a cache hit), and any error. */
 export interface StageHypePayload {
   questionsWritten: number;
   costMicroUsd: bigint;
+  errorMessage: string;
 }
 
 /** Per-stage detail sidecar on StageCompleted events. Externally tagged. */
@@ -6924,6 +6925,7 @@ function encodeStagePayload(s: StagePayload): unknown {
           new Map<string, unknown>([
             ["questions_written", s.value.questionsWritten],
             ["cost_micro_usd", s.value.costMicroUsd],
+            ["error_message", s.value.errorMessage],
           ]),
         ],
       ]);
@@ -6963,6 +6965,7 @@ function decodeStagePayload(value: unknown): StagePayload {
       value: {
         questionsWritten: asNum(field(inner, "questions_written")),
         costMicroUsd: asBig(field(inner, "cost_micro_usd")),
+        errorMessage: asStr(field(inner, "error_message")),
       },
     };
   }

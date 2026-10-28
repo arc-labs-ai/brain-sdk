@@ -2954,13 +2954,15 @@ pub struct StageExtractorPayload {
 /// [`StagePayload::Hype`] body: hypothetical questions generated for the new
 /// memory (write-time HyPE), embedded and inserted into the memory HNSW
 /// index.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageHypePayload {
     /// How many hypothetical questions were embedded, persisted, and
     /// inserted into the memory HNSW index.
     pub questions_written: u32,
     /// LLM micro-USD spent generating the questions (`0` on a cache hit).
     pub cost_micro_usd: u64,
+    /// Populated only when the parent outcome is `Failed`; empty otherwise.
+    pub error_message: String,
 }
 
 /// Per-stage detail sidecar on `StageCompleted` events. Externally-tagged
