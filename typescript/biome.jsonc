@@ -43,7 +43,7 @@
     // tsconfig, so they must be asked for explicitly.
     "domains": { "types": "all" },
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
 
       // ---- a11y ------------------------------------------------------------
       // No DOM, no JSX, no markup of any kind. All 38 rules are inapplicable.

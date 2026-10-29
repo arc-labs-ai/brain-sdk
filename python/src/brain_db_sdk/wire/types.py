@@ -6188,7 +6188,13 @@ class EntityRenameRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityRenameRequest:
         act_as = m.get("act_as")
-        return cls(m["entity_id"], m["new_canonical_name"], m["move_to_alias"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            m["entity_id"],
+            m["new_canonical_name"],
+            m["move_to_alias"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -6234,7 +6240,14 @@ class EntityMergeRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityMergeRequest:
         act_as = m.get("act_as")
-        return cls(m["survivor"], m["merged"], m["confidence"], m["reason"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            m["survivor"],
+            m["merged"],
+            m["confidence"],
+            m["reason"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -6272,7 +6285,9 @@ class EntityUnmergeRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityUnmergeRequest:
         act_as = m.get("act_as")
-        return cls(m["merged_entity"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            m["merged_entity"], m["request_id"], None if act_as is None else ActAs.from_map(act_as)
+        )
 
 
 @dataclass
@@ -6314,7 +6329,12 @@ class EntityTombstoneRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> EntityTombstoneRequest:
         act_as = m.get("act_as")
-        return cls(m["entity_id"], m["reason"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            m["entity_id"],
+            m["reason"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -6417,7 +6437,13 @@ class StatementTombstoneRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StatementTombstoneRequest:
         act_as = m.get("act_as")
-        return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            m["statement_id"],
+            m["reason"],
+            m["reason_message"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -6461,7 +6487,13 @@ class StatementRetractRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> StatementRetractRequest:
         act_as = m.get("act_as")
-        return cls(m["statement_id"], m["reason"], m["reason_message"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            m["statement_id"],
+            m["reason"],
+            m["reason_message"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -6687,7 +6719,12 @@ class RelationTombstoneRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> RelationTombstoneRequest:
         act_as = m.get("act_as")
-        return cls(m["relation_id"], m["reason"], m["request_id"], None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            m["relation_id"],
+            m["reason"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+        )
 
 
 @dataclass
@@ -6849,7 +6886,9 @@ class QueryExplainRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> QueryExplainRequest:
         act_as = m.get("act_as")
-        return cls(QueryRequest.from_map(m["query"]), None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            QueryRequest.from_map(m["query"]), None if act_as is None else ActAs.from_map(act_as)
+        )
 
 
 @dataclass
@@ -6890,7 +6929,9 @@ class QueryTraceRequest:
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> QueryTraceRequest:
         act_as = m.get("act_as")
-        return cls(QueryRequest.from_map(m["query"]), None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            QueryRequest.from_map(m["query"]), None if act_as is None else ActAs.from_map(act_as)
+        )
 
 
 @dataclass

@@ -8,9 +8,9 @@
  * complete a round trip against a real server.
  *
  * Only live traffic surfaced the bug — the rule lives in the server's dispatch
- * layer, and a mock answers a wrong-stream PING quite happily. What a mock
- * *can* pin is the stream id the client chose, which is exactly the thing that
- * was wrong. This test asserts it directly so the fix cannot quietly revert.
+ * layer, and a mock answers a wrong-stream PING quite happily. What a mock *can*
+ * pin is the stream id the client chose, which is exactly the thing that was
+ * wrong. This test asserts it directly so the fix cannot quietly revert.
  */
 
 import * as net from "node:net";

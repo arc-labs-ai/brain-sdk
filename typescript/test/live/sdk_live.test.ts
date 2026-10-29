@@ -152,7 +152,7 @@ describe.skipIf(!LIVE)("brain-db via the TypeScript SDK (live)", () => {
     }
 
     await c.close?.();
-    console.log("\n" + results.join("\n"));
+    console.log(`\n${results.join("\n")}`);
     expect(results.length).toBeGreaterThan(0);
   }, 90_000);
 });

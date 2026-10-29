@@ -3719,13 +3719,13 @@ export function encodeMaterializeProcedural(p: MaterializeProceduralRequest): Ui
   return toCbor(
     requestMapWithActAs(
       [
-      ["space_id", p.spaceId],
-      ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
-      ["top_k", p.topK],
-      ["min_confidence", f32(p.minConfidence)],
-      ["categories", p.categories],
-      ["request_id", p.requestId],
-    ],
+        ["space_id", p.spaceId],
+        ["session_filter", p.sessionFilter === null ? null : p.sessionFilter],
+        ["top_k", p.topK],
+        ["min_confidence", f32(p.minConfidence)],
+        ["categories", p.categories],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -6246,11 +6246,11 @@ export function encodeRelationSupersede(p: RelationSupersedeRequest): Uint8Array
   return toCbor(
     requestMapWithActAs(
       [
-      ["old_relation_id", p.oldRelationId],
-      // Nest the relation map directly — no re-encode round-trip.
-      ["new_relation", relationCreateMap(p.newRelation)],
-      ["request_id", p.requestId],
-    ],
+        ["old_relation_id", p.oldRelationId],
+        // Nest the relation map directly — no re-encode round-trip.
+        ["new_relation", relationCreateMap(p.newRelation)],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -6309,10 +6309,10 @@ export function encodeRelationTombstone(p: RelationTombstoneRequest): Uint8Array
   return toCbor(
     requestMapWithActAs(
       [
-      ["relation_id", p.relationId],
-      ["reason", p.reason],
-      ["request_id", p.requestId],
-    ],
+        ["relation_id", p.relationId],
+        ["reason", p.reason],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -7596,12 +7596,12 @@ export function encodeEntityUpdate(p: EntityUpdateRequest): Uint8Array {
   return toCbor(
     requestMapWithActAs(
       [
-      ["entity_id", p.entityId],
-      ["canonical_name", p.canonicalName],
-      ["aliases", p.aliases],
-      ["attributes_blob", Array.from(p.attributesBlob)],
-      ["request_id", p.requestId],
-    ],
+        ["entity_id", p.entityId],
+        ["canonical_name", p.canonicalName],
+        ["aliases", p.aliases],
+        ["attributes_blob", Array.from(p.attributesBlob)],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -7665,11 +7665,11 @@ export function encodeEntityRename(p: EntityRenameRequest): Uint8Array {
   return toCbor(
     requestMapWithActAs(
       [
-      ["entity_id", p.entityId],
-      ["new_canonical_name", p.newCanonicalName],
-      ["move_to_alias", p.moveToAlias],
-      ["request_id", p.requestId],
-    ],
+        ["entity_id", p.entityId],
+        ["new_canonical_name", p.newCanonicalName],
+        ["move_to_alias", p.moveToAlias],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -7704,12 +7704,12 @@ export function encodeEntityMerge(p: EntityMergeRequest): Uint8Array {
   return toCbor(
     requestMapWithActAs(
       [
-      ["survivor", p.survivor],
-      ["merged", p.merged],
-      ["confidence", f32(p.confidence)],
-      ["reason", p.reason],
-      ["request_id", p.requestId],
-    ],
+        ["survivor", p.survivor],
+        ["merged", p.merged],
+        ["confidence", f32(p.confidence)],
+        ["reason", p.reason],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -7767,9 +7767,9 @@ export function encodeEntityUnmerge(p: EntityUnmergeRequest): Uint8Array {
   return toCbor(
     requestMapWithActAs(
       [
-      ["merged_entity", p.mergedEntity],
-      ["request_id", p.requestId],
-    ],
+        ["merged_entity", p.mergedEntity],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -7816,10 +7816,10 @@ export function encodeEntityTombstone(p: EntityTombstoneRequest): Uint8Array {
   return toCbor(
     requestMapWithActAs(
       [
-      ["entity_id", p.entityId],
-      ["reason", p.reason],
-      ["request_id", p.requestId],
-    ],
+        ["entity_id", p.entityId],
+        ["reason", p.reason],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -7872,11 +7872,11 @@ export function encodeStatementSupersede(p: StatementSupersedeRequest): Uint8Arr
   return toCbor(
     requestMapWithActAs(
       [
-      ["old_statement_id", p.oldStatementId],
-      // Nest the statement map directly — no re-encode round-trip.
-      ["new_statement", statementCreateMap(p.newStatement)],
-      ["request_id", p.requestId],
-    ],
+        ["old_statement_id", p.oldStatementId],
+        // Nest the statement map directly — no re-encode round-trip.
+        ["new_statement", statementCreateMap(p.newStatement)],
+        ["request_id", p.requestId],
+      ],
       p.actAs,
     ),
   );
@@ -8036,13 +8036,13 @@ export function encodeStatementHistory(p: StatementHistoryRequest): Uint8Array {
   return toCbor(
     requestMapWithActAs(
       [
-      ["anchor_id", p.anchorId],
-      ["include_tombstoned", p.includeTombstoned],
-      ["limit", p.limit],
-      // A plain byte vector: CBOR array of unsigned ints (empty -> 0x80), not a
-      // byte string. `Array.from` yields the number[] the codec emits as MAJOR_ARRAY.
-      ["cursor", Array.from(p.cursor)],
-    ],
+        ["anchor_id", p.anchorId],
+        ["include_tombstoned", p.includeTombstoned],
+        ["limit", p.limit],
+        // A plain byte vector: CBOR array of unsigned ints (empty -> 0x80), not a
+        // byte string. `Array.from` yields the number[] the codec emits as MAJOR_ARRAY.
+        ["cursor", Array.from(p.cursor)],
+      ],
       p.actAs,
     ),
   );
