@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.4.0](https://github.com/arc-labs-ai/brain-sdk/compare/v0.3.1...v0.4.0) (2026-10-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* an asyncio Python client, and the drift gates that keep three SDKs honest
+
+### Fixes
+
+* **python,typescript:** send PING on stream 0, where a connection-level opcode belongs ([f1e0453](https://github.com/arc-labs-ai/brain-sdk/commit/f1e04531d1aca78681a0c397f4df798e1e387e66))
+* **python:** close the socket when a handshake fails ([266e487](https://github.com/arc-labs-ai/brain-sdk/commit/266e4871d9d817fc3648b8655c8ecd8f603ef239))
+* **python:** decode act_as onto act_as, not onto the vector field ([a17ad6e](https://github.com/arc-labs-ai/brain-sdk/commit/a17ad6e4a2aca6349f8af392caab4ca80c828cfc))
+* **python:** report the version that shipped, and raise a real error from the SSE decoder ([cceebbf](https://github.com/arc-labs-ai/brain-sdk/commit/cceebbf1b93e4256a650a2e3f96af220a8ab2920))
+* **rust:** send PING on stream 0, where a connection-level opcode belongs ([0a65151](https://github.com/arc-labs-ai/brain-sdk/commit/0a65151d0ffb44e42cb851c74138458444705c45))
+
+
+### Features
+
+* an asyncio Python client, and the drift gates that keep three SDKs honest ([5833027](https://github.com/arc-labs-ai/brain-sdk/commit/5833027e0982f9a1b7b0d5f74669bb863f4a2b8c))
+* decode the memory edges inspect returns, and drop its `found` flag ([a18ff00](https://github.com/arc-labs-ai/brain-sdk/commit/a18ff0012a108f08fbd1e3612db846ed217ef2b2))
+* drop `found` from the native MemoryInspectResponse ([20413c8](https://github.com/arc-labs-ai/brain-sdk/commit/20413c8a24775a4c8af97ba8adf72a83733fb62c))
+* **python:** add the asyncio client tier ([21ef0d9](https://github.com/arc-labs-ai/brain-sdk/commit/21ef0d9aaf5b9ab2f34d31456af3115e03b92c2d))
+* **python:** cover the edge's whole HTTP surface ([d7c86e1](https://github.com/arc-labs-ai/brain-sdk/commit/d7c86e110de9747f5860347cf410940e702d7fbb))
+* **rust:** cover the edge's whole HTTP surface ([c476c73](https://github.com/arc-labs-ai/brain-sdk/commit/c476c73e184f79d6501068ac3556f8f79d140778))
+* **typescript:** cover the edge's whole HTTP surface ([5412846](https://github.com/arc-labs-ai/brain-sdk/commit/541284692d07c5f3cfdeef73f3b66d7a35becaa8))
+* **wire:** carry act_as on every tenant-scoped request ([86d9fa9](https://github.com/arc-labs-ai/brain-sdk/commit/86d9fa92697299f15a294421660a3655ca9a7203))
+* **wire:** carry the HyPE stage's failure reason ([3082bcd](https://github.com/arc-labs-ai/brain-sdk/commit/3082bcd613c89c684de1db240195f0f7284645b2))
+
+
+### Documentation
+
+* **http:** say that Brain v1.0 requires a type filter to list entities ([ea0fb65](https://github.com/arc-labs-ai/brain-sdk/commit/ea0fb65e9a25cb15bc721a0b0502279debc268c4))
+
 ## [0.3.1](https://github.com/arc-labs-ai/brain-sdk/compare/v0.3.0...v0.3.1) (2026-10-21)
 
 
