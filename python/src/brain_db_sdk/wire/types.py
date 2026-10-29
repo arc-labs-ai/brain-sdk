@@ -733,7 +733,13 @@ class EncodeVectorDirectRequest:
             m["request_id"],
             m["txn_id"],
             m["deduplicate"],
-            None if act_as is None else ActAs.from_map(act_as),
+            # Keyword, not positional. `vector` sits between `deduplicate` and
+            # `act_as` in this dataclass (it needs a default, so it cannot stay
+            # in the wire order Rust uses), and it is NOT read from the map —
+            # the vector travels in the frame's trailing raw section, which is
+            # why Rust marks it `#[serde(skip)]`. Passed positionally, act_as
+            # landed in `vector`.
+            act_as=None if act_as is None else ActAs.from_map(act_as),
         )
 
 
