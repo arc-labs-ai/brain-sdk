@@ -1050,11 +1050,14 @@ fn try_new_rejects_an_empty_api_key() {
 }
 
 #[test]
-fn try_new_accepts_a_non_empty_api_key_whatever_is_in_it() {
-    // Deliberate, and matched by the other two: the check is emptiness, not
-    // plausibility. Guessing at credential formats here would reject keys a
+fn try_new_accepts_any_api_key_an_http_header_can_carry() {
+    // Deliberate, and matched by the other two: the check is header-legality,
+    // not plausibility. Guessing at credential formats would reject keys a
     // future server issues, and a whitespace key is a server-side
     // authentication failure rather than a client-side configuration one.
+    // HTAB is in this list on purpose — RFC 7230 permits it in a field value
+    // and reqwest sends it, so rejecting it would make the constructor
+    // stricter than the request path it guards.
     let long = "x".repeat(8192);
     for key in [" ", "\t", "brain_\u{e9}key", long.as_str()] {
         assert!(
@@ -1124,5 +1127,36 @@ async fn a_control_character_api_key_fails_without_injecting_a_header() {
             !seen.auth.unwrap_or_default().contains("X-Injected"),
             "a header was injected through the api_key"
         );
+    }
+}
+
+#[test]
+fn try_new_rejects_a_control_character_in_the_api_key() {
+    // This was the last place the three SDKs disagreed. reqwest and `fetch`
+    // refuse to build the request, so Rust and TypeScript failed late but
+    // safely; Python's `urllib` sent a NUL straight through into the
+    // Authorization header, where a proxy may truncate the value. All three
+    // now refuse at construction, on the same rule and with the same message.
+    //
+    // A credential read from an env file with a trailing newline is the
+    // ordinary way one of these gets in.
+    for key in [
+        "evil\0key",
+        "evil\rX: 1",
+        "evil\nX: 1",
+        "evil\u{7f}key",
+        "evil\u{b}key",
+    ] {
+        let err = BrainHttpClient::try_new(key, "https://edge.example")
+            .err()
+            .unwrap_or_else(|| panic!("key {key:?} must be rejected"));
+        assert_eq!(err.status, 0, "key {key:?}");
+        assert_eq!(err.code, "config", "key {key:?}");
+        assert_eq!(
+            err.message, "api_key must not contain control characters",
+            "key {key:?}"
+        );
+        // The message must not echo the credential, even in part.
+        assert!(!err.message.contains("evil"), "the message leaked the key");
     }
 }

@@ -76,12 +76,34 @@ def test_an_empty_api_key_is_rejected():
 
 
 @pytest.mark.parametrize("key", [" ", "\t", "brain_ékey", "x" * 8192])
-def test_a_non_empty_api_key_is_accepted_whatever_is_in_it(key):
-    # Deliberate, and matched by the other two: the check is emptiness, not
-    # plausibility. A whitespace key is a server-side authentication failure,
-    # not a client-side configuration one, and guessing at credential formats
-    # here would reject keys a future server issues.
+def test_any_api_key_an_http_header_can_carry_is_accepted(key):
+    # Deliberate, and matched by the other two: the check is header-legality,
+    # not plausibility. A whitespace key is a server-side authentication
+    # failure, not a client-side configuration one, and guessing at credential
+    # formats would reject keys a future server issues. HTAB is in this list on
+    # purpose - RFC 7230 permits it in a field value and all three transports
+    # send it, so rejecting it would make the constructor stricter than the
+    # request path it guards.
     assert BrainHttpClient(key, base_url="https://edge.example") is not None
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["evil\0key", "evil\rX: 1", "evil\nX: 1", "evil\x7fkey", "evil\x0bkey"],
+)
+def test_a_control_character_in_the_api_key_is_rejected(key):
+    # This was the last place the three SDKs disagreed, and Python was the
+    # outlier: reqwest and `fetch` refuse to build the request, so Rust and
+    # TypeScript failed late but safely, while `urllib` sent a NUL straight
+    # into the Authorization header where a proxy may truncate the value. CR
+    # and LF were refused by `http.client`, but only at request time.
+    with pytest.raises(BrainHttpError) as got:
+        BrainHttpClient(key, base_url="https://edge.example")
+    assert got.value.status == 0
+    assert got.value.code == "config"
+    assert got.value.message == "api_key must not contain control characters"
+    # The message must not echo the credential, even in part.
+    assert "evil" not in got.value.message
 
 
 class _Server:
@@ -120,13 +142,31 @@ def server():
 
 
 @pytest.mark.parametrize("key", ["evil\r\nX-Injected: 1", "evil\nX-Injected: 1"])
-def test_a_crlf_api_key_fails_as_brain_http_error_and_injects_nothing(server, key):
-    client = BrainHttpClient(key, base_url=f"http://127.0.0.1:{server.port}")
-    # The regression: this used to escape as a stdlib ValueError, so a caller
-    # catching the SDK's own error type crashed instead.
+def test_a_crlf_api_key_never_reaches_the_socket(server, key):
+    # Two layers, and this asserts the outer one now does the work. The
+    # constructor rejects the key, so no client exists to make the request --
+    # which is why this no longer goes through `whoami`.
+    with pytest.raises(BrainHttpError) as got:
+        BrainHttpClient(key, base_url=f"http://127.0.0.1:{server.port}")
+    assert got.value.code == "config"
+    # The inner layer is still there underneath: `http.client` refuses a CR/LF
+    # header value, and the `ValueError` it raises is now wrapped as a
+    # BrainHttpError rather than escaping (see `_request_once`). Neither layer
+    # is load-bearing alone, and nothing was ever injected.
+    assert server.seen == []
+
+
+def test_a_bad_header_value_surfaces_as_brain_http_error_not_value_error(server):
+    # Guards the inner layer directly, reaching past the constructor by
+    # mutating the stored credential -- the only way to exercise the request
+    # path now that construction rejects these keys. The regression this pins:
+    # `http.client` raises a bare `ValueError`, which is not an `OSError` and
+    # so slipped past every arm in `_request_once`, reaching the caller as a
+    # stdlib exception despite the SDK's documented contract.
+    client = BrainHttpClient("brain_key", base_url=f"http://127.0.0.1:{server.port}")
+    client._api_key = "evil\r\nX-Injected: 1"
     with pytest.raises(BrainHttpError) as got:
         client.whoami()
     assert got.value.status == 0
     assert got.value.code == "transport"
-    # And the security half: nothing reached the socket at all.
     assert all("x-injected" not in r.lower() for r in server.seen)

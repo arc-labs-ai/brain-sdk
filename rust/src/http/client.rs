@@ -147,6 +147,24 @@ impl BrainHttpClient {
         if api_key.is_empty() {
             return Err(BrainHttpError::config("api_key is required"));
         }
+        // A credential read from an env file with a trailing newline is the
+        // ordinary way a control character gets into a bearer token, and the
+        // three SDKs disagreed about it: reqwest and `fetch` refuse to build
+        // the request, while Python's `urllib` sent a NUL inside the
+        // Authorization header, where a proxy may truncate the value.
+        //
+        // HTAB is deliberately allowed: RFC 7230 permits it in a field value
+        // and reqwest sends it, so rejecting it here would make this
+        // constructor stricter than the request path it guards.
+        // `is_ascii_control` covers C0 and DEL and stops short of the
+        // 0x80-0xFF obs-text range, which carries a key like `brain_ekey`
+        // with a non-ASCII letter in it.
+        if api_key.chars().any(|c| c.is_ascii_control() && c != '\t') {
+            // The message names no part of the key, because it is a credential.
+            return Err(BrainHttpError::config(
+                "api_key must not contain control characters",
+            ));
+        }
         // Trimmed before parsing *and* before use. Python's `urlparse` strips
         // surrounding whitespace, so it accepts `" https://edge"`; without this
         // Rust alone rejected a base_url read from an env var or config file

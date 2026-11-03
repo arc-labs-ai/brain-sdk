@@ -208,6 +208,23 @@ function encodeQuery(query: Query | undefined): string {
   return parts.length === 0 ? "" : `?${parts.join("&")}`;
 }
 
+/**
+ * Whether `value` holds a character no HTTP field value may carry.
+ *
+ * A charCode scan rather than a regex: a regex literal needs the control
+ * characters spelled into it, which `noControlCharactersInRegex` distrusts for
+ * good reason, and this reads the same as the Rust (`is_ascii_control`) and
+ * Python (`ord(ch)`) forms of the identical rule. HTAB passes, because RFC
+ * 7230 permits it and all three transports send it.
+ */
+function hasControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f) return true;
+  }
+  return false;
+}
+
 /** Interpolate a path id, escaped — an id is caller data, not a path fragment. */
 function pathId(id: string): string {
   return encodeURIComponent(id);
@@ -226,6 +243,20 @@ export class BrainHttpClient {
     // key. `?.` keeps both cases in one expression.
     if (!opts?.apiKey) {
       throw new BrainHttpError(0, "config", "apiKey is required");
+    }
+    // A credential read from an env file with a trailing newline is the
+    // ordinary way a control character gets into a bearer token. `fetch`
+    // already refuses to build such a request, but only at request time and
+    // with a message that names a header rather than the key; Python's urllib
+    // sent a NUL through to the Authorization header entirely. Checking here
+    // puts all three SDKs on one rule, at construction.
+    //
+    // HTAB is deliberately allowed: RFC 7230 permits it in a field value and
+    // the transports send it. The check stops below 0x80 so a key carrying a
+    // non-ASCII letter still works.
+    if (hasControlCharacter(opts.apiKey)) {
+      // The message names no part of the key, because it is a credential.
+      throw new BrainHttpError(0, "config", "apiKey must not contain control characters");
     }
     this.base = (opts.baseUrl ?? "http://127.0.0.1:8080").replace(/\/+$/, "");
     this.apiKey = opts.apiKey;

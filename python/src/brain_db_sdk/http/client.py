@@ -88,6 +88,21 @@ class BrainHttpClient:
     ) -> None:
         if not api_key:
             raise BrainHttpError(0, "config", "api_key is required")
+        # A credential read from an env file with a trailing newline is the
+        # ordinary way a control character gets into a bearer token. This used
+        # to be the one place the three SDKs disagreed: reqwest and `fetch`
+        # refuse to build the request, while `urllib` sent a NUL straight
+        # inside the Authorization header, where a proxy may truncate the
+        # value. CR and LF were already refused by `http.client`, but only at
+        # request time and as a bare ValueError.
+        #
+        # HTAB is deliberately allowed: RFC 7230 permits it in a field value
+        # and all three transports send it, so rejecting it here would make
+        # this constructor stricter than the request path it guards. The range
+        # stops below 0x80 so a key carrying a non-ASCII letter still works.
+        if any((ord(ch) < 0x20 and ch != "\t") or ord(ch) == 0x7F for ch in api_key):
+            # The message names no part of the key, because it is a credential.
+            raise BrainHttpError(0, "config", "api_key must not contain control characters")
         # `urlopen` honours every scheme urllib supports, so a `file://` or
         # `ftp://` base_url would turn an SDK call into a local file read.
         # base_url routinely comes from config or an environment variable, so
