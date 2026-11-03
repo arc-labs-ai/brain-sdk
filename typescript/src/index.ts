@@ -76,4 +76,4 @@ export * as http from "./http/types.js";
  * number as `SDK_VERSION`, where `env!("CARGO_PKG_VERSION")` makes the drift
  * impossible rather than merely detectable.
  */
-export const SDK_VERSION = "0.4.0"; // x-release-please-version
+export const SDK_VERSION = "0.4.1"; // x-release-please-version
