@@ -85,9 +85,11 @@ let stored = brain.encode(&EncodeInput { text: "the kettle whistled".into(), ..D
 let answer = brain.recall(&RecallInput { query: "what whistled?".into(), max_results: Some(3), ..Default::default() }).await?;
 ```
 
-> **`new` takes the API key first, the base URL second.** Both parameters are `impl Into<String>`, so a swapped call still compiles — and silently sends your URL as the bearer token. `BrainHttpClient::localhost(api_key)` is the one-argument form against `DEFAULT_BASE_URL` (`http://127.0.0.1:8080`).
+> **`new` takes the API key first, the base URL second.** Both parameters are `impl Into<String>`, so a swapped call still compiles — and silently sends your URL as the bearer token. `BrainHttpClient::try_new(api_key, base_url)` is the checked form: it rejects an empty key and a `base_url` without an `http`/`https` scheme, which is what catches that swap, since an API key in the URL position has no scheme. `BrainHttpClient::localhost(api_key)` is the one-argument form against `DEFAULT_BASE_URL` (`http://127.0.0.1:8080`).
 
 The HTTP tier also carries the edge-only surface the wire client has no opcode for: the SSE change feed (`subscribe()` → `http::Subscription`) and the BYOK LLM-credential verbs (`put_llm_credential()` and friends). Failures surface as [`BrainHttpError`] (`status` + `code`); idempotent verbs retry under [`HttpRetryPolicy`], overridable with `.with_retry_policy(…)`, and the 30s `DEFAULT_TIMEOUT` with `.with_timeout(…)`.
+
+Wire failures surface as [`BrainError`], whose `is_retryable()` drives the retry combinator. Three server codes get their own predicates, because a caller has to treat them differently and the category alone does not say which: `is_act_as_denied()`, `is_llm_credential_missing()` (terminal — no key is registered, so retrying cannot help) and `is_llm_credential_unavailable()` (retryable — the broker blipped). Python spells these as `ServerError` subclasses and TypeScript as `isActAsDenied`-style functions.
 
 ## Tests
 
@@ -116,6 +118,7 @@ License: Apache-2.0.
 [`BrainHttpError`]: https://github.com/arc-labs-ai/brain-sdk/blob/main/rust/src/http/error.rs
 [`HttpRetryPolicy`]: https://github.com/arc-labs-ai/brain-sdk/blob/main/rust/src/http/retry.rs
 [`BrainClient`]: https://github.com/arc-labs-ai/brain-sdk/blob/main/rust/src/client.rs
+[`BrainError`]: https://github.com/arc-labs-ai/brain-sdk/blob/main/rust/src/error.rs
 [`MuxConnection`]: https://github.com/arc-labs-ai/brain-sdk/blob/main/rust/src/mux.rs
 [`Subscription`]: https://github.com/arc-labs-ai/brain-sdk/blob/main/rust/src/mux.rs
 [`Pool`]: https://github.com/arc-labs-ai/brain-sdk/blob/main/rust/src/pool.rs

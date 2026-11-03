@@ -107,6 +107,50 @@ impl BrainError {
         }
     }
 
+    /// Whether this is an `act_as` authorization denial
+    /// ([`ErrorCodeWire::ActAsDenied`], `0x0033`): the connection principal
+    /// lacks the `can_act_as` grant, or the requested `act_as` namespace is
+    /// outside its allowlist.
+    ///
+    /// Never retryable — the fix is a differently-scoped credential, not a
+    /// repeat. Lets a pooled multi-tenant caller tell this apart from an
+    /// ordinary permission denial.
+    #[must_use]
+    pub fn is_act_as_denied(&self) -> bool {
+        self.has_code(ErrorCodeWire::ActAsDenied)
+    }
+
+    /// Whether the write's namespace has no usable BYOK provider credential
+    /// ([`ErrorCodeWire::LlmCredentialMissing`], `0x0066`).
+    ///
+    /// **Terminal** — retrying cannot create a key. Brain refuses the write
+    /// rather than storing a memory it cannot ground: HyPE and extraction are
+    /// mandatory, so an admitted write would land as text with no questions,
+    /// entities or statements, and recall would quietly degrade. Surface it as
+    /// "register a provider key", not as a transient failure.
+    #[must_use]
+    pub fn is_llm_credential_missing(&self) -> bool {
+        self.has_code(ErrorCodeWire::LlmCredentialMissing)
+    }
+
+    /// Whether the namespace's BYOK credential could not be resolved right now
+    /// ([`ErrorCodeWire::LlmCredentialUnavailable`], `0x0095`) — the broker was
+    /// unreachable, timed out, or returned a transient error.
+    ///
+    /// **Retryable**, and deliberately distinct from
+    /// [`Self::is_llm_credential_missing`]: collapsing the two would either
+    /// hammer an endpoint that can never succeed, or permanently fail a write
+    /// whose tenant has a perfectly good key.
+    #[must_use]
+    pub fn is_llm_credential_unavailable(&self) -> bool {
+        self.has_code(ErrorCodeWire::LlmCredentialUnavailable)
+    }
+
+    /// Whether this is a server ERROR carrying exactly `code`.
+    fn has_code(&self, wanted: ErrorCodeWire) -> bool {
+        matches!(self, BrainError::Server { code, .. } if *code == wanted)
+    }
+
     /// The server-requested cool-off before retrying, when the ERROR carried a
     /// `retry_after_ms`. The retry combinator prefers this over its own
     /// backoff schedule.
