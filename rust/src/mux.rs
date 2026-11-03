@@ -22,7 +22,7 @@
 //! can't collect to EOS like [`MuxConnection::request`]. It registers a route,
 //! sends the SUBSCRIBE frame, and hands back a handle the caller drains one
 //! event at a time. The shared write half, route table, stream-id counter and
-//! timeout all live in a single [`Shared`] behind an `Arc` so a subscription
+//! timeout all live in a single private `Shared` behind an `Arc` so a subscription
 //! can send its own UNSUBSCRIBE on a fresh stream without borrowing the
 //! connection.
 
@@ -51,7 +51,7 @@ const HANDSHAKE_STREAM_ID: u32 = 0;
 /// What the server told us during the handshake: the negotiated [`WelcomePayload`]
 /// (chosen wire version + server features) and the [`AuthOkPayload`] (the resolved
 /// session — agent id and tenant namespace). Returned by
-/// [`MuxConnection::connect`] and surfaced to the caller as the initial session.
+/// [`MuxConnection::handshake`] and surfaced to the caller as the initial session.
 #[derive(Clone, Debug)]
 pub struct HandshakeOutcome {
     /// WELCOME: the negotiated wire version and the server's feature limits.

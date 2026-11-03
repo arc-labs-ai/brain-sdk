@@ -42,7 +42,7 @@ impl EncodeBuilder {
     /// Set the write-completion mode. [`WaitMode::Ack`] (the default) returns
     /// after the durable ack; [`WaitMode::Derived`] blocks until async
     /// derivation completes and returns a populated `trace` on the
-    /// [`EncodeResponse`].
+    /// [`EncodeResponse`](crate::wire::types::EncodeResponse).
     #[must_use]
     pub fn wait(mut self, wait: WaitMode) -> Self {
         self.wait = wait;

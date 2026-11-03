@@ -164,7 +164,7 @@ pub mod vec_byte_array16 {
 pub mod opt_vec_byte_array16 {
     use serde::de::Deserializer;
 
-    /// As [`vec_byte_array16::serialize`], but omits the field when `None`.
+    /// As [`super::vec_byte_array16::serialize`], but omits the field when `None`.
     pub fn serialize<S>(v: &Option<Vec<[u8; 16]>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
@@ -179,7 +179,7 @@ pub mod opt_vec_byte_array16 {
         }
     }
 
-    /// As [`vec_byte_array16::deserialize`], yielding `None` for a missing
+    /// As [`super::vec_byte_array16::deserialize`], yielding `None` for a missing
     /// or null field.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<[u8; 16]>>, D::Error>
     where

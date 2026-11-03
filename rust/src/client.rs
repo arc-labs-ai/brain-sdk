@@ -328,7 +328,7 @@ impl BrainClient {
     ///
     /// A request built with [`WaitMode::Derived`] blocks on the asynchronous
     /// half of the write and runs under `derived_write_timeout` instead of the
-    /// flat `request_timeout`; see [`Self::encode_timeout`].
+    /// flat `request_timeout`; see [`ClientConfig::derived_write_timeout`].
     pub async fn encode(&self, request: &EncodeRequest) -> Result<EncodeResponse> {
         self.unary_with_timeout(
             Opcode::EncodeReq,
