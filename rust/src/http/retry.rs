@@ -6,11 +6,16 @@
 //! `capabilities` (GET) — while `recall`/`forget`/`link`/`unlink`/`plan`/`reason`
 //! stay single-shot.
 //!
-//! Retryable failures are HTTP `503` responses and transport/timeout errors
-//! (which surface as [`BrainHttpError`] with `status == 0`). Nothing else — a
-//! `4xx` (401/400/404/409) is a client verdict and never retried. The backoff
-//! grows exponentially from `base_delay` (100ms, 200ms, …), capped at
-//! `max_delay`; a server `Retry-After` hint overrides the computed schedule.
+//! Retryable failures are HTTP `503`, HTTP `429`, and transport/timeout errors
+//! (which surface as [`BrainHttpError`] with `status == 0`). Every other
+//! status is a client verdict and never retried — `401`, `400`, `404`, `409`.
+//!
+//! `429` is the exception to "a `4xx` is never retried", and deliberately so:
+//! it means slow down, not no. `is_retryable_status` says why, and this header
+//! used to contradict it — it claimed `503` and transport errors and "nothing
+//! else", written before `429` was added and never updated. The backoff grows
+//! exponentially from `base_delay` (100ms, 200ms, …), capped at `max_delay`; a
+//! server `Retry-After` hint overrides the computed schedule.
 
 use std::time::Duration;
 
