@@ -100,6 +100,27 @@ missing_debug_implementations = "warn"
 unreachable_pub = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 
+# ---------------------------------------------------------------------------
+# rustdoc.
+#
+# docs.rs is this crate's primary documentation surface, and nothing was
+# checking it. Six warnings had accumulated unnoticed: four links that resolved
+# to nothing and two that pointed at private items, so a reader clicking
+# through the published docs landed nowhere. The crate docs had also gone on
+# claiming connection-pool health-checking was unbuilt for several releases
+# after `Pool::get_healthy` shipped.
+#
+# `all` denies the whole group, which is affordable because the group is
+# currently clean — measured, not assumed. Declared here rather than only as
+# RUSTDOCFLAGS in CI for the same reason the clippy lints below are: one
+# definition covers `cargo doc`, CI, and rust-analyzer in the editor. CI still
+# needs its own `cargo doc` step, because these lints cannot fire in a
+# workflow that never invokes rustdoc — which is exactly how the six got in.
+# ---------------------------------------------------------------------------
+
+[lints.rustdoc]
+all = { level = "deny", priority = -1 }
+
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }

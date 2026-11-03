@@ -86,6 +86,17 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+      # docs.rs is this crate's primary documentation surface and no job here
+      # ever invoked rustdoc, so nothing could notice when its links rotted.
+      # Six warnings had accumulated that way — four links resolving to
+      # nothing, two pointing at private items.
+      #
+      # The lint levels live in `rust/Cargo.toml` under `[lints.rustdoc]`, so
+      # this step deliberately passes no `-D` of its own: the editor and CI
+      # read one definition. What this step adds is the invocation, which is
+      # the half that was missing.
+      - name: Docs (rustdoc links resolve)
+        run: cargo doc --no-deps --all-features
       - name: Test (incl. conformance corpus)
         run: cargo test --all-targets
       - name: Install cargo-audit
