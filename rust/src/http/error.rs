@@ -31,6 +31,18 @@ pub struct BrainHttpError {
 }
 
 impl BrainHttpError {
+    /// A client-side configuration failure, raised before any request is
+    /// attempted. `status` is `0` and `code` is `"config"`, matching what the
+    /// Python and TypeScript clients raise for the same conditions.
+    pub(crate) fn config(message: impl Into<String>) -> Self {
+        Self {
+            status: 0,
+            code: "config".into(),
+            message: message.into(),
+            field_errors: Vec::new(),
+        }
+    }
+
     /// A transport-level failure (could not complete the request).
     pub(crate) fn transport(message: impl Into<String>) -> Self {
         Self {

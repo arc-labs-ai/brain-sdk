@@ -113,6 +113,56 @@ impl BrainHttpClient {
         }
     }
 
+    /// Like [`Self::new`], but refuses a credential or base URL that cannot
+    /// work, instead of failing later as a confusing `401` or a request to
+    /// nowhere.
+    ///
+    /// This exists because [`Self::new`] cannot report the problem: it returns
+    /// `Self`, and changing that is a breaking change. The Python and
+    /// TypeScript clients validate from their single constructor — Python
+    /// raises and TypeScript throws — so until `new` can, this is where a Rust
+    /// caller gets the same guarantee. Both reject an empty key with
+    /// `status: 0` and `code: "config"`, which this mirrors.
+    ///
+    /// Two checks:
+    ///
+    /// - **`api_key` is non-empty.** An empty key is sent as `Authorization:
+    ///   Bearer ` and comes back as an opaque `401`, which reads as bad
+    ///   credentials rather than no credentials.
+    /// - **`base_url` has an `http` or `https` scheme.** `reqwest` cannot
+    ///   speak anything else, so this is not the SSRF guard it is in Python —
+    ///   where `urllib` would honour `file://`. Here it earns its place by
+    ///   catching the argument swap [`Self::new`] warns about: an `api_key` in
+    ///   the URL position has no scheme, so `try_new("https://edge", key)`
+    ///   fails loudly rather than sending your URL as the bearer token.
+    ///
+    /// # Errors
+    ///
+    /// [`BrainHttpError`] with `status: 0` and `code: "config"`.
+    pub fn try_new(
+        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> Result<Self, BrainHttpError> {
+        let api_key = api_key.into();
+        if api_key.is_empty() {
+            return Err(BrainHttpError::config("api_key is required"));
+        }
+        let base_url = base_url.into();
+        let scheme = base_url
+            .split_once("://")
+            .map(|(scheme, _)| scheme.to_ascii_lowercase());
+        match scheme.as_deref() {
+            Some("http" | "https") => {}
+            other => {
+                let named = other.unwrap_or("no");
+                return Err(BrainHttpError::config(format!(
+                    "base_url must be http:// or https://, got {named} scheme"
+                )));
+            }
+        }
+        Ok(Self::new(api_key, base_url))
+    }
+
     /// Build a client against [`DEFAULT_BASE_URL`].
     #[must_use]
     pub fn localhost(api_key: impl Into<String>) -> Self {

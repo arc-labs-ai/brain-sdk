@@ -53,6 +53,13 @@ LANGUAGE_LOCAL = {
     # arguments with defaults, and TypeScript as fields on an options object.
     # Every setting is reachable in all three — only the spelling differs.
     "localhost",
+    # Rust-only, and for a language reason: Python's constructor raises and
+    # TypeScript's throws, so both validate the api_key and base_url from the
+    # one constructor they have. Rust's `new` returns `Self` and cannot report
+    # anything, and changing that signature is a breaking change — so the
+    # validation lives in a second constructor until it can move. Same checks,
+    # one extra name.
+    "try_new",
     "with_timeout",
     "with_retry_policy",
     # Context-manager / disposal protocols, spelled differently per language.

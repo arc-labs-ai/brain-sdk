@@ -945,3 +945,65 @@ async fn a_4xx_is_not_retried() {
     assert_eq!(err.status, 401);
     assert_eq!(edge.seen().len(), 1);
 }
+
+// ---------------------------------------------------------------------------
+// `try_new` — the validation Python and TypeScript do from their constructor.
+//
+// `new` returns `Self` and so cannot report a bad key or URL; changing that
+// signature is a breaking change. `try_new` is where a Rust caller gets the
+// guarantee the other two SDKs already give, with the same `status: 0` /
+// `code: "config"` shape they raise.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn try_new_accepts_what_new_accepts() {
+    assert!(BrainHttpClient::try_new("brain_key", "https://edge.example").is_ok());
+    assert!(BrainHttpClient::try_new("brain_key", "http://127.0.0.1:8080").is_ok());
+    // Scheme comparison is case-insensitive, as it is in Python.
+    assert!(BrainHttpClient::try_new("brain_key", "HTTPS://edge.example").is_ok());
+    // A trailing slash is trimmed by `new`, not rejected here.
+    assert!(BrainHttpClient::try_new("brain_key", "https://edge.example/").is_ok());
+}
+
+#[test]
+fn try_new_rejects_an_empty_api_key() {
+    // An empty key is otherwise sent as `Authorization: Bearer ` and comes
+    // back as an opaque 401, which reads as *wrong* credentials rather than
+    // *absent* ones.
+    let err = BrainHttpClient::try_new("", "https://edge.example")
+        .expect_err("an empty api_key must not build a client");
+    assert_eq!(err.status, 0);
+    assert_eq!(err.code, "config");
+    assert!(err.message.contains("api_key"), "message: {}", err.message);
+}
+
+#[test]
+fn try_new_catches_the_argument_swap_new_warns_about() {
+    // `new(api_key, base_url)` takes both as `impl Into<String>`, so a swapped
+    // call compiles and silently sends the URL as the bearer token. This is
+    // the real payoff of the scheme check in Rust: an api_key in the URL slot
+    // carries no scheme, so the mistake fails loudly at construction.
+    let err = BrainHttpClient::try_new("https://edge.example", "brain_key")
+        .expect_err("a bare api_key is not a base_url");
+    assert_eq!(err.status, 0);
+    assert_eq!(err.code, "config");
+    assert!(err.message.contains("http"), "message: {}", err.message);
+}
+
+#[test]
+fn try_new_rejects_a_non_http_scheme() {
+    // reqwest cannot speak these, so the value could only ever fail later and
+    // less clearly. Python rejects them because `urllib` would actually honour
+    // `file://` and turn an SDK call into a local file read.
+    for base in [
+        "file:///etc/passwd",
+        "ftp://edge.example",
+        "ws://edge.example",
+    ] {
+        let err = BrainHttpClient::try_new("brain_key", base)
+            .err()
+            .unwrap_or_else(|| panic!("{base} must be rejected, but built a client"));
+        assert_eq!(err.status, 0, "{base}");
+        assert_eq!(err.code, "config", "{base}");
+    }
+}
