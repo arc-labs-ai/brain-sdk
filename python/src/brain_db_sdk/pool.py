@@ -12,9 +12,16 @@ handshake. :meth:`Pool.get` hands back a :class:`BrainClient` by round-robin;
 callers issue verbs on it directly. The same client may be handed to several
 threads at once (its verbs are thread-safe over the mux reader).
 
-Deferred (later work): transparent reconnect of a dropped member, health-
-checking. :meth:`Pool.close` sends BYE + closes every member; dropping the pool
-without ``close`` just drops the clients (each closes its socket).
+:meth:`Pool.get_healthy` replaces a member whose socket has died (the server
+restarted, or the peer hung up) before handing it out, so a long-lived pool
+survives a server restart instead of failing every request on dead sockets
+forever. At most one reconnect runs per member at a time; concurrent callers
+wait on it rather than each dialing their own. :meth:`Pool.get` stays the
+zero-overhead path for callers doing their own error handling.
+
+Deferred: periodic background health-checking. :meth:`Pool.close` sends BYE +
+closes every member; dropping the pool without ``close`` just drops the
+clients (each closes its socket).
 """
 
 from __future__ import annotations
