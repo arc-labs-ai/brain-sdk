@@ -18,9 +18,11 @@
 //! on the dead sockets forever. At most one reconnect runs per member at a
 //! time; concurrent callers wait for it rather than each opening a socket.
 //!
-//! Deferred: periodic background health-checking, and graceful per-member BYE
-//! on shutdown. Dropping the pool drops every client, which closes its socket
-//! (a TCP FIN); it does not send a BYE frame first.
+//! [`Pool::close`] sends BYE on every member and is best-effort, matching the
+//! Python and TypeScript pools. Dropping the pool instead of closing it drops
+//! every client, which closes its socket (a TCP FIN) without a BYE frame.
+//!
+//! Deferred: periodic background health-checking.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -156,5 +158,42 @@ impl Pool {
         let fresh = Arc::new(BrainClient::connect_with(self.addr, self.config.clone()).await?);
         *slot.client.write().expect("pool slot lock poisoned") = Arc::clone(&fresh);
         Ok(fresh)
+    }
+
+    /// Send BYE on every pooled connection, best-effort.
+    ///
+    /// Takes `self`: a closed pool has nothing left to hand out. Infallible on
+    /// purpose, and that matches the other two SDKs rather than cutting a
+    /// corner — Python suppresses every exception here and TypeScript uses
+    /// `Promise.allSettled`. A BYE is a courtesy to the server's connection
+    /// accounting; the socket closes when the client drops either way, and
+    /// there is no recovery a caller could perform with the error.
+    ///
+    /// A member still borrowed through [`Self::get`] is dropped **without** a
+    /// BYE. [`BrainClient::close`] consumes the client, so sending one needs
+    /// sole ownership, which the pool does not have while a borrow is
+    /// outstanding; that socket closes when the last borrow drops. Python and
+    /// TypeScript have no such rule, because their `close` needs no ownership.
+    /// Matching them exactly would mean widening `BrainClient`'s API for this
+    /// one caller, which is the worse trade: close the pool at a point where
+    /// nothing is borrowed and the distinction never arises.
+    pub async fn close(self) {
+        for slot in self.slots {
+            // A poisoned lock means some other thread panicked while holding
+            // it; recover the client rather than panic. This is teardown, and
+            // refusing to send BYE because of an unrelated panic elsewhere
+            // would be the wrong call.
+            let client = slot
+                .client
+                .into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // `None` means a caller still holds a clone from `get`, so the
+            // client cannot be consumed and no BYE is sent for it.
+            if let Some(client) = Arc::into_inner(client) {
+                // Best-effort: a BYE that fails is a socket already gone,
+                // which is the state this call was trying to reach.
+                let _ = client.close().await;
+            }
+        }
     }
 }

@@ -5,6 +5,8 @@
 //! served each request — three round-robin encodes must touch all three.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use tokio::net::{TcpListener, TcpStream};
 
@@ -30,12 +32,12 @@ async fn write_one<T: serde::Serialize>(sock: &mut TcpStream, op: Opcode, sid: u
 /// response whose `memory_id` is this connection's accept-order `tag` — so the
 /// client can tell the sockets apart.
 async fn serve_member(sock: TcpStream, tag: u128) {
-    serve_member_until(sock, tag, false).await;
+    serve_member_until(sock, tag, false, Arc::new(AtomicUsize::new(0))).await;
 }
 
 /// [`serve_member`], optionally hanging up right after the handshake — a
 /// server restart, as a pooled client sees it.
-async fn serve_member_until(mut sock: TcpStream, tag: u128, hang_up: bool) {
+async fn serve_member_until(mut sock: TcpStream, tag: u128, hang_up: bool, byes: Arc<AtomicUsize>) {
     let mut buf = Vec::new();
 
     let hello_frame = read_frame(&mut sock, &mut buf).await.expect("hello");
@@ -82,6 +84,7 @@ async fn serve_member_until(mut sock: TcpStream, tag: u128, hang_up: bool) {
             return;
         };
         if frame.opcode == Opcode::Bye as u16 {
+            byes.fetch_add(1, Ordering::SeqCst);
             return;
         }
         if frame.opcode != Opcode::EncodeReq as u16 {
@@ -178,7 +181,12 @@ async fn get_healthy_replaces_a_member_the_server_closed() {
     // Second connection (the reconnect): serves normally, tagged 7.
     let server = tokio::spawn(async move {
         let (sock, _) = listener.accept().await.expect("accept 1");
-        tokio::spawn(serve_member_until(sock, 0, true));
+        tokio::spawn(serve_member_until(
+            sock,
+            0,
+            true,
+            Arc::new(AtomicUsize::new(0)),
+        ));
         let (sock, _) = listener.accept().await.expect("accept 2");
         tokio::spawn(serve_member(sock, 7));
     });
@@ -213,4 +221,106 @@ async fn get_healthy_replaces_a_member_the_server_closed() {
     );
 
     server.await.expect("server task");
+}
+
+/// Serve `count` members on `listener`, counting BYE frames received.
+async fn serve_counting(
+    listener: TcpListener,
+    count: usize,
+    byes: Arc<AtomicUsize>,
+) -> Vec<tokio::task::JoinHandle<()>> {
+    let mut handles = Vec::new();
+    for tag in 0..count as u128 {
+        let (sock, _peer) = listener.accept().await.expect("accept");
+        handles.push(tokio::spawn(serve_member_until(
+            sock,
+            tag,
+            false,
+            Arc::clone(&byes),
+        )));
+    }
+    handles
+}
+
+#[tokio::test]
+async fn close_sends_bye_to_every_member() {
+    // Rust's pool had no `close` at all while Python's and TypeScript's both
+    // did, so a Rust caller could only drop the pool — which closes each
+    // socket with a TCP FIN and never tells the server the connection is
+    // finished with. The server's connection accounting sees an abrupt
+    // disappearance rather than a goodbye.
+    const SIZE: usize = 3;
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let byes = Arc::new(AtomicUsize::new(0));
+
+    let server = tokio::spawn({
+        let byes = Arc::clone(&byes);
+        async move { serve_counting(listener, SIZE, byes).await }
+    });
+
+    let pool = Pool::connect(addr, SIZE, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("pool connect");
+    let handles = server.await.expect("server accept task");
+
+    pool.close().await;
+
+    // Joining each member's task is the synchronisation: the serve loop returns
+    // the moment it reads BYE, so every handle completing means every BYE
+    // landed. A sleep here would be the flaky version of the same assertion.
+    for h in handles {
+        h.await.expect("member task");
+    }
+    assert_eq!(
+        byes.load(Ordering::SeqCst),
+        SIZE,
+        "every pooled member must receive a BYE"
+    );
+}
+
+#[tokio::test]
+async fn close_skips_a_member_that_is_still_borrowed() {
+    // The documented limitation, asserted rather than left as prose.
+    // `BrainClient::close` consumes the client, so the pool can only send BYE
+    // for a member it solely owns. A clone handed out by `get` and still held
+    // blocks that, and the socket closes when the borrow drops instead.
+    //
+    // Python and TypeScript have no such rule because their `close` needs no
+    // ownership. Matching them would mean widening `BrainClient`'s API for the
+    // pool alone, which is the worse trade — so the behaviour is pinned here
+    // instead of papered over.
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let byes = Arc::new(AtomicUsize::new(0));
+
+    let server = tokio::spawn({
+        let byes = Arc::clone(&byes);
+        async move { serve_counting(listener, 1, byes).await }
+    });
+
+    let pool = Pool::connect(addr, 1, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("pool connect");
+    let handles = server.await.expect("server accept task");
+
+    let borrowed = pool.get();
+    pool.close().await;
+    assert_eq!(
+        byes.load(Ordering::SeqCst),
+        0,
+        "a borrowed member cannot be consumed, so it gets no BYE"
+    );
+
+    // Dropping the borrow closes the socket, which ends the serve loop — the
+    // connection is released either way, just without the courtesy frame.
+    drop(borrowed);
+    for h in handles {
+        h.await.expect("member task");
+    }
+    assert_eq!(
+        byes.load(Ordering::SeqCst),
+        0,
+        "still no BYE after the drop"
+    );
 }
