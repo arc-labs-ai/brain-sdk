@@ -95,3 +95,102 @@ fn act_as_denial_is_never_retryable() {
     assert!(err.is_act_as_denied());
     assert!(!err.is_retryable());
 }
+
+// ---------------------------------------------------------------------------
+// Exhaustive sweeps. The predicates are cheap and the spaces are small, so
+// there is no reason to sample.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn across_the_whole_16_bit_code_space_exactly_three_codes_match() {
+    // `from_raw` is total by contract — an unknown code maps to `Unknown`
+    // rather than failing — so every one of the 65_536 possible wire values is
+    // a legal input here. Sweeping all of them is the only way to be sure a
+    // predicate answers for exactly its own code and nothing else, including
+    // codes a future server adds that this build maps to `Unknown`.
+    let mut matched: Vec<(u16, &str)> = Vec::new();
+    for raw in 0..=u16::MAX {
+        let err = server_error(ErrorCodeWire::from_raw(raw), ErrorCategoryWire::Internal);
+        if err.is_act_as_denied() {
+            matched.push((raw, "act_as_denied"));
+        }
+        if err.is_llm_credential_missing() {
+            matched.push((raw, "llm_credential_missing"));
+        }
+        if err.is_llm_credential_unavailable() {
+            matched.push((raw, "llm_credential_unavailable"));
+        }
+    }
+    // The hex values are spelled out because they are the wire contract, and
+    // Python and TypeScript hard-code the same three numbers. A renumbering
+    // that slipped through would make three SDKs disagree about which failure
+    // a caller is looking at.
+    assert_eq!(
+        matched,
+        vec![
+            (0x0033, "act_as_denied"),
+            (0x0066, "llm_credential_missing"),
+            (0x0095, "llm_credential_unavailable"),
+        ]
+    );
+}
+
+#[test]
+fn no_predicate_fires_for_any_non_server_failure() {
+    // Every variant that carries no code. A predicate that reached for one
+    // would panic rather than answer, and `Closed` alone would not have caught
+    // an implementation that matched on, say, `Io` by accident.
+    let failures = vec![
+        BrainError::Io(std::io::Error::other("x")),
+        BrainError::Protocol("x".into()),
+        BrainError::Closed,
+        BrainError::Timeout(std::time::Duration::from_secs(1)),
+        BrainError::VersionMismatch {
+            chosen: 9,
+            supported: vec![1],
+        },
+    ];
+    for err in failures {
+        assert!(!err.is_act_as_denied(), "{err:?}");
+        assert!(!err.is_llm_credential_missing(), "{err:?}");
+        assert!(!err.is_llm_credential_unavailable(), "{err:?}");
+    }
+}
+
+#[test]
+fn a_predicate_ignores_the_category_and_answers_on_the_code_alone() {
+    // The code identifies the failure; the category only says how to react. A
+    // server that sends a surprising pairing must not make the predicate lie,
+    // because that is exactly when a caller needs to know which failure it is.
+    let every_category = [
+        ErrorCategoryWire::Protocol,
+        ErrorCategoryWire::Authentication,
+        ErrorCategoryWire::Authorization,
+        ErrorCategoryWire::Validation,
+        ErrorCategoryWire::NotFound,
+        ErrorCategoryWire::Conflict,
+        ErrorCategoryWire::ResourceExhausted,
+        ErrorCategoryWire::Internal,
+        ErrorCategoryWire::Unavailable,
+    ];
+    for category in every_category {
+        assert!(
+            server_error(ErrorCodeWire::ActAsDenied, category).is_act_as_denied(),
+            "{category:?}"
+        );
+        assert!(
+            server_error(ErrorCodeWire::LlmCredentialMissing, category).is_llm_credential_missing(),
+            "{category:?}"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_code_claims_nothing() {
+    // A newer server's code decodes to `Unknown`. The caller must fall back to
+    // the category rather than be told it is one of these three.
+    let err = server_error(ErrorCodeWire::Unknown, ErrorCategoryWire::Internal);
+    assert!(!err.is_act_as_denied());
+    assert!(!err.is_llm_credential_missing());
+    assert!(!err.is_llm_credential_unavailable());
+}
