@@ -1,81 +1,69 @@
 # brain-db-sdk (Python)
 
-The Python client for the Brain memory database. Speaks Brain's BRN0 wire
-protocol directly; no dependency on Brain's internal code.
+The Python client for the [Brain](https://github.com/arc-labs-ai/brain-db) memory database.
 
-**Status: typed-graph verbs (Phase 6).** The wire codec (Phase 1) is **verified
-byte-for-byte against the shared conformance corpus** (all 86 `.bin`/`.json`
-cases re-encode to identical bytes). On top of it, a synchronous connection
-layer (a `transport` over a socket, a `Connection` running the handshake HELLO →
-WELCOME → AUTH → AUTH_OK and request/response, a `BrainClient` holding the
-negotiated session), the three v1 verbs with ergonomic builders (`encode()`,
-`recall()` streaming to EOS / `recall_frames()`, `forget()`), a `with_retry`
-helper + `RetryPolicy` (exponential backoff, server `retry_after_ms`), and the
-typed-graph verbs: `create_entity()`, `create_statement()`, `create_relation()`,
-`upload_schema()`, and `materialize_procedural()`; and the space/session registry
-verbs: `create_space()` / `list_spaces()` / `delete_space()` and
-`create_session()` / `list_sessions()` / `delete_session()` for managing the
-per-request isolation unit (space) and conversation groupings (session) that a
-trusted principal targets via `act_as`. `BrainClient` is built on a
-`MuxConnection`: a background reader thread demultiplexes responses by
-`stream_id`, so **every verb is concurrency-safe** and many requests run in
-flight at once over one connection from multiple threads. A `Pool` opens a fixed
-set of such connections and hands them out round-robin for socket-level
-parallelism. Transparent reconnect is a later phase.
+Brain stores what your application learns and hands it back when something is relevant. This package is how a Python program talks to it: write memories, recall them by meaning, and read and shape the typed graph Brain builds out of them.
 
-The full build plan is in the repo-root [`../PLAN.md`](../PLAN.md); the
-layered architecture is in [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
+```bash
+pip install brain-db-sdk
+```
+
+Python 3.10+. One runtime dependency, `cbor2>=5.9` (a security floor, not a feature one). Ships `py.typed`, so annotations reach downstream type checkers.
+
+## Quickstart
 
 ```python
 from brain_db_sdk import (
-    BrainClient, EncodeBuilder, RecallBuilder, ForgetBuilder, RetryPolicy, with_retry,
+    Auth, BrainClient, EncodeBuilder, RecallBuilder, ForgetBuilder, RetryPolicy, with_retry,
 )
 
-with BrainClient.connect("127.0.0.1", 7878) as client:
+# Auth is mandatory — there is no anonymous mode.
+with BrainClient.connect("127.0.0.1", 9090, Auth.token(b"brain_...")) as client:
     stored = client.encode(EncodeBuilder("the user prefers dark mode").build())
+
     answer = client.recall(RecallBuilder("ui preferences").limit(5).build())
-    # answer.answer_kind is Single/Set (fact answer.values) or Episodic
-    # (memory answer.results); NoSubject/NoMemory means "don't know".
-    # Ride out transient ResourceExhausted/Unavailable; the stable request_id
-    # makes the resend idempotent.
+    for memory in answer.memories:
+        print(memory.text)
+
+    # The stable request_id makes a resend idempotent, so retrying is safe.
     req = ForgetBuilder(stored.memory_id).build()
     with_retry(lambda: client.forget(req), RetryPolicy())
 ```
 
-Develop + verify against the corpus:
+`answer.answer_kind` is `"Single"`, `"Many"` or `"None"`. **`"None"` is an explicit "nothing I hold answers this"** — not an error, and not a nearest match returned out of politeness.
 
-```bash
-python3 -m venv .venv && .venv/bin/pip install cbor2 pytest
-PYTHONPATH=src .venv/bin/python -m pytest tests/ -q
-```
+## What you can do
 
-The integration suites run against a real server when `BRAIN_SDK_IT_DATA` is
-set, and skip otherwise; `scripts/it-server.sh up` boots one and prints the
-vars. Set `BRAIN_SDK_IT_REQUIRED=1` wherever a server is meant to be reachable
-so a misconfigured one fails instead of reading as green.
+75 verbs, each with a `_frames()` variant where the response streams.
 
-Layout (folder-per-concern, mirroring the reference Rust SDK):
+| | Verbs |
+|---|---|
+| **Memories** | `encode` · `recall` · `forget` · `link` / `unlink` · `encode_vector_direct` |
+| **Ask** | `plan` · `reason` · `query_explain` / `query_trace` |
+| **Typed graph** | `create_entity` · `create_statement` · `create_relation` · plus the read, supersede, retract and tombstone verbs for each |
+| **Schema** | `upload_schema` · `validate_schema` · `replace_schema` · `drop_schema` · `materialize_procedural` |
+| **Transactions** | `txn_begin` · `txn_commit` · `txn_abort` |
+| **Change feed** | `subscribe` → `Subscription` |
+| **Inspect** | `memory_list` · `memory_inspect` · `graph_fetch` · `capabilities` · `extractor_list` · `ping` |
+| **Spaces & sessions** | `create_space` / `list_spaces` / `delete_space` · `create_session` / `list_sessions` / `delete_session` |
 
-```
-src/brain_db_sdk/
-  wire/        frame + CBOR codec, opcodes, typed payloads (corpus-verified)
-  errors.py    client error taxonomy (BrainError + subclasses)
-  transport.py sync read/write of whole frames over a socket
-  connection.py handshake + one-at-a-time request/response
-  client.py    high-level BrainClient: connect, handshake, encode/recall/forget
-  verbs.py     ergonomic EncodeBuilder / RecallBuilder / ForgetBuilder
-  retry.py     RetryPolicy + with_retry (exponential backoff, server retry_after)
-  aio/         the asyncio tier: AsyncBrainClient, AsyncPool, async transport+mux
-```
+A **space** is the per-request isolation unit and a **session** groups a conversation; a trusted principal targets either with `act_as`.
 
-## asyncio tier
+## Which tier to use
 
-`brain_db_sdk.aio.AsyncBrainClient` is the asyncio twin of `BrainClient`: the
-same verbs with the same signatures, every one a coroutine. It speaks the same
-BRN0 frames over the same multiplexed connection — a request in flight suspends
-its task instead of blocking a thread, so one connection carries thousands of
-concurrent requests on a single OS thread. No new dependency: it is built on
-`asyncio` from the standard library.
+Three clients ship here. Pick one per program, not per call.
+
+| Tier | Use it when |
+|---|---|
+| `BrainClient` | ordinary synchronous code, a direct socket to Brain |
+| `aio.AsyncBrainClient` | you already run an event loop — FastAPI, asyncio workers |
+| `BrainHttpClient` | Brain is behind an HTTP edge (Arc cloud gateway, or self-hosted `brain-edge`) |
+
+The first two speak Brain's **BRN0 wire protocol** straight to a socket, with no dependency on Brain's internal code, and are the only ones with transactions, frame-level stream control and mTLS.
+
+### asyncio
+
+`AsyncBrainClient` is the asyncio twin of `BrainClient`: the same verbs with the same signatures, every one a coroutine, over the same multiplexed connection. A request in flight suspends its task instead of blocking a thread, so one connection carries thousands of concurrent requests on a single OS thread. No new dependency — just the standard library.
 
 ```python
 import asyncio
@@ -84,7 +72,7 @@ from brain_db_sdk.aio import AsyncBrainClient
 
 async def main() -> None:
     async with await AsyncBrainClient.connect(
-        "127.0.0.1", 18080, Auth.token(b"brain_...")
+        "127.0.0.1", 9090, Auth.token(b"brain_...")
     ) as client:
         # Independent writes cost one round trip, not three.
         await asyncio.gather(
@@ -99,49 +87,73 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`AsyncPool`, `AsyncSubscription` (drained with `async for`) and an awaiting
-`with_retry` come with it. Everything below the transport is shared rather than
-duplicated: the frame codec, the CBOR payload types, the request builders, the
-error taxonomy, the retry policy and its backoff curve, and the `Auth` /
-`ClientConfig` / `ConnectionInfo` configuration types are the same objects both
-tiers use. `tests/aio_parity` compares the two surfaces by reflection and fails
-the build if a verb, a signature or a default ever drifts.
+`AsyncPool`, `AsyncSubscription` (drained with `async for`) and an awaiting `with_retry` come with it. Everything below the transport is shared rather than duplicated — the frame codec, payload types, builders, error taxonomy, retry curve and the `Auth` / `ClientConfig` / `ConnectionInfo` types are the same objects both tiers use. `tests/aio_parity` compares the two surfaces by reflection and fails the build if a verb, a signature or a default ever drifts.
 
-Two things worth knowing:
+Two things that will bite otherwise:
 
-- **Pick one tier per program, not per call.** The sync client blocks the event
-  loop from inside a coroutine; wrapping the async one in `asyncio.run` from
-  sync code opens and tears down a loop per call and raises outright if a loop
-  is already running (FastAPI, Jupyter).
-- **A connection belongs to the loop it was opened on.** That binding is checked
-  on every call rather than left to chance, because a connection driven from a
-  second loop does not raise — it waits forever on a future nothing will
-  complete.
+- **Don't mix tiers.** The sync client blocks the event loop from inside a coroutine; wrapping the async one in `asyncio.run` from sync code opens and tears down a loop per call, and raises outright if a loop is already running (FastAPI, Jupyter).
+- **A connection belongs to the loop it was opened on.** That binding is checked on every call rather than left to chance, because a connection driven from a second loop does not raise — it waits forever on a future nothing will complete.
 
-## HTTP tier
+### HTTP
 
-For hosted Brain (the Arc cloud gateway) or a self-hosted `brain-edge` edge, the
-package also ships `BrainHttpClient` — a JSON-over-HTTP client with the same verb
-surface, field names, and error shape as the Rust and TypeScript SDKs (the
-canonical contract is [`../HTTP_CONTRACT.md`](../HTTP_CONTRACT.md)). Use it when
-you talk to Brain through an HTTP edge and authenticate with an API key; use the
-wire `BrainClient` above for a direct socket, streaming, transactions, and
-typed-graph management. It has no third-party dependency — pure `urllib`.
+Same verb names, field names and error shape as the Rust and TypeScript SDKs; the canonical contract is [`contract/http-routes.json`](https://github.com/arc-labs-ai/brain-sdk/blob/main/contract/http-routes.json). Pure `urllib`, no third-party dependency.
 
 ```python
 from brain_db_sdk import BrainHttpClient
 
-brain = BrainHttpClient(api_key, base_url="https://api.arc-labs.ai")
+# base_url defaults to http://127.0.0.1:8080 — point it at your edge.
+brain = BrainHttpClient(api_key, base_url=base_url)
 stored = brain.encode(text="the kettle whistled")
 answer = brain.recall(query="what whistled?", max_results=3)
 who = brain.whoami()  # namespace + space_id + permissions
 ```
 
-Dependencies: `cbor2` (runtime), `pytest` + `pytest-asyncio` (dev). CRC32C is
-pure Python; the asyncio tier adds no runtime dependency.
+It covers the typed-graph verbs and an SSE `subscribe()` feed, plus the hosted-only BYOK LLM credential surface (`put_llm_credential()` / `get_llm_credential()` / `verify_llm_credential()`) and its own `HttpRetryPolicy`.
 
-The live HTTP edge smoke tests cover identity, capabilities, and a memory
-encode/recall/list/forget lifecycle across all SDKs. Run them from the repo
-root with `BRAIN_SDK_IT_HTTP=https://edge.example BRAIN_SDK_IT_HTTP_KEY=brain_…
-scripts/edge-it.sh`.
+## Concurrency
+
+`BrainClient` is built on a `MuxConnection`: a background reader thread demultiplexes responses by `stream_id`, so **every verb is concurrency-safe** and many requests run in flight at once over one connection from multiple threads.
+
+`Pool` opens a fixed set of connections and hands them out round-robin; `Pool.get_healthy()` checks the member it is about to hand out and dials a replacement in place if its socket has died.
+
+## Layout
+
+```
+src/brain_db_sdk/
+  wire/        frame + CBOR codec, opcodes, typed payloads (corpus-verified)
+  errors.py    client error taxonomy (BrainError + subclasses)
+  transport.py sync read/write of whole frames over a socket
+  mux.py       handshake + MuxConnection (reader thread, demux by stream_id)
+               + Subscription
+  client.py    high-level BrainClient: connect, handshake, the whole verb surface
+  verbs.py     ergonomic EncodeBuilder / RecallBuilder / ForgetBuilder
+  retry.py     RetryPolicy + with_retry (exponential backoff, server retry_after)
+  pool.py      Pool: fixed-size round-robin connections, get_healthy()
+  aio/         the asyncio tier: AsyncBrainClient, AsyncPool, async transport+mux
+  http/        the hosted-edge tier: BrainHttpClient, contract types, SSE feed
+```
+
+## Tests
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+PYTHONPATH=src .venv/bin/python -m pytest tests/ -q
+```
+
+Install the `dev` extra, not individual packages: `pyproject.toml` sets `asyncio_mode = "auto"`, so without `pytest-asyncio` the ~240 `tests/aio_*` tests **fail** rather than skip. The extra also brings `ruff` and `pyright`.
+
+The wire codec is checked byte-for-byte against the shared conformance corpus: all 158 `.bin`/`.json` cases decode and re-encode to identical bytes, so this SDK and Brain cannot drift on the wire. CRC32C is pure Python.
+
+Integration suites run against a real server when `BRAIN_SDK_IT_DATA` is set and skip otherwise. Set `BRAIN_SDK_IT_REQUIRED=1` wherever a server is meant to be reachable, so a misconfigured one fails instead of reading as green.
+
+Live HTTP edge smoke tests cover identity, capabilities, and an encode/recall/list/forget lifecycle across all three SDKs. From the repo root:
+
+```bash
+BRAIN_SDK_IT_HTTP=https://edge.example BRAIN_SDK_IT_HTTP_KEY=brain_… scripts/edge-it.sh
+```
+
+The package exports its own release version as `brain_db_sdk.__version__`, read from the installed distribution metadata so it cannot disagree with `pyproject.toml`.
+
+The wire protocol is specified in [`brain-db`'s `spec/04_wire_protocol/`](https://github.com/arc-labs-ai/brain-db/tree/main/spec/04_wire_protocol).
+
 License: Apache-2.0.
