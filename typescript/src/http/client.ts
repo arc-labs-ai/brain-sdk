@@ -8,7 +8,7 @@
  */
 import { BrainHttpError } from "./errors.js";
 import { decodeJsonBody, snakeCase, stringifyJsonWithBigInts, toSnakeKeys } from "./json.js";
-import { describeThrown } from "../transport.js";
+import { describeThrown } from "../describe.js";
 import { Subscription } from "./sse.js";
 import type {
   Capabilities,

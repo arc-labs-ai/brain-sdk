@@ -31,7 +31,7 @@ import {
   FrameError,
   MAX_PAYLOAD_LEN,
 } from "./wire/frame.js";
-import { describeThrown } from "./transport.js";
+import { describeThrown } from "./describe.js";
 import { Opcode } from "./wire/opcode.js";
 import {
   type AuthPayload,

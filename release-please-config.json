@@ -24,7 +24,8 @@
           "type": "json",
           "path": "typescript/package.json",
           "jsonpath": "$.version"
-        }
+        },
+        { "type": "generic", "path": "typescript/src/index.ts" }
       ],
 
       "changelog-sections": [

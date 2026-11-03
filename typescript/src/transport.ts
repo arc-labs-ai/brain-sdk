@@ -11,6 +11,7 @@
 
 import type { Socket } from "node:net";
 
+import { describeThrown } from "./describe.js";
 import { ConnectionClosed, TransportError } from "./errors.js";
 import { decodeFrame, encodeFrame, type Frame, FrameError } from "./wire/frame.js";
 
@@ -20,23 +21,6 @@ interface Waiter {
 }
 
 /** Turns a socket's byte stream into ordered, whole-frame reads. */
-/**
- * Render a non-`Error` thrown value for a message.
- *
- * `String(value)` collapses every object to the literal `[object Object]`,
- * which is the whole content of the message when a codec failure has already
- * desynchronized the stream and the thrown value is the only clue left.
- */
-export function describeThrown(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === null || typeof value !== "object") return String(value);
-  try {
-    return JSON.stringify(value) ?? Object.prototype.toString.call(value);
-  } catch {
-    return Object.prototype.toString.call(value);
-  }
-}
-
 export class FrameChannel {
   private buf: Uint8Array = new Uint8Array(0);
   private readonly ready: Frame[] = [];

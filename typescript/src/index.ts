@@ -30,7 +30,7 @@ export type { Auth, ClientConfig, ConnectionInfo } from "./client.js";
 export { MuxConnection, Subscription } from "./mux.js";
 export type { HandshakeOutcome } from "./connection.js";
 export { Pool } from "./pool.js";
-export { DEFAULT_RETRY_POLICY, NO_RETRY, backoffMs } from "./retry.js";
+export { DEFAULT_RETRY_POLICY, NO_RETRY, backoffMs, withRetry } from "./retry.js";
 export type { RetryPolicy } from "./retry.js";
 export { EncodeBuilder, ForgetBuilder, RecallBuilder } from "./verbs.js";
 export {
@@ -59,5 +59,21 @@ export {
 export type { BrainHttpClientOptions, HttpRetryPolicy } from "./http/client.js";
 export * as http from "./http/types.js";
 
-/** This SDK package's release version. */
-export const SDK_VERSION = "0.1.0";
+/**
+ * This SDK package's release version.
+ *
+ * Bumped by release-please alongside `package.json`, via the annotation on the
+ * line below — `release-please-config.json` lists this file in `extra-files`.
+ * Do not edit it by hand; `test/version` fails if it ever disagrees with
+ * `package.json`.
+ *
+ * It was a hand-typed literal for the first four releases and had drifted
+ * three of them behind, reading `"0.1.0"` from a package shipping `0.4.0` — so
+ * a compatibility check, a bug report or a telemetry tag that read it got a
+ * version that had not existed for a year. The Python SDK had the same drift
+ * and closed it the same way: take the number from the one place a release
+ * bumps, and make disagreement unmergeable. The Rust crate exposes the same
+ * number as `SDK_VERSION`, where `env!("CARGO_PKG_VERSION")` makes the drift
+ * impossible rather than merely detectable.
+ */
+export const SDK_VERSION = "0.4.0"; // x-release-please-version
