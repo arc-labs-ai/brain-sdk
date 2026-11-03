@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.1](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.0...v0.4.1) (2026-11-03)
+
+
+### Fixes
+
+* **rust:** expose SDK_VERSION, and stop the crate docs calling pool health-checking unbuilt ([aa66358](https://github.com/arc-labs-ai/brain-sdk/commit/aa6635861a7c419d735ddfa02e357a83b41c5c23))
+* **typescript:** reach the HTTP tier off Node, and export what the entry omitted ([c11fcb6](https://github.com/arc-labs-ai/brain-sdk/commit/c11fcb6b39da5ba891fafa5d675fa8adac416498))
+
+
+### Documentation
+
+* **sdk:** link where registries can follow, and correct counts that had drifted ([d42303b](https://github.com/arc-labs-ai/brain-sdk/commit/d42303b611112ac87b70637dacdd3c1e582a04b2))
+
 ## [0.4.0](https://github.com/arc-labs-ai/brain-sdk/compare/v0.3.1...v0.4.0) (2026-10-29)
 
 
