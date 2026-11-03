@@ -18,8 +18,10 @@
 //! [`client`] is the high-level [`BrainClient`] built on it — every verb takes
 //! `&self`, so one client serves concurrent requests. [`verbs`] holds the
 //! ergonomic request builders, [`retry`] the backoff combinator, and [`pool`] a
-//! fixed-size connection pool for socket-level parallelism. Transparent
-//! reconnect and connection-pool health-checking are the remaining later work.
+//! fixed-size connection pool for socket-level parallelism whose
+//! [`Pool::get_healthy`] replaces a member whose socket has died before handing
+//! it out. A verb call on an already-dropped connection is not transparently
+//! retried — reconnect through the pool, or open a fresh client.
 
 pub mod client;
 pub mod error;
@@ -45,3 +47,18 @@ pub use verbs::{EncodeBuilder, ForgetBuilder, RecallBuilder};
 // Only the client + error are re-exported at the root (unique names); the
 // contract types live under `http::` to avoid colliding with the wire types.
 pub use http::{BrainHttpClient, BrainHttpError, HttpRetryPolicy};
+
+/// This SDK crate's release version.
+///
+/// Taken from `CARGO_PKG_VERSION`, so it is the version cargo is building and
+/// cannot drift from `Cargo.toml` — there is no second place to bump and
+/// nothing for a test to compare.
+///
+/// The Python and TypeScript SDKs expose the same number as `__version__` and
+/// `SDK_VERSION`, and both reached it the hard way: each carried a hand-typed
+/// literal that silently fell three releases behind, so a compatibility check,
+/// a bug report or a telemetry tag read a version that had not existed for a
+/// year. This crate never had the constant at all, which is the same gap from
+/// the other side — a Rust caller had no way to report which SDK it was
+/// running. `env!` closes it without adding a thing to maintain.
+pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
