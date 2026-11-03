@@ -147,13 +147,28 @@ impl BrainHttpClient {
         if api_key.is_empty() {
             return Err(BrainHttpError::config("api_key is required"));
         }
+        // Trimmed before parsing *and* before use. Python's `urlparse` strips
+        // surrounding whitespace, so it accepts `" https://edge"`; without this
+        // Rust alone rejected a base_url read from an env var or config file
+        // with a stray space or newline. Trimming for storage too — which
+        // Python does not do — keeps reqwest from being handed a URL that
+        // passed validation and then fails at request time.
         let base_url = base_url.into();
-        let scheme = base_url
-            .split_once("://")
-            .map(|(scheme, _)| scheme.to_ascii_lowercase());
-        match scheme.as_deref() {
+        let base_url = base_url.trim();
+        // A scheme must match RFC 3986's grammar, which is also why Python
+        // reports `"https ://x"` as having *no* scheme rather than a scheme of
+        // `"https "`: a space cannot appear in one, so there is no scheme at
+        // all. Reproducing that keeps the two messages identical.
+        let scheme = base_url.split_once("://").map(|(s, _)| s).filter(|s| {
+            let mut chars = s.chars();
+            chars.next().is_some_and(char::is_alphabetic)
+                && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        });
+        match scheme.map(str::to_ascii_lowercase).as_deref() {
             Some("http" | "https") => {}
             other => {
+                // `None` covers both "no `://` at all" and "the text before it
+                // is not a scheme"; both read as "no scheme", as in Python.
                 let named = other.unwrap_or("no");
                 return Err(BrainHttpError::config(format!(
                     "base_url must be http:// or https://, got {named} scheme"

@@ -953,23 +953,95 @@ async fn a_4xx_is_not_retried() {
 // signature is a breaking change. `try_new` is where a Rust caller gets the
 // guarantee the other two SDKs already give, with the same `status: 0` /
 // `code: "config"` shape they raise.
+//
+// The two tables below are the SAME tables the Python suite
+// (`tests/http_config/`) parametrises over, and that is the point: they were
+// built by running both implementations over one input set and diffing the
+// verdicts. Two cases differed and both were Rust's fault — a leading-space
+// base_url, which Python accepts because `urlparse` strips whitespace, and the
+// message for a malformed scheme, where Python reports "no scheme" and Rust
+// said "got  scheme". If a verdict here moves, the SDKs have drifted.
 // ---------------------------------------------------------------------------
 
+/// Accepted by Python's constructor, so accepted here.
+const ACCEPTED_BASE_URLS: &[&str] = &[
+    "https://edge.example",
+    "http://127.0.0.1:8080",
+    "HTTPS://edge.example",
+    "HtTpS://edge.example",
+    "https://edge.example/",
+    "https://edge.example///",
+    "https://",
+    "https:///",
+    "https://edge.example/path://x",
+    " https://edge.example",
+];
+
+/// Rejected by Python's constructor, so rejected here.
+const REJECTED_BASE_URLS: &[&str] = &[
+    "",
+    "   ",
+    "://foo",
+    "//edge.example",
+    "edge.example",
+    "httpx://edge.example",
+    "file:///etc/passwd",
+    "ftp://edge.example",
+    "ws://edge.example",
+    "https ://edge.example",
+];
+
 #[test]
-fn try_new_accepts_what_new_accepts() {
-    assert!(BrainHttpClient::try_new("brain_key", "https://edge.example").is_ok());
-    assert!(BrainHttpClient::try_new("brain_key", "http://127.0.0.1:8080").is_ok());
-    // Scheme comparison is case-insensitive, as it is in Python.
-    assert!(BrainHttpClient::try_new("brain_key", "HTTPS://edge.example").is_ok());
-    // A trailing slash is trimmed by `new`, not rejected here.
-    assert!(BrainHttpClient::try_new("brain_key", "https://edge.example/").is_ok());
+fn try_new_accepts_every_base_url_python_accepts() {
+    for base in ACCEPTED_BASE_URLS {
+        assert!(
+            BrainHttpClient::try_new("brain_key", *base).is_ok(),
+            "{base:?} must be accepted - Python's constructor accepts it"
+        );
+    }
+}
+
+#[test]
+fn try_new_rejects_every_base_url_python_rejects() {
+    for base in REJECTED_BASE_URLS {
+        let err = BrainHttpClient::try_new("brain_key", *base)
+            .err()
+            .unwrap_or_else(|| panic!("{base:?} must be rejected, but built a client"));
+        assert_eq!(err.status, 0, "{base:?}");
+        assert_eq!(err.code, "config", "{base:?}");
+    }
+}
+
+#[test]
+fn a_malformed_scheme_reads_as_no_scheme_exactly_as_python_reports_it() {
+    // `urlparse` returns an empty scheme for anything outside RFC 3986 scheme
+    // grammar, so Python says "no scheme" for all of these. Rust originally
+    // echoed the raw text and produced "got  scheme" and "got https  scheme" -
+    // same verdict, different message, which is the kind of divergence that
+    // makes two SDKs feel unrelated.
+    for base in ["://foo", "https ://edge.example", "edge.example", ""] {
+        let err = BrainHttpClient::try_new("brain_key", base).unwrap_err();
+        assert_eq!(
+            err.message, "base_url must be http:// or https://, got no scheme",
+            "{base:?}"
+        );
+    }
+}
+
+#[test]
+fn a_well_formed_but_unsupported_scheme_is_named_in_the_message() {
+    let err = BrainHttpClient::try_new("brain_key", "file:///etc/passwd").unwrap_err();
+    assert_eq!(
+        err.message,
+        "base_url must be http:// or https://, got file scheme"
+    );
 }
 
 #[test]
 fn try_new_rejects_an_empty_api_key() {
-    // An empty key is otherwise sent as `Authorization: Bearer ` and comes
-    // back as an opaque 401, which reads as *wrong* credentials rather than
-    // *absent* ones.
+    // An empty key is otherwise sent as `Authorization: Bearer ` and comes back
+    // as an opaque 401, which reads as *wrong* credentials rather than *absent*
+    // ones.
     let err = BrainHttpClient::try_new("", "https://edge.example")
         .expect_err("an empty api_key must not build a client");
     assert_eq!(err.status, 0);
@@ -978,32 +1050,79 @@ fn try_new_rejects_an_empty_api_key() {
 }
 
 #[test]
+fn try_new_accepts_a_non_empty_api_key_whatever_is_in_it() {
+    // Deliberate, and matched by the other two: the check is emptiness, not
+    // plausibility. Guessing at credential formats here would reject keys a
+    // future server issues, and a whitespace key is a server-side
+    // authentication failure rather than a client-side configuration one.
+    let long = "x".repeat(8192);
+    for key in [" ", "\t", "brain_\u{e9}key", long.as_str()] {
+        assert!(
+            BrainHttpClient::try_new(key, "https://edge.example").is_ok(),
+            "key {key:?} must be accepted"
+        );
+    }
+}
+
+#[test]
 fn try_new_catches_the_argument_swap_new_warns_about() {
     // `new(api_key, base_url)` takes both as `impl Into<String>`, so a swapped
-    // call compiles and silently sends the URL as the bearer token. This is
-    // the real payoff of the scheme check in Rust: an api_key in the URL slot
+    // call compiles and silently sends the URL as the bearer token. This is the
+    // real payoff of the scheme check in Rust: an api_key in the URL slot
     // carries no scheme, so the mistake fails loudly at construction.
     let err = BrainHttpClient::try_new("https://edge.example", "brain_key")
         .expect_err("a bare api_key is not a base_url");
     assert_eq!(err.status, 0);
     assert_eq!(err.code, "config");
-    assert!(err.message.contains("http"), "message: {}", err.message);
+    assert!(
+        err.message.contains("no scheme"),
+        "message: {}",
+        err.message
+    );
 }
 
 #[test]
-fn try_new_rejects_a_non_http_scheme() {
-    // reqwest cannot speak these, so the value could only ever fail later and
-    // less clearly. Python rejects them because `urllib` would actually honour
-    // `file://` and turn an SDK call into a local file read.
-    for base in [
-        "file:///etc/passwd",
-        "ftp://edge.example",
-        "ws://edge.example",
-    ] {
-        let err = BrainHttpClient::try_new("brain_key", base)
-            .err()
-            .unwrap_or_else(|| panic!("{base} must be rejected, but built a client"));
-        assert_eq!(err.status, 0, "{base}");
-        assert_eq!(err.code, "config", "{base}");
+fn try_new_trims_the_base_url_it_stores_not_just_the_one_it_checks() {
+    // Validating a trimmed copy while storing the original would pass this
+    // check and then hand reqwest a URL with a leading space, moving the
+    // failure to the first request instead of the constructor.
+    let client = BrainHttpClient::try_new("brain_key", "  https://edge.example  ")
+        .expect("surrounding whitespace is trimmed, as urlparse does");
+    let shown = format!("{client:?}");
+    assert!(
+        shown.contains("https://edge.example"),
+        "base not trimmed: {shown}"
+    );
+    assert!(
+        !shown.contains("  https"),
+        "stored base kept its padding: {shown}"
+    );
+}
+
+#[tokio::test]
+async fn a_control_character_api_key_fails_without_injecting_a_header() {
+    // A credential read from an env file with a trailing newline is the
+    // ordinary way a CR or LF gets into a bearer token. reqwest refuses to
+    // build the request at all, which is the safe outcome - but "safe" has to
+    // be asserted rather than assumed, so this also checks what reached the
+    // socket.
+    //
+    // Python needed a fix to reach the same place: `http.client` raised a bare
+    // `ValueError` that escaped its error taxonomy entirely.
+    let edge = mock_edge(vec![(200, WHOAMI), (200, WHOAMI), (200, WHOAMI)]).await;
+    for key in ["evil\r\nX-Injected: 1", "evil\nX-Injected: 1", "evil\0key"] {
+        let client = BrainHttpClient::new(key, &edge.base_url);
+        let err = client
+            .whoami()
+            .await
+            .expect_err("a control character in the key must not reach the wire");
+        assert_eq!(err.status, 0, "key {key:?}");
+        assert_eq!(err.code, "transport", "key {key:?}");
+    }
+    for seen in edge.seen() {
+        assert!(
+            !seen.auth.unwrap_or_default().contains("X-Injected"),
+            "a header was injected through the api_key"
+        );
     }
 }
