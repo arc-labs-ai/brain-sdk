@@ -1300,6 +1300,16 @@ class BrainHttpClient:
             raise BrainHttpError(0, "transport", f"subscribe to {url} failed: {e.reason}") from None
         except (TimeoutError, OSError) as e:
             raise BrainHttpError(0, "transport", f"subscribe to {url} failed: {e}") from None
+        except ValueError as e:
+            # `http.client` raises a bare `ValueError` for a header value
+            # holding CR or LF, and it is not an `OSError`, so it slipped past
+            # every arm above and reached the caller as a stdlib exception. An
+            # api_key read from an env file with a trailing newline is the
+            # ordinary way in. The Rust and TypeScript clients both surface
+            # this condition as their own error type; this is the one path
+            # where the documented "every failure is a BrainHttpError"
+            # contract did not hold.
+            raise BrainHttpError(0, "transport", f"subscribe to {url} failed: {e}") from None
         return Subscription(resp)
 
     # --- shared body builders ---------------------------------------------
@@ -1452,6 +1462,16 @@ class BrainHttpClient:
         except (TimeoutError, OSError) as e:
             # A body-read timeout (past the connect handled by URLError above) or
             # a low-level socket error surfaces as transport, never a native raise.
+            raise BrainHttpError(0, "transport", f"request to {url} failed: {e}") from None
+        except ValueError as e:
+            # `http.client` raises a bare `ValueError` for a header value
+            # holding CR or LF, and it is not an `OSError`, so it slipped past
+            # every arm above and reached the caller as a stdlib exception. An
+            # api_key read from an env file with a trailing newline is the
+            # ordinary way in. The Rust and TypeScript clients both surface
+            # this condition as their own error type; this is the one path
+            # where the documented "every failure is a BrainHttpError"
+            # contract did not hold.
             raise BrainHttpError(0, "transport", f"request to {url} failed: {e}") from None
 
         return json.loads(text) if text else {}
