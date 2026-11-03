@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.4.3](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.2...v0.4.3) (2026-11-03)
+
+
+### Fixes
+
+* **python:** surface a bad header value as BrainHttpError, not a raw ValueError ([56c0ae4](https://github.com/arc-labs-ai/brain-sdk/commit/56c0ae43da45d7e1d919be68759d20fa96b1bef3))
+* **rust:** match Python's base_url verdicts exactly, and pin both with one table ([fe93bcf](https://github.com/arc-labs-ai/brain-sdk/commit/fe93bcfb9489a536cf02050a6b2f2cf8811ccabd))
+* **sdk:** reject a control-character api_key at construction, in all three ([3c795d0](https://github.com/arc-labs-ai/brain-sdk/commit/3c795d06634c3d00910528615c3f9e725792d611))
+* **typescript:** stop describeThrown reporting every real Error as {} ([066265b](https://github.com/arc-labs-ai/brain-sdk/commit/066265b080ddd53189d1ef119786244d64fce71c))
+
+
+### Features
+
+* **rust:** add try_new, so the HTTP client can reject a key or URL that cannot work ([be851ed](https://github.com/arc-labs-ai/brain-sdk/commit/be851edf7505c7d4358628d51267049df6757079))
+* **rust:** give Pool a close, so a pooled connection can say goodbye ([52394d9](https://github.com/arc-labs-ai/brain-sdk/commit/52394d9b2247adb9446c1972fcec4459a54de801))
+* **rust:** let a caller branch on the three server codes that need different handling ([ef29053](https://github.com/arc-labs-ai/brain-sdk/commit/ef29053ce8cf447fec606b214afb5ac02939130e))
+
+
+### Tests and verification
+
+* **rust:** sweep the whole code space rather than sample three cases ([3aee8cb](https://github.com/arc-labs-ai/brain-sdk/commit/3aee8cbf8c936935de8a86878c571b0de57a36dd))
+
+
+### Build and tooling
+
+* **release:** keep feat changes on the 0.4 line instead of cutting 0.5 ([ec2943d](https://github.com/arc-labs-ai/brain-sdk/commit/ec2943defa9a49ef13c19a145a7bc445e04ba39e))
+
+
+### Documentation
+
+* **python:** stop the pool claiming health-checking is unbuilt ([a0eaa23](https://github.com/arc-labs-ai/brain-sdk/commit/a0eaa238fa0e126d46ea46a09993f617956f4810))
+
+
+### Chores
+
+* release 0.4.3 ([65739d0](https://github.com/arc-labs-ai/brain-sdk/commit/65739d0ce2e8bda8cd42afd0bf25f9eaa4cfd8e5))
+
 ## [0.4.2](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.1...v0.4.2) (2026-11-03)
 
 
