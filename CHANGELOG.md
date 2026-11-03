@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.2](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.1...v0.4.2) (2026-11-03)
+
+
+### Build and tooling
+
+* **rust:** gate rustdoc, so doc links cannot rot unnoticed again ([ded8821](https://github.com/arc-labs-ai/brain-sdk/commit/ded8821799106ae3f379ab7053d9a1f5ae5a9460))
+
+
+### Documentation
+
+* **rust:** point six doc links at items that exist ([feef946](https://github.com/arc-labs-ai/brain-sdk/commit/feef946917fd1580e6320f4c87ec4941ffb1ac30))
+
+
+### Chores
+
+* release 0.4.2 to rebuild the Rust docs ([434d423](https://github.com/arc-labs-ai/brain-sdk/commit/434d423fbc13742677ee572c8b0592b8146bf416))
+
 ## [0.4.1](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.0...v0.4.1) (2026-11-03)
 
 
