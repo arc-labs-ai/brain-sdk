@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.3...v0.4.4) (2026-11-04)
+
+
+### Documentation
+
+* **http:** the retry headers denied the 429 the code retries ([9bbe309](https://github.com/arc-labs-ai/brain-sdk/commit/9bbe309707926510cf0aa8ac31e21a358f9e5c5d))
+
 ## [0.4.3](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.2...v0.4.3) (2026-11-03)
 
 
