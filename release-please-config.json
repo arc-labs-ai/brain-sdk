@@ -34,11 +34,11 @@
         { "type": "feat", "section": "Features" },
         { "type": "perf", "section": "Performance" },
         { "type": "refactor", "section": "Refactoring" },
-        { "type": "test", "section": "Tests and verification" },
-        { "type": "review", "section": "Tests and verification" },
-        { "type": "build", "section": "Build and tooling" },
-        { "type": "ci", "section": "Build and tooling" },
-        { "type": "docs", "section": "Documentation" },
+        { "type": "test", "section": "Tests and verification", "hidden": true },
+        { "type": "review", "section": "Tests and verification", "hidden": true },
+        { "type": "build", "section": "Build and tooling", "hidden": true },
+        { "type": "ci", "section": "Build and tooling", "hidden": true },
+        { "type": "docs", "section": "Documentation", "hidden": true },
         { "type": "chore", "section": "Chores", "hidden": true },
         { "type": "style", "section": "Formatting", "hidden": true }
       ]
