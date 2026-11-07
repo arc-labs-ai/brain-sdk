@@ -273,6 +273,7 @@ export const codecs: Record<string, Codec> = {
   req_schema_replace: payloadRoundTrip(t.decodeSchemaReplace, t.encodeSchemaReplace),
   req_schema_drop: payloadRoundTrip(t.decodeSchemaDrop, t.encodeSchemaDrop),
   req_schema_upload_act_as_grant: payloadRoundTrip(t.decodeSchemaUpload, t.encodeSchemaUpload),
+  req_schema_upload_space_scope: payloadRoundTrip(t.decodeSchemaUpload, t.encodeSchemaUpload),
   req_schema_get_act_as: payloadRoundTrip(t.decodeSchemaGet, t.encodeSchemaGet),
   req_schema_list_act_as: payloadRoundTrip(t.decodeSchemaList, t.encodeSchemaList),
   req_schema_validate_act_as: payloadRoundTrip(t.decodeSchemaValidate, t.encodeSchemaValidate),

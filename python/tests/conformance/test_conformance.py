@@ -71,6 +71,7 @@ PAYLOAD_TYPES = {
     "req_entity_create_act_as": t.EntityCreateRequest,
     "req_get_capabilities_act_as": t.GetCapabilitiesRequest,
     "req_schema_upload_act_as_grant": t.SchemaUploadRequest,
+    "req_schema_upload_space_scope": t.SchemaUploadRequest,
     "req_schema_drop_act_as_grant": t.SchemaDropRequest,
     "req_schema_get_act_as": t.SchemaGetRequest,
     "req_schema_list_act_as": t.SchemaListRequest,

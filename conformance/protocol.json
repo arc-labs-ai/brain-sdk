@@ -3232,6 +3232,21 @@
     }
    ]
   },
+  "SchemaScope": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Namespace"
+    },
+    {
+     "discriminant": 1,
+     "name": "Space"
+    }
+   ]
+  },
   "StageAuditStatus": {
    "encoding": "int",
    "repr": "u8",
@@ -9628,6 +9643,11 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "SchemaScope"
     }
    ],
    "serde": {}

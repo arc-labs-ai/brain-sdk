@@ -2368,6 +2368,40 @@ pub struct RelationCreateResponse {
     pub relation_id: WireUuid,
 }
 
+/// The scope a `SCHEMA_UPLOAD` declares AT. Integer discriminant on the wire.
+///
+/// Declarations resolve narrowest-first — `(namespace, space)` →
+/// `(namespace, base)` → `(system, base)` — so a space overlay adds
+/// definitions one space can see without touching what the rest of the
+/// namespace sees.
+///
+/// Deliberately a two-state selector and **not** a space identifier: the
+/// scope is the caller's own effective space, so there is nothing here to
+/// point at someone else's space with. It is also deliberately separate from
+/// `act_as` — nearly every request names a space, so reading the scope off
+/// `act_as.space` would silently turn every ordinary namespace-wide
+/// declaration into a per-space overlay.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum SchemaScope {
+    /// The tenant's namespace-wide base: every space in the namespace
+    /// resolves these declarations.
+    #[default]
+    Namespace = 0,
+    /// An overlay at the caller's effective space. Only that space resolves
+    /// these declarations; sibling spaces keep seeing the namespace base.
+    Space = 1,
+}
+
 /// SCHEMA_UPLOAD (`0x0120`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaUploadRequest {
@@ -2379,6 +2413,13 @@ pub struct SchemaUploadRequest {
     /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
+    /// Where this document declares: the namespace base, or an overlay at the
+    /// caller's effective space. See [`SchemaScope`].
+    ///
+    /// ALWAYS ON THE WIRE — no `serde(default)`, no `skip_serializing_if`.
+    /// The server declares it the same way, so a client that omits it sends a
+    /// map the server cannot decode. A caller states its scope.
+    pub scope: SchemaScope,
 }
 
 /// One structured schema parse/validate error.

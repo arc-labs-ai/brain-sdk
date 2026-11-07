@@ -324,6 +324,7 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("req_schema_replace", SchemaReplaceRequest);
     payload!("req_schema_drop", SchemaDropRequest);
     payload!("req_schema_upload_act_as_grant", SchemaUploadRequest);
+    payload!("req_schema_upload_space_scope", SchemaUploadRequest);
     payload!("req_schema_get_act_as", SchemaGetRequest);
     payload!("req_schema_list_act_as", SchemaListRequest);
     payload!("req_schema_validate_act_as", SchemaValidateRequest);

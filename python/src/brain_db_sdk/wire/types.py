@@ -2756,6 +2756,26 @@ class RelationCreateResponse:
         return cls(m["relation_id"])
 
 
+class SchemaScope:
+    """The scope a SCHEMA_UPLOAD declares AT, as its on-wire integer discriminant.
+
+    Declarations resolve narrowest-first -- ``(namespace, space)`` ->
+    ``(namespace, base)`` -> ``(system, base)`` -- so a space overlay adds
+    definitions one space can see without touching what the rest of the
+    namespace sees.
+
+    Deliberately a two-state selector and NOT a space identifier: the scope is
+    the caller's own effective space, so there is nothing here to point at
+    someone else's space with. Deliberately separate from ``act_as`` too --
+    nearly every request names a space, so reading the scope off
+    ``act_as.space`` would silently turn every ordinary namespace-wide
+    declaration into a per-space overlay.
+    """
+
+    NAMESPACE = 0
+    SPACE = 1
+
+
 @dataclass
 class SchemaUploadRequest:
     """SCHEMA_UPLOAD (``0x0120``). Merge a schema document into the active namespace, with dry-run and allow-breaking flags plus an idempotency id."""
@@ -2765,6 +2785,12 @@ class SchemaUploadRequest:
     allow_breaking: bool
     request_id: bytes
     act_as: Optional[ActAs] = None
+    #: Where this document declares: the namespace base, or an overlay at the
+    #: caller's effective space. See :class:`SchemaScope`.
+    #:
+    #: ALWAYS ON THE WIRE -- never skipped. The server declares it the same
+    #: way, so a client that omits it sends a map the server cannot decode.
+    scope: int = SchemaScope.NAMESPACE
 
     def to_map(self) -> dict[str, Any]:
         m = {
@@ -2775,6 +2801,8 @@ class SchemaUploadRequest:
         }
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
+        # ``scope`` follows ``act_as``, always present (never skipped).
+        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -2786,6 +2814,7 @@ class SchemaUploadRequest:
             m["allow_breaking"],
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
+            m["scope"],
         )
 
 

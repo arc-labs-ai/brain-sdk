@@ -3156,6 +3156,24 @@ export function decodeRelationCreateResponse(bytes: Uint8Array): RelationCreateR
 }
 
 /** SCHEMA_UPLOAD (`0x0120`): submit a schema document; `dryRun` validates without applying. */
+/** The scope a SCHEMA_UPLOAD declares AT, as its on-wire integer discriminant.
+ *
+ * Declarations resolve narrowest-first — `(namespace, space)` →
+ * `(namespace, base)` → `(system, base)` — so a space overlay adds definitions
+ * one space can see without touching what the rest of the namespace sees.
+ *
+ * Deliberately a two-state selector and NOT a space identifier: the scope is
+ * the caller's own effective space, so there is nothing here to point at
+ * someone else's space with. Deliberately separate from `actAs` too — nearly
+ * every request names a space, so reading the scope off `actAs.space` would
+ * silently turn every ordinary namespace-wide declaration into a per-space
+ * overlay. */
+export enum SchemaScope {
+  Namespace = 0,
+  Space = 1,
+}
+
+/** SCHEMA_UPLOAD (`0x0120`): merge a schema document into the active namespace. */
 export interface SchemaUploadRequest {
   schemaDocument: string;
   dryRun: boolean;
@@ -3164,21 +3182,28 @@ export interface SchemaUploadRequest {
   /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
    * Absent / `null` is CBOR-omitted. */
   actAs?: ActAs | null;
+  /** Where this document declares: the namespace base, or an overlay at the
+   * caller's effective space. See {@link SchemaScope}.
+   *
+   * ALWAYS ON THE WIRE — never skipped. The server declares it the same way,
+   * so a client that omits it sends a map the server cannot decode. */
+  scope: SchemaScope;
 }
 
-/** Encode a SCHEMA_UPLOAD (`0x0120`) request. */
+/** Encode a SCHEMA_UPLOAD (`0x0120`) request. `scope` is last, after `act_as`. */
 export function encodeSchemaUpload(p: SchemaUploadRequest): Uint8Array {
-  return toCbor(
-    requestMapWithActAs(
-      [
-        ["schema_document", p.schemaDocument],
-        ["dry_run", p.dryRun],
-        ["allow_breaking", p.allowBreaking],
-        ["request_id", p.requestId],
-      ],
-      p.actAs ?? null,
-    ),
+  const map = requestMapWithActAs(
+    [
+      ["schema_document", p.schemaDocument],
+      ["dry_run", p.dryRun],
+      ["allow_breaking", p.allowBreaking],
+      ["request_id", p.requestId],
+    ],
+    p.actAs ?? null,
   );
+  // `scope` follows `act_as`, always present (never skipped).
+  map.set("scope", p.scope ?? SchemaScope.Namespace);
+  return toCbor(map);
 }
 
 /** Decode a SCHEMA_UPLOAD (`0x0120`) request payload. */
@@ -3190,6 +3215,7 @@ export function decodeSchemaUpload(bytes: Uint8Array): SchemaUploadRequest {
     allowBreaking: asBool(field(m, "allow_breaking")),
     requestId: asBytes(field(m, "request_id")),
     ...spreadOptActAs(m),
+    scope: asNum(field(m, "scope")),
   };
 }
 
