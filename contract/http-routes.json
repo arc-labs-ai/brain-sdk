@@ -2295,6 +2295,13 @@
       "default": true
      },
      "shape": "bool"
+    },
+    {
+     "name": "scope",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -3657,6 +3664,10 @@
       {
        "name": "cost_micro_usd",
        "shape": "int"
+      },
+      {
+       "name": "error_message",
+       "shape": "string"
       }
      ],
      "name": "Hype"

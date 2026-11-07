@@ -536,17 +536,27 @@ class BrainHttpClient:
         schema_document: str,
         dry_run: Optional[bool] = None,
         allow_breaking: Optional[bool] = None,
+        scope: Optional[str] = None,
     ) -> SchemaUpload:
         """Register a new schema version.
 
         Not retried: an upload that times out may still have landed, and a
         second attempt would mint a second version.
+
+        ``scope`` says where the document declares: ``"namespace"`` (the
+        default -- the tenant's base, which every space resolves) or
+        ``"space"`` (an overlay at the caller's effective space, which only
+        that space resolves). Case-insensitive; anything else the edge refuses
+        rather than narrowing to the base. ``None`` omits the field, which the
+        edge reads as the namespace base -- it is NOT inferred from the
+        effective space, which almost every request names.
         """
         body = _compact(
             {
                 "schema_document": schema_document,
                 "dry_run": dry_run,
                 "allow_breaking": allow_breaking,
+                "scope": scope,
             }
         )
         return SchemaUpload.from_dict(self._request("POST", "/v1/schema", body))

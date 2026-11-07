@@ -763,6 +763,7 @@ async fn schema_routes_are_three_verbs_on_one_path() {
             schema_document: "entity Person".to_string(),
             dry_run: true,
             allow_breaking: false,
+            scope: None,
         })
         .await
         .expect("upload_schema");
@@ -770,6 +771,9 @@ async fn schema_routes_are_three_verbs_on_one_path() {
     let body = &edge.seen()[0].body;
     assert!(body.contains(r#""dry_run":true"#), "{body}");
     assert!(!body.contains("allow_breaking"), "{body}");
+    // `None` omits the field entirely, which the edge reads as the namespace
+    // base. Sending `"scope":null` would be a different request.
+    assert!(!body.contains("scope"), "{body}");
 
     let edge = mock_edge(vec![(
         200,

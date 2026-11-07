@@ -696,6 +696,14 @@ export interface SchemaUploadInput {
   dryRun?: boolean;
   /** Accept a backward-incompatible change (default false). */
   allowBreaking?: boolean;
+  /** Where this document declares: `"namespace"` (the default — the tenant's
+   * base, which every space resolves) or `"space"` (an overlay at the caller's
+   * effective space, which only that space resolves). Case-insensitive;
+   * anything else the edge refuses rather than narrowing to the base.
+   *
+   * Omitted reads as the namespace base. It is NOT inferred from the
+   * effective space, which almost every request names. */
+  scope?: "namespace" | "space";
 }
 export interface SchemaUploadResult {
   namespace: string;

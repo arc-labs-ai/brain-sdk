@@ -966,6 +966,15 @@ pub struct SchemaUploadInput {
     pub dry_run: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub allow_breaking: bool,
+    /// Where this document declares: `"namespace"` (the default — the
+    /// tenant's base, which every space resolves) or `"space"` (an overlay at
+    /// the caller's effective space, which only that space resolves).
+    /// Case-insensitive; anything else the edge refuses rather than narrowing
+    /// to the base.
+    ///
+    /// `None` omits the field, which the edge reads as the namespace base.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 /// `upload_schema` result. A non-empty `validation_errors` means nothing landed.
