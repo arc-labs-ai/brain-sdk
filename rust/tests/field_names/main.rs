@@ -31,6 +31,10 @@ fn wire_types_never_rename_a_field() {
     let offenders: Vec<(usize, &str)> = WIRE_TYPES
         .lines()
         .enumerate()
+        // Code only. A doc comment that *names* the attribute in order to
+        // explain why a type avoids it is not a use of it, and matching prose
+        // made the guard fire on its own rationale.
+        .filter(|(_, line)| !line.trim_start().starts_with("//"))
         .filter(|(_, line)| line.contains("serde(rename"))
         .map(|(i, line)| (i + 1, line.trim()))
         .collect();
@@ -59,6 +63,10 @@ fn wire_types_use_only_reviewed_serde_attributes() {
     let mut unexpected: Vec<(usize, String)> = Vec::new();
     for (i, line) in WIRE_TYPES.lines().enumerate() {
         let trimmed = line.trim();
+        // Code only, for the reason given on the rename guard above.
+        if trimmed.starts_with("//") {
+            continue;
+        }
         let Some(rest) = trimmed.strip_prefix("#[serde(") else {
             continue;
         };

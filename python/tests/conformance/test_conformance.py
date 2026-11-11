@@ -175,6 +175,9 @@ PAYLOAD_TYPES = {
     # Capabilities + subscription event.
     "resp_get_capabilities": t.GetCapabilitiesResponse,
     "resp_subscribe_event": t.SubscriptionEvent,
+    # The populated StageCompleted form. Same payload type; the case exists so
+    # the extractor detail's own keys are pinned, not just the event's.
+    "resp_subscribe_event_stage": t.SubscriptionEvent,
     # Extractor introspection (read-only; empty request).
     "req_extractor_list": t.ExtractorListRequest,
     "resp_extractor_list": t.ExtractorListResponseFrame,
@@ -192,6 +195,17 @@ PAYLOAD_TYPES = {
     "resp_session_list": t.SessionListResponse,
     "req_session_delete": t.SessionDeleteRequest,
     "resp_session_delete": t.SessionDeleteResponse,
+    "req_llm_credential_put": t.LlmCredentialPutRequest,
+    "resp_llm_credential_put": t.LlmCredentialPutResponse,
+    "req_llm_credential_get": t.LlmCredentialGetRequest,
+    "resp_llm_credential_get": t.LlmCredentialGetResponse,
+    # The absent arm is pinned separately: `None` is the state a namespace
+    # sits in before it registers anything, so its encoding is contract.
+    "resp_llm_credential_get_absent": t.LlmCredentialGetResponse,
+    "req_llm_credential_delete": t.LlmCredentialDeleteRequest,
+    "resp_llm_credential_delete": t.LlmCredentialDeleteResponse,
+    "req_llm_credential_verify": t.LlmCredentialVerifyRequest,
+    "resp_llm_credential_verify": t.LlmCredentialVerifyResponse,
     # Keepalive responses.
     "resp_pong": t.PongResponse,
     "resp_server_ping": t.ServerPingResponse,
@@ -340,7 +354,7 @@ def test_frame_round_trip(name):
 
 
 def test_all_cases_present():
-    """The corpus has 86 .bin/.json pairs; every one must be covered."""
+    """Every .bin/.json pair in the corpus must be covered by this test."""
     index = _load_index()
     assert len(index) > 50, f"index.json produced only {len(index)} cases — is it truncated?"
     covered = set(PAYLOAD_TYPES) | set(FRAME_PAYLOAD_TYPES)

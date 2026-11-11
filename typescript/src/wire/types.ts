@@ -3247,22 +3247,35 @@ export interface SchemaDropRequest {
   /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
    * Absent / `null` is CBOR-omitted. */
   actAs?: ActAs | null;
+  /** Which scope this operation narrows: the namespace base, or an overlay at
+   * the caller's effective space. See {@link SchemaScope}.
+   *
+   * A narrowing reaches exactly the declarations the named scope made.
+   * Dropping at the base leaves every space's own overlay standing; dropping
+   * in a space leaves the tenant's base standing, because a space may not
+   * narrow vocabulary its siblings resolve.
+   *
+   * ALWAYS ON THE WIRE — never skipped. The server declares it the same way,
+   * so a client that omits it sends a map the server cannot decode. */
+  scope: SchemaScope;
 }
 
-/** Encode a SCHEMA_DROP (`0x0125`) request payload. */
+/** Encode a SCHEMA_DROP (`0x0125`) request payload. `scope` is last, after
+ * `act_as`. */
 export function encodeSchemaDrop(p: SchemaDropRequest): Uint8Array {
-  return toCbor(
-    requestMapWithActAs(
-      [
-        ["namespace", p.namespace],
-        ["target_kind", p.targetKind],
-        ["target_name", p.targetName],
-        ["force", p.force],
-        ["request_id", p.requestId],
-      ],
-      p.actAs ?? null,
-    ),
+  const map = requestMapWithActAs(
+    [
+      ["namespace", p.namespace],
+      ["target_kind", p.targetKind],
+      ["target_name", p.targetName],
+      ["force", p.force],
+      ["request_id", p.requestId],
+    ],
+    p.actAs ?? null,
   );
+  // `scope` follows `act_as`, always present (never skipped).
+  map.set("scope", p.scope ?? SchemaScope.Namespace);
+  return toCbor(map);
 }
 
 /** Decode a SCHEMA_DROP (`0x0125`) request payload. */
@@ -3275,6 +3288,7 @@ export function decodeSchemaDrop(bytes: Uint8Array): SchemaDropRequest {
     force: asBool(field(m, "force")),
     requestId: asBytes(field(m, "request_id")),
     ...spreadOptActAs(m),
+    scope: asNum(field(m, "scope")),
   };
 }
 
@@ -3368,20 +3382,33 @@ export interface SchemaReplaceRequest {
   /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
    * Absent / `null` is CBOR-omitted. */
   actAs?: ActAs | null;
+  /** Which scope this operation narrows: the namespace base, or an overlay at
+   * the caller's effective space. See {@link SchemaScope}.
+   *
+   * A narrowing reaches exactly the declarations the named scope made.
+   * Dropping at the base leaves every space's own overlay standing; dropping
+   * in a space leaves the tenant's base standing, because a space may not
+   * narrow vocabulary its siblings resolve.
+   *
+   * ALWAYS ON THE WIRE — never skipped. The server declares it the same way,
+   * so a client that omits it sends a map the server cannot decode. */
+  scope: SchemaScope;
 }
 
-/** Encode a SCHEMA_REPLACE (`0x0127`) request payload. */
+/** Encode a SCHEMA_REPLACE (`0x0127`) request payload. `scope` is last, after
+ * `act_as`. */
 export function encodeSchemaReplace(p: SchemaReplaceRequest): Uint8Array {
-  return toCbor(
-    requestMapWithActAs(
-      [
-        ["schema_document", p.schemaDocument],
-        ["force_drop_existing", p.forceDropExisting],
-        ["request_id", p.requestId],
-      ],
-      p.actAs ?? null,
-    ),
+  const map = requestMapWithActAs(
+    [
+      ["schema_document", p.schemaDocument],
+      ["force_drop_existing", p.forceDropExisting],
+      ["request_id", p.requestId],
+    ],
+    p.actAs ?? null,
   );
+  // `scope` follows `act_as`, always present (never skipped).
+  map.set("scope", p.scope ?? SchemaScope.Namespace);
+  return toCbor(map);
 }
 
 /** Decode a SCHEMA_REPLACE (`0x0127`) request payload. */
@@ -3392,6 +3419,7 @@ export function decodeSchemaReplace(bytes: Uint8Array): SchemaReplaceRequest {
     forceDropExisting: asBool(field(m, "force_drop_existing")),
     requestId: asBytes(field(m, "request_id")),
     ...spreadOptActAs(m),
+    scope: asNum(field(m, "scope")),
   };
 }
 
@@ -4020,7 +4048,12 @@ export interface MemoryListRequest {
   salienceMin: number;
   /** Inclusive salience ceiling in `[0, 1]`. */
   salienceMax: number;
-  /** Substring/token filter over memory text; empty = no filter. */
+  /**
+   * Substring/token filter over memory text; empty = no filter.
+   * Only the empty value is served in v1: a non-empty filter is refused
+   * rather than answered by scanning every text body. RECALL is the
+   * supported way to find memories by their content.
+   */
   textContains: string;
   /** Effective identity this list runs as. `null` (CBOR-omitted) runs as the
    * connection's own key-bound identity. */
@@ -5542,7 +5575,10 @@ export function decodeEntityGetResponse(bytes: Uint8Array): EntityGetResponse {
 
 /** ENTITY_LIST (`0x0137`): page through entities with a type filter and a cursor. */
 export interface EntityListRequest {
-  /** `0` = no filter. */
+  /**
+   * The entity type id to enumerate. Required: listing every type at once
+   * is not offered in v1.0, and `0` is refused as an invalid request.
+   */
   entityTypeId: number;
   /** Empty = no filter. */
   namePrefix: string;
@@ -6779,17 +6815,34 @@ export interface SchemaValidateRequest {
   /** Run as a tenant on a shared-pool connection (see {@link ActAs}).
    * Absent / `null` is CBOR-omitted. */
   actAs?: ActAs | null;
+  /** Which scope the document is validated against: the namespace base, or an
+   * overlay at the caller's effective space. See {@link SchemaScope}.
+   *
+   * VALIDATE predicts UPLOAD, so it takes the same selector — validating a
+   * space's document against the namespace base reports references to that
+   * space's own types as undeclared.
+   *
+   * ALWAYS ON THE WIRE — never skipped. The server declares it the same way,
+   * so a client that omits it sends a map the server cannot decode. */
+  scope: SchemaScope;
 }
 
-/** Encode a SCHEMA_VALIDATE (`0x0123`) request. */
+/** Encode a SCHEMA_VALIDATE (`0x0123`) request. `scope` is last, after `act_as`. */
 export function encodeSchemaValidate(p: SchemaValidateRequest): Uint8Array {
-  return toCbor(requestMapWithActAs([["schema_document", p.schemaDocument]], p.actAs ?? null));
+  const map = requestMapWithActAs([["schema_document", p.schemaDocument]], p.actAs ?? null);
+  // `scope` follows `act_as`, always present (never skipped).
+  map.set("scope", p.scope ?? SchemaScope.Namespace);
+  return toCbor(map);
 }
 
 /** Decode a SCHEMA_VALIDATE (`0x0123`) request payload. */
 export function decodeSchemaValidate(bytes: Uint8Array): SchemaValidateRequest {
   const m = asMap(fromCbor(bytes));
-  return { schemaDocument: asStr(field(m, "schema_document")), ...spreadOptActAs(m) };
+  return {
+    schemaDocument: asStr(field(m, "schema_document")),
+    ...spreadOptActAs(m),
+    scope: asNum(field(m, "scope")),
+  };
 }
 
 /** SCHEMA_VALIDATE_RESP (`0x01A3`): whether the document is valid and any diagnostics. */
@@ -6898,11 +6951,25 @@ export interface StageTemporalEdgePayload {
   edgesWritten: number;
 }
 
-/** StageCompleted detail for the extractor stage: entity/statement/relation counts, audit status, and any error. */
+/**
+ * StageCompleted detail for the extractor stage: what the extraction yielded,
+ * what it threw away, the audit status, and any error.
+ *
+ * `droppedCount` is the denominator the three counts lack — they are
+ * survivors, so two statements out of two and two out of nine are otherwise
+ * indistinguishable. `undeclaredEntityCount` is the entity half of the same
+ * question, and means something only alongside `hasActiveSchema`: a schema is
+ * an optional add-on, so with none declared there is no vocabulary to be
+ * outside of.
+ */
 export interface StageExtractorPayload {
   entityCount: number;
   statementCount: number;
   relationCount: number;
+  droppedCount: number;
+  contradictionCount: number;
+  undeclaredEntityCount: number;
+  hasActiveSchema: boolean;
   auditStatus: StageAuditStatus;
   errorMessage: string;
 }
@@ -6939,6 +7006,10 @@ function encodeStagePayload(s: StagePayload): unknown {
             ["entity_count", s.value.entityCount],
             ["statement_count", s.value.statementCount],
             ["relation_count", s.value.relationCount],
+            ["dropped_count", s.value.droppedCount],
+            ["contradiction_count", s.value.contradictionCount],
+            ["undeclared_entity_count", s.value.undeclaredEntityCount],
+            ["has_active_schema", s.value.hasActiveSchema],
             ["audit_status", s.value.auditStatus],
             ["error_message", s.value.errorMessage],
           ]),
@@ -6979,6 +7050,10 @@ function decodeStagePayload(value: unknown): StagePayload {
         entityCount: asNum(field(inner, "entity_count")),
         statementCount: asNum(field(inner, "statement_count")),
         relationCount: asNum(field(inner, "relation_count")),
+        droppedCount: asNum(field(inner, "dropped_count")),
+        contradictionCount: asNum(field(inner, "contradiction_count")),
+        undeclaredEntityCount: asNum(field(inner, "undeclared_entity_count")),
+        hasActiveSchema: asBool(field(inner, "has_active_schema")),
         auditStatus: asNum(field(inner, "audit_status")),
         errorMessage: asStr(field(inner, "error_message")),
       },
@@ -8134,3 +8209,302 @@ export function decodeStatementHistoryResponseFrame(
 export const encodeStatementHistoryResponse = encodeStatementHistoryResponseFrame;
 /** Decode one STATEMENT_HISTORY_RESP (`0x01C5`) streamed frame. */
 export const decodeStatementHistoryResponse = decodeStatementHistoryResponseFrame;
+
+// ---------------------------------------------------------------------------
+// Tenant LLM provider credentials (0x0076-0x0079)
+// ---------------------------------------------------------------------------
+
+/** The scope an LLM provider credential is registered AT, or read FROM.
+ *
+ * A two-state selector, not a space identifier: the scope is the caller's own
+ * effective space, already resolved for this request, so there is nothing here
+ * to point at someone else's space with.
+ *
+ * `Space` is accepted by the server's storage layer but **refused at the op**
+ * today — derivation resolves credentials at the namespace base, so a
+ * space-scoped key would seal and then never be used. */
+export enum CredentialScope {
+  Namespace = 0,
+  Space = 1,
+}
+
+/** How a registered credential fared against its provider.
+ *
+ * Every value is a *successful* verification: a key the provider rejects is an
+ * answer, not an error.
+ *
+ * A string-literal union rather than a string `enum`, matching how this file
+ * already spells a unit-only tagged enum (`StatementKindWire`,
+ * `RetrieverWire`): it is a bare CBOR string on the wire, and the declaration
+ * says so. */
+export type VerifyOutcome =
+  | "ok"
+  | "no_credential"
+  | "unauthorized"
+  | "model_unavailable"
+  | "unreachable";
+
+/** What a read reports about an installed credential. Carries no key material. */
+export interface LlmCredentialView {
+  provider: string;
+  model: string;
+  /** Display-safe tail of the key (e.g. `…4f2a`). Never reconstructable. */
+  fingerprint: string;
+  createdAtUnixNanos: bigint;
+  /** `true` when a space-scoped read resolved the namespace's key rather than
+   * one of its own. Always `false` while space scope is refused at the op. */
+  inherited: boolean;
+}
+
+/** LLM_CREDENTIAL_PUT (`0x0076`): register or replace this namespace's key.
+ *
+ * The only wire shape in the protocol that carries a plaintext provider key.
+ * The server refuses it unless the connection is TLS, mTLS or loopback, seals
+ * it on arrival bound to the namespace and provider, and never returns it. */
+export interface LlmCredentialPutRequest {
+  /** `"openai"` or `"anthropic"`. */
+  provider: string;
+  model: string;
+  /** The provider key. Sealed on arrival and never returned. */
+  apiKey: string;
+  requestId: WireUuid;
+  actAs?: ActAs | null;
+  /** Where the key lands. ALWAYS ON THE WIRE — never skipped. */
+  scope: CredentialScope;
+}
+
+/** Encode an LLM_CREDENTIAL_PUT (`0x0076`) request. `scope` is last, after
+ * `act_as`. */
+export function encodeLlmCredentialPut(p: LlmCredentialPutRequest): Uint8Array {
+  const map = requestMapWithActAs(
+    [
+      ["provider", p.provider],
+      ["model", p.model],
+      ["api_key", p.apiKey],
+      ["request_id", p.requestId],
+    ],
+    p.actAs ?? null,
+  );
+  map.set("scope", p.scope ?? CredentialScope.Namespace);
+  return toCbor(map);
+}
+
+/** Decode an LLM_CREDENTIAL_PUT (`0x0076`) request payload. */
+export function decodeLlmCredentialPut(bytes: Uint8Array): LlmCredentialPutRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    provider: asStr(field(m, "provider")),
+    model: asStr(field(m, "model")),
+    apiKey: asStr(field(m, "api_key")),
+    requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
+    scope: asNum(field(m, "scope")) as CredentialScope,
+  };
+}
+
+/** LLM_CREDENTIAL_PUT_RESP (`0x00F6`). */
+export interface LlmCredentialPutResponse {
+  provider: string;
+  model: string;
+  fingerprint: string;
+  createdAtUnixNanos: bigint;
+  /** `true` when this displaced a key already registered at the same scope,
+   * so a caller can tell a first registration from a rotation. */
+  replaced: boolean;
+}
+
+/** Encode an LLM_CREDENTIAL_PUT_RESP (`0x00F6`) payload. */
+export function encodeLlmCredentialPutResponse(p: LlmCredentialPutResponse): Uint8Array {
+  const map = new Map<string, unknown>();
+  map.set("provider", p.provider);
+  map.set("model", p.model);
+  map.set("fingerprint", p.fingerprint);
+  map.set("created_at_unix_nanos", p.createdAtUnixNanos);
+  map.set("replaced", p.replaced);
+  return toCbor(map);
+}
+
+/** Decode an LLM_CREDENTIAL_PUT_RESP (`0x00F6`) payload. */
+export function decodeLlmCredentialPutResponse(bytes: Uint8Array): LlmCredentialPutResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    provider: asStr(field(m, "provider")),
+    model: asStr(field(m, "model")),
+    fingerprint: asStr(field(m, "fingerprint")),
+    createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
+    replaced: asBool(field(m, "replaced")),
+  };
+}
+
+/** LLM_CREDENTIAL_GET (`0x0077`): what this namespace has installed. */
+export interface LlmCredentialGetRequest {
+  actAs?: ActAs | null;
+  /** The vantage point to resolve from. ALWAYS ON THE WIRE. */
+  scope: CredentialScope;
+}
+
+/** Encode an LLM_CREDENTIAL_GET (`0x0077`) request. */
+export function encodeLlmCredentialGet(p: LlmCredentialGetRequest): Uint8Array {
+  const map = requestMapWithActAs([], p.actAs ?? null);
+  map.set("scope", p.scope ?? CredentialScope.Namespace);
+  return toCbor(map);
+}
+
+/** Decode an LLM_CREDENTIAL_GET (`0x0077`) request payload. */
+export function decodeLlmCredentialGet(bytes: Uint8Array): LlmCredentialGetRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    actAs: decodeOptActAs(m),
+    scope: asNum(field(m, "scope")) as CredentialScope,
+  };
+}
+
+/** LLM_CREDENTIAL_GET_RESP (`0x00F7`). `credential` is `null` until the
+ * namespace registers one — the state every namespace starts in. */
+export interface LlmCredentialGetResponse {
+  credential: LlmCredentialView | null;
+}
+
+/** Encode an LLM_CREDENTIAL_GET_RESP (`0x00F7`) payload. */
+export function encodeLlmCredentialGetResponse(p: LlmCredentialGetResponse): Uint8Array {
+  const map = new Map<string, unknown>();
+  if (p.credential === null || p.credential === undefined) {
+    map.set("credential", null);
+  } else {
+    const c = new Map<string, unknown>();
+    c.set("provider", p.credential.provider);
+    c.set("model", p.credential.model);
+    c.set("fingerprint", p.credential.fingerprint);
+    c.set("created_at_unix_nanos", p.credential.createdAtUnixNanos);
+    c.set("inherited", p.credential.inherited);
+    map.set("credential", c);
+  }
+  return toCbor(map);
+}
+
+/** Decode an LLM_CREDENTIAL_GET_RESP (`0x00F7`) payload. */
+export function decodeLlmCredentialGetResponse(bytes: Uint8Array): LlmCredentialGetResponse {
+  const m = asMap(fromCbor(bytes));
+  const raw = field(m, "credential");
+  if (raw === null || raw === undefined) {
+    return { credential: null };
+  }
+  const c = asMap(raw);
+  return {
+    credential: {
+      provider: asStr(field(c, "provider")),
+      model: asStr(field(c, "model")),
+      fingerprint: asStr(field(c, "fingerprint")),
+      createdAtUnixNanos: asBig(field(c, "created_at_unix_nanos")),
+      inherited: asBool(field(c, "inherited")),
+    },
+  };
+}
+
+/** LLM_CREDENTIAL_DELETE (`0x0078`): revoke the key at exactly `scope`.
+ *
+ * Exact rather than resolved: a space revoking its own key must not be able to
+ * remove the tenant's by accident. */
+export interface LlmCredentialDeleteRequest {
+  requestId: WireUuid;
+  actAs?: ActAs | null;
+  /** Which scope's key to remove. ALWAYS ON THE WIRE. */
+  scope: CredentialScope;
+}
+
+/** Encode an LLM_CREDENTIAL_DELETE (`0x0078`) request. */
+export function encodeLlmCredentialDelete(p: LlmCredentialDeleteRequest): Uint8Array {
+  const map = requestMapWithActAs([["request_id", p.requestId]], p.actAs ?? null);
+  map.set("scope", p.scope ?? CredentialScope.Namespace);
+  return toCbor(map);
+}
+
+/** Decode an LLM_CREDENTIAL_DELETE (`0x0078`) request payload. */
+export function decodeLlmCredentialDelete(bytes: Uint8Array): LlmCredentialDeleteRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
+    scope: asNum(field(m, "scope")) as CredentialScope,
+  };
+}
+
+/** LLM_CREDENTIAL_DELETE_RESP (`0x00F8`). */
+export interface LlmCredentialDeleteResponse {
+  /** `false` when that scope had no key of its own. Reported rather than
+   * always succeeding, because a caller revoking during an incident needs to
+   * tell "revoked" from "there was nothing there". */
+  existed: boolean;
+}
+
+/** Encode an LLM_CREDENTIAL_DELETE_RESP (`0x00F8`) payload. */
+export function encodeLlmCredentialDeleteResponse(p: LlmCredentialDeleteResponse): Uint8Array {
+  const map = new Map<string, unknown>();
+  map.set("existed", p.existed);
+  return toCbor(map);
+}
+
+/** Decode an LLM_CREDENTIAL_DELETE_RESP (`0x00F8`) payload. */
+export function decodeLlmCredentialDeleteResponse(bytes: Uint8Array): LlmCredentialDeleteResponse {
+  const m = asMap(fromCbor(bytes));
+  return { existed: asBool(field(m, "existed")) };
+}
+
+/** LLM_CREDENTIAL_VERIFY (`0x0079`): exercise the registered key against its
+ * provider with the cheapest call that proves it works. */
+export interface LlmCredentialVerifyRequest {
+  requestId: WireUuid;
+  actAs?: ActAs | null;
+  /** The vantage point to resolve the key from. ALWAYS ON THE WIRE. */
+  scope: CredentialScope;
+}
+
+/** Encode an LLM_CREDENTIAL_VERIFY (`0x0079`) request. */
+export function encodeLlmCredentialVerify(p: LlmCredentialVerifyRequest): Uint8Array {
+  const map = requestMapWithActAs([["request_id", p.requestId]], p.actAs ?? null);
+  map.set("scope", p.scope ?? CredentialScope.Namespace);
+  return toCbor(map);
+}
+
+/** Decode an LLM_CREDENTIAL_VERIFY (`0x0079`) request payload. */
+export function decodeLlmCredentialVerify(bytes: Uint8Array): LlmCredentialVerifyRequest {
+  const m = asMap(fromCbor(bytes));
+  return {
+    requestId: asBytes(field(m, "request_id")),
+    actAs: decodeOptActAs(m),
+    scope: asNum(field(m, "scope")) as CredentialScope,
+  };
+}
+
+/** LLM_CREDENTIAL_VERIFY_RESP (`0x00F9`). */
+export interface LlmCredentialVerifyResponse {
+  outcome: VerifyOutcome;
+  /** The provider and model exercised. Absent when there was no credential. */
+  provider?: string | null;
+  model?: string | null;
+  /** The provider's own message on a failure. Never key material. */
+  detail?: string | null;
+}
+
+/** Encode an LLM_CREDENTIAL_VERIFY_RESP (`0x00F9`) payload. The three optional
+ * fields are omitted when absent, matching the server's
+ * `skip_serializing_if = "Option::is_none"`. */
+export function encodeLlmCredentialVerifyResponse(p: LlmCredentialVerifyResponse): Uint8Array {
+  const map = new Map<string, unknown>();
+  map.set("outcome", p.outcome);
+  if (p.provider !== null && p.provider !== undefined) map.set("provider", p.provider);
+  if (p.model !== null && p.model !== undefined) map.set("model", p.model);
+  if (p.detail !== null && p.detail !== undefined) map.set("detail", p.detail);
+  return toCbor(map);
+}
+
+/** Decode an LLM_CREDENTIAL_VERIFY_RESP (`0x00F9`) payload. */
+export function decodeLlmCredentialVerifyResponse(bytes: Uint8Array): LlmCredentialVerifyResponse {
+  const m = asMap(fromCbor(bytes));
+  return {
+    outcome: asStr(field(m, "outcome")) as VerifyOutcome,
+    provider: m.has("provider") ? asStr(field(m, "provider")) : null,
+    model: m.has("model") ? asStr(field(m, "model")) : null,
+    detail: m.has("detail") ? asStr(field(m, "detail")) : null,
+  };
+}

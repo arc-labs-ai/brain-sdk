@@ -531,6 +531,7 @@ fn read_side_types_round_trip() {
     round_trip(&SchemaValidateRequest {
         schema_document: "entity Person {}".to_string(),
         act_as: None,
+        scope: SchemaScope::Namespace,
     });
     round_trip(&SchemaValidateResponse {
         namespace: "people".to_string(),
@@ -865,6 +866,7 @@ async fn read_side_verbs_over_connection() {
         .validate_schema(&SchemaValidateRequest {
             schema_document: "entity Person {}".to_string(),
             act_as: None,
+            scope: SchemaScope::Namespace,
         })
         .await
         .expect("validate_schema");

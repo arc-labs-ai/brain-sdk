@@ -29,17 +29,20 @@ use crate::wire::types::{
     EntityUpdateRequest, EntityUpdateResponse, ExtractorListRequest, ExtractorListResponseFrame,
     ForgetRequest, ForgetResponse, GetCapabilitiesRequest, GetCapabilitiesResponse, GraphEdge,
     GraphFetchRequest, GraphFetchResponseFrame, GraphNode, HelloCapabilities, HelloPayload,
-    InferenceStep, LinkRequest, LinkResponse, MaterializeProceduralRequest,
-    MaterializeProceduralResponse, MemoryInspectRequest, MemoryInspectResponse, MemoryListItem,
-    MemoryListRequest, MemoryListResponseFrame, MemoryResult, MtlsClaim, PingRequest, PlanRequest,
-    PlanResponseFrame, PlanStep, PongResponse, QueryExplainRequest, QueryExplainResponse,
-    QueryTraceRequest, QueryTraceResponse, ReasonRequest, ReasonResponseFrame, RecallRequest,
-    RecallResponseFrame, RelationCreateRequest, RelationCreateResponse, RelationGetRequest,
-    RelationGetResponse, RelationListFromRequest, RelationListFromResponseFrame,
-    RelationListToRequest, RelationListToResponseFrame, RelationSupersedeRequest,
-    RelationSupersedeResponse, RelationTombstoneRequest, RelationTombstoneResponse,
-    RelationTraverseRequest, RelationTraverseResponseFrame, RelationView, SchemaDropRequest,
-    SchemaDropResponse, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
+    InferenceStep, LinkRequest, LinkResponse, LlmCredentialDeleteRequest,
+    LlmCredentialDeleteResponse, LlmCredentialGetRequest, LlmCredentialGetResponse,
+    LlmCredentialPutRequest, LlmCredentialPutResponse, LlmCredentialVerifyRequest,
+    LlmCredentialVerifyResponse, MaterializeProceduralRequest, MaterializeProceduralResponse,
+    MemoryInspectRequest, MemoryInspectResponse, MemoryListItem, MemoryListRequest,
+    MemoryListResponseFrame, MemoryResult, MtlsClaim, PingRequest, PlanRequest, PlanResponseFrame,
+    PlanStep, PongResponse, QueryExplainRequest, QueryExplainResponse, QueryTraceRequest,
+    QueryTraceResponse, ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame,
+    RelationCreateRequest, RelationCreateResponse, RelationGetRequest, RelationGetResponse,
+    RelationListFromRequest, RelationListFromResponseFrame, RelationListToRequest,
+    RelationListToResponseFrame, RelationSupersedeRequest, RelationSupersedeResponse,
+    RelationTombstoneRequest, RelationTombstoneResponse, RelationTraverseRequest,
+    RelationTraverseResponseFrame, RelationView, SchemaDropRequest, SchemaDropResponse,
+    SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
     SchemaListResponseFrame, SchemaReplaceRequest, SchemaReplaceResponse, SchemaUploadRequest,
     SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse, ServerFeatures,
     SessionCreateRequest, SessionCreateResponse, SessionDeleteRequest, SessionDeleteResponse,
@@ -897,6 +900,87 @@ impl BrainClient {
             Opcode::SchemaDropReq,
             Opcode::SchemaDropResp,
             "SCHEMA_DROP_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Register (or replace) this namespace's own LLM provider key.
+    ///
+    /// Brain's extraction and HyPE stages call an LLM, and under
+    /// bring-your-own-key that call bills to the key registered here. A
+    /// deployment holds no provider credential of its own, so this is what
+    /// makes those stages able to run for a namespace — and until one is
+    /// registered, ENCODE is refused with `LlmCredentialMissing`.
+    ///
+    /// This is the only request in the protocol that carries a plaintext
+    /// provider key. The server refuses it unless the connection is TLS, mTLS
+    /// or loopback, so an SDK built without TLS can register a credential only
+    /// over loopback. The key is sealed on arrival and never returned: the
+    /// response carries a display fingerprint instead.
+    pub async fn put_llm_credential(
+        &self,
+        request: &LlmCredentialPutRequest,
+    ) -> Result<LlmCredentialPutResponse> {
+        self.unary(
+            Opcode::LlmCredentialPutReq,
+            Opcode::LlmCredentialPutResp,
+            "LLM_CREDENTIAL_PUT_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// What this namespace has installed.
+    ///
+    /// Answers with the provider, the model and a display fingerprint, and
+    /// never with anything a key can be rebuilt from. `credential` is `None`
+    /// until the namespace registers one.
+    pub async fn get_llm_credential(
+        &self,
+        request: &LlmCredentialGetRequest,
+    ) -> Result<LlmCredentialGetResponse> {
+        self.unary(
+            Opcode::LlmCredentialGetReq,
+            Opcode::LlmCredentialGetResp,
+            "LLM_CREDENTIAL_GET_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Revoke this namespace's key.
+    ///
+    /// Reports whether anything was removed rather than always succeeding, so
+    /// a caller revoking during an incident can tell "revoked" from "there was
+    /// nothing there".
+    pub async fn delete_llm_credential(
+        &self,
+        request: &LlmCredentialDeleteRequest,
+    ) -> Result<LlmCredentialDeleteResponse> {
+        self.unary(
+            Opcode::LlmCredentialDeleteReq,
+            Opcode::LlmCredentialDeleteResp,
+            "LLM_CREDENTIAL_DELETE_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// Exercise the registered key against its provider.
+    ///
+    /// Returns an outcome rather than failing: a key the provider rejects is a
+    /// *successful* verification that says the key is bad. Worth calling right
+    /// after registering one — the alternative first signal of a bad key is
+    /// thin recall, several derivation stages later, where nobody is looking.
+    pub async fn verify_llm_credential(
+        &self,
+        request: &LlmCredentialVerifyRequest,
+    ) -> Result<LlmCredentialVerifyResponse> {
+        self.unary(
+            Opcode::LlmCredentialVerifyReq,
+            Opcode::LlmCredentialVerifyResp,
+            "LLM_CREDENTIAL_VERIFY_RESP",
             request,
         )
         .await

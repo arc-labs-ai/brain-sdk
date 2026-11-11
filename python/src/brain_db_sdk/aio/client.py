@@ -79,6 +79,14 @@ from brain_db_sdk.wire.types import (
     InferenceStep,
     LinkRequest,
     LinkResponse,
+    LlmCredentialDeleteRequest,
+    LlmCredentialDeleteResponse,
+    LlmCredentialGetRequest,
+    LlmCredentialGetResponse,
+    LlmCredentialPutRequest,
+    LlmCredentialPutResponse,
+    LlmCredentialVerifyRequest,
+    LlmCredentialVerifyResponse,
     MaterializeProceduralRequest,
     MaterializeProceduralResponse,
     MemoryInspectRequest,
@@ -812,6 +820,77 @@ class AsyncBrainClient:
             Opcode.SCHEMA_DROP_REQ,
             Opcode.SCHEMA_DROP_RESP,
             SchemaDropResponse,
+            request,
+        )
+
+    async def put_llm_credential(
+        self, request: LlmCredentialPutRequest
+    ) -> LlmCredentialPutResponse:
+        """Register (or replace) this namespace's own LLM provider key.
+
+        Brain's extraction and HyPE stages call an LLM, and under
+        bring-your-own-key that call bills to the key registered here. A
+        deployment holds no provider credential of its own, so this is what
+        makes those stages able to run -- and until one is registered, ENCODE
+        is refused with ``LlmCredentialMissing``.
+
+        The only request in the protocol that carries a plaintext provider
+        key. The server refuses it unless the connection is TLS, mTLS or
+        loopback. The key is sealed on arrival and never returned.
+        """
+        return await self._unary(
+            Opcode.LLM_CREDENTIAL_PUT_REQ,
+            Opcode.LLM_CREDENTIAL_PUT_RESP,
+            LlmCredentialPutResponse,
+            request,
+        )
+
+    async def get_llm_credential(
+        self, request: LlmCredentialGetRequest
+    ) -> LlmCredentialGetResponse:
+        """What this namespace has installed (LLM_CREDENTIAL_GET).
+
+        Answers with the provider, the model and a display fingerprint, never
+        with anything a key can be rebuilt from. ``credential`` is ``None``
+        until the namespace registers one.
+        """
+        return await self._unary(
+            Opcode.LLM_CREDENTIAL_GET_REQ,
+            Opcode.LLM_CREDENTIAL_GET_RESP,
+            LlmCredentialGetResponse,
+            request,
+        )
+
+    async def delete_llm_credential(
+        self, request: LlmCredentialDeleteRequest
+    ) -> LlmCredentialDeleteResponse:
+        """Revoke this namespace's key (LLM_CREDENTIAL_DELETE).
+
+        Reports whether anything was removed rather than always succeeding, so
+        a caller revoking during an incident can tell "revoked" from "there was
+        nothing there".
+        """
+        return await self._unary(
+            Opcode.LLM_CREDENTIAL_DELETE_REQ,
+            Opcode.LLM_CREDENTIAL_DELETE_RESP,
+            LlmCredentialDeleteResponse,
+            request,
+        )
+
+    async def verify_llm_credential(
+        self, request: LlmCredentialVerifyRequest
+    ) -> LlmCredentialVerifyResponse:
+        """Exercise the registered key against its provider.
+
+        Returns an outcome rather than raising: a key the provider rejects is a
+        *successful* verification that says the key is bad. Worth calling right
+        after registering one -- the alternative first signal of a bad key is
+        thin recall, several derivation stages later, where nobody is looking.
+        """
+        return await self._unary(
+            Opcode.LLM_CREDENTIAL_VERIFY_REQ,
+            Opcode.LLM_CREDENTIAL_VERIFY_RESP,
+            LlmCredentialVerifyResponse,
             request,
         )
 

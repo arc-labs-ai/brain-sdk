@@ -21,7 +21,7 @@ use brain_db_sdk::wire::types::{
     GraphEdge, GraphFetchRequest, GraphFetchResponseFrame, GraphNode, HelloPayload,
     MemoryInspectRequest, MemoryInspectResponse, MemoryListDirWire, MemoryListItem,
     MemoryListRequest, MemoryListResponseFrame, MemoryListSortWire, MemoryListTimeAxisWire,
-    PingRequest, PongResponse, SchemaDropRequest, SchemaDropResponse, ServerFeatures,
+    PingRequest, PongResponse, SchemaDropRequest, SchemaDropResponse, SchemaScope, ServerFeatures,
     SpacePermissions, WelcomePayload, WireMemoryId,
 };
 use brain_db_sdk::{Auth, BrainClient};
@@ -324,6 +324,9 @@ async fn reads_and_admin_verbs_over_connection() {
             force: true,
             request_id: REQUEST_ID,
             act_as: None,
+            // A drop narrows exactly the scope it names: at the base it
+            // leaves every space's overlay standing.
+            scope: SchemaScope::Namespace,
         })
         .await
         .expect("drop_schema (first)");
@@ -338,6 +341,9 @@ async fn reads_and_admin_verbs_over_connection() {
             force: true,
             request_id: REQUEST_ID,
             act_as: None,
+            // A drop narrows exactly the scope it names: at the base it
+            // leaves every space's overlay standing.
+            scope: SchemaScope::Namespace,
         })
         .await
         .expect("drop_schema (second)");

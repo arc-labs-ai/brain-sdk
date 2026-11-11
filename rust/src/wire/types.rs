@@ -1205,6 +1205,9 @@ pub struct MemoryListRequest {
     /// Inclusive salience ceiling in `[0, 1]`.
     pub salience_max: f32,
     /// Substring/token filter over memory text; empty = no filter.
+    /// Only the empty value is served in v1: a non-empty filter is refused
+    /// rather than answered by scanning every text body. RECALL is the
+    /// supported way to find memories by their content.
     pub text_contains: String,
     /// Effective identity this list runs as. `None` (omitted on the wire) means
     /// the op runs as the connection's own key-bound identity. Honored only when
@@ -2484,6 +2487,18 @@ pub struct SchemaDropRequest {
     /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
+    /// Which scope this operation narrows: the namespace base, or an overlay
+    /// at the caller's effective space. See [`SchemaScope`].
+    ///
+    /// A narrowing reaches exactly the declarations the named scope made.
+    /// Dropping at the base leaves every space's own overlay standing;
+    /// dropping in a space leaves the tenant's base standing, because a space
+    /// may not narrow vocabulary its siblings resolve.
+    ///
+    /// ALWAYS ON THE WIRE — no `serde(default)`, no `skip_serializing_if`.
+    /// The server declares it the same way, so a client that omits it sends a
+    /// map the server cannot decode. A caller states its scope.
+    pub scope: SchemaScope,
 }
 
 /// `SCHEMA_DROP_RESP` (`0x01A5`).
@@ -2526,6 +2541,18 @@ pub struct SchemaReplaceRequest {
     /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
+    /// Which scope this operation narrows: the namespace base, or an overlay
+    /// at the caller's effective space. See [`SchemaScope`].
+    ///
+    /// A narrowing reaches exactly the declarations the named scope made.
+    /// Dropping at the base leaves every space's own overlay standing;
+    /// dropping in a space leaves the tenant's base standing, because a space
+    /// may not narrow vocabulary its siblings resolve.
+    ///
+    /// ALWAYS ON THE WIRE — no `serde(default)`, no `skip_serializing_if`.
+    /// The server declares it the same way, so a client that omits it sends a
+    /// map the server cannot decode. A caller states its scope.
+    pub scope: SchemaScope,
 }
 
 /// `SCHEMA_REPLACE_RESP` (`0x01A7`).
@@ -2987,6 +3014,39 @@ pub struct StageExtractorPayload {
     pub entity_count: u32,
     pub statement_count: u32,
     pub relation_count: u32,
+    /// Candidates the apply pass discarded before commit — the denominator
+    /// the three counts above lack, since those are survivors.
+    ///
+    /// Strict, like every other field here: `0` is a real reading ("nothing
+    /// was discarded"), so a defaulted value would be indistinguishable from
+    /// a version mismatch. Requires the engine to ship this field before any
+    /// consumer that reads it.
+    pub dropped_count: u32,
+    /// Committed statements that landed in a Fact-vs-Fact contradiction.
+    /// Read from the durable audit row rather than inferred from the write,
+    /// which succeeds because coexisting Facts are legal.
+    ///
+    /// Strict for the same reason as `dropped_count`: a defaulted `0` reads
+    /// as "this corpus never contradicts itself".
+    pub contradiction_count: u32,
+    /// Entities whose type no schema declares — neither the system's nor the
+    /// writing namespace's.
+    ///
+    /// Not a discard: an undeclared type is interned into the tenant's
+    /// namespace, so the entity commits and `dropped_count` never sees it.
+    /// The entity half of a junk rate, where `dropped_count` is the triple
+    /// half.
+    ///
+    /// Strict, like the other counts: `0` means "every entity matched a
+    /// declared type".
+    pub undeclared_entity_count: u32,
+    /// Whether the writing namespace had an active schema.
+    ///
+    /// The denominator for `undeclared_entity_count`: a schema is optional,
+    /// so with none declared there is no vocabulary to be outside of and a
+    /// coined type is ordinary discovery. Without this, a schemaless tenant
+    /// and a tenant whose extractor left its schema look identical.
+    pub has_active_schema: bool,
     pub audit_status: StageAuditStatus,
     /// Populated only when `audit_status == Failed`; empty otherwise.
     pub error_message: String,
@@ -3420,7 +3480,8 @@ pub struct EntityGetResponse {
 /// ENTITY_LIST (`0x0137`). Empty/zero fields mean "no filter".
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityListRequest {
-    /// `0` = no filter; otherwise an entity type id.
+    /// The entity type id to enumerate. Required: listing every type at
+    /// once is not offered in v1.0, and `0` is refused as an invalid request.
     pub entity_type_id: u32,
     /// Empty = no filter.
     pub name_prefix: String,
@@ -3765,6 +3826,17 @@ pub struct SchemaValidateRequest {
     /// Run as a tenant on a shared-pool connection (see [`ActAs`]).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
+    /// Which scope the document is validated against: the namespace base,
+    /// or an overlay at the caller's effective space. See [`SchemaScope`].
+    ///
+    /// VALIDATE predicts UPLOAD, so it takes the same selector — validating
+    /// a space's document against the namespace base reports references to
+    /// that space's own types as undeclared.
+    ///
+    /// ALWAYS ON THE WIRE — no `serde(default)`, no `skip_serializing_if`.
+    /// The server declares it the same way, so a client that omits it sends
+    /// a map the server cannot decode. A caller states its scope.
+    pub scope: SchemaScope,
 }
 
 /// SCHEMA_VALIDATE_RESP (`0x01A3`).
@@ -4043,4 +4115,232 @@ mod error_code_forward_compat_tests {
         assert_eq!(decoded.category, ErrorCategoryWire::Unavailable);
         assert_eq!(decoded.message, "from a newer server");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tenant LLM provider credentials (0x0076-0x0079)
+// ---------------------------------------------------------------------------
+
+/// The scope a credential is registered AT, or read FROM.
+///
+/// A two-state selector, not a space identifier: the scope is the caller's own
+/// effective space, already resolved for this request, so there is nothing
+/// here to point at someone else's space with.
+///
+/// `Space` is accepted by the server's storage layer but **refused at the op**
+/// today — derivation resolves credentials at the namespace base, so a
+/// space-scoped key would seal and then never be used.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    Hash,
+    PartialEq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum CredentialScope {
+    /// The tenant's namespace-wide key: every space resolves it unless it has
+    /// one of its own.
+    #[default]
+    Namespace = 0,
+    /// A key for the caller's effective space alone.
+    Space = 1,
+}
+
+/// How a registered credential fared against its provider.
+///
+/// Every variant is a *successful* verification: a key the provider rejects is
+/// an answer, not an error.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VerifyOutcome {
+    /// The provider accepted the key and serves the registered model.
+    Ok,
+    /// The namespace has no credential to verify.
+    NoCredential,
+    /// The provider rejected the key. Register a new one.
+    Unauthorized,
+    /// The key authenticated but the registered model is not available to it.
+    ModelUnavailable,
+    /// The provider could not be reached. Says nothing about the key.
+    Unreachable,
+}
+
+impl VerifyOutcome {
+    /// Every variant paired with the string the server emits.
+    ///
+    /// Written out rather than derived with `#[serde(rename_all)]`, which the
+    /// `field_names` suite forbids in this file: an attribute that rewrites
+    /// names is the one way this SDK can hand a caller a value under the wrong
+    /// label, so the mapping is stated where a reader can check it against the
+    /// corpus.
+    const WIRE: &'static [(VerifyOutcome, &'static str)] = &[
+        (VerifyOutcome::Ok, "ok"),
+        (VerifyOutcome::NoCredential, "no_credential"),
+        (VerifyOutcome::Unauthorized, "unauthorized"),
+        (VerifyOutcome::ModelUnavailable, "model_unavailable"),
+        (VerifyOutcome::Unreachable, "unreachable"),
+    ];
+
+    /// The wire string for this outcome.
+    #[must_use]
+    pub fn as_wire(self) -> &'static str {
+        Self::WIRE
+            .iter()
+            .find(|(v, _)| *v == self)
+            .map_or("unreachable", |(_, s)| *s)
+    }
+
+    /// Parse a wire string, or `None` for one this build does not know.
+    #[must_use]
+    pub fn from_wire(s: &str) -> Option<Self> {
+        Self::WIRE.iter().find(|(_, w)| *w == s).map(|(v, _)| *v)
+    }
+}
+
+impl Serialize for VerifyOutcome {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(self.as_wire())
+    }
+}
+
+impl<'de> Deserialize<'de> for VerifyOutcome {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(de)?;
+        Self::from_wire(&raw)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown verify outcome {raw:?}")))
+    }
+}
+
+/// What a read reports about an installed credential. Carries no key material.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialView {
+    /// `"openai"` or `"anthropic"`.
+    pub provider: String,
+    /// The model extraction and HyPE run on.
+    pub model: String,
+    /// Display-safe tail of the key (e.g. `…4f2a`). Never reconstructable.
+    pub fingerprint: String,
+    pub created_at_unix_nanos: u64,
+    /// `true` when a space-scoped read resolved the namespace's key rather
+    /// than one of its own. Always `false` while space scope is refused.
+    pub inherited: bool,
+}
+
+/// LLM_CREDENTIAL_PUT (`0x0076`). Registers or replaces the key at `scope`.
+///
+/// The only wire shape that carries a plaintext provider key. The server
+/// refuses it unless the connection is TLS, mTLS or loopback, seals it on
+/// arrival bound to the namespace and provider, and never returns it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialPutRequest {
+    /// `"openai"` or `"anthropic"`.
+    pub provider: String,
+    /// Model this key should serve.
+    pub model: String,
+    /// The provider key. Sealed on arrival and never returned.
+    pub api_key: String,
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+    /// Where the key lands. Always on the wire.
+    pub scope: CredentialScope,
+}
+
+/// Redacting `Debug`, written by hand rather than derived.
+///
+/// A derived `Debug` on this type is one log line away from putting a live
+/// provider key in a file, and request logging is exactly the kind of thing
+/// added later by someone who has not read this file.
+impl core::fmt::Debug for LlmCredentialPutRequest {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("LlmCredentialPutRequest")
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("api_key", &"[redacted]")
+            .field("scope", &self.scope)
+            .finish_non_exhaustive()
+    }
+}
+
+/// LLM_CREDENTIAL_PUT_RESP (`0x00F6`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialPutResponse {
+    pub provider: String,
+    pub model: String,
+    pub fingerprint: String,
+    pub created_at_unix_nanos: u64,
+    /// `true` when this displaced a key already registered at the same scope,
+    /// so a caller can tell a first registration from a rotation.
+    pub replaced: bool,
+}
+
+/// LLM_CREDENTIAL_GET (`0x0077`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialGetRequest {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+    /// The vantage point to resolve from. Always on the wire.
+    pub scope: CredentialScope,
+}
+
+/// LLM_CREDENTIAL_GET_RESP (`0x00F7`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialGetResponse {
+    /// `None` until the namespace registers one — the state every namespace
+    /// starts in.
+    pub credential: Option<LlmCredentialView>,
+}
+
+/// LLM_CREDENTIAL_DELETE (`0x0078`). Removes the key at exactly `scope`.
+///
+/// Exact rather than resolved: a space revoking its own key must not be able
+/// to remove the tenant's by accident.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialDeleteRequest {
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+    /// Which scope's key to remove. Always on the wire.
+    pub scope: CredentialScope,
+}
+
+/// LLM_CREDENTIAL_DELETE_RESP (`0x00F8`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialDeleteResponse {
+    /// `false` when that scope had no key of its own. Reported rather than
+    /// always succeeding, because a caller revoking during an incident needs
+    /// to tell "revoked" from "there was nothing there".
+    pub existed: bool,
+}
+
+/// LLM_CREDENTIAL_VERIFY (`0x0079`). Exercises the registered key against its
+/// provider with the cheapest call that proves it works.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialVerifyRequest {
+    #[serde(with = "serde_bytes")]
+    pub request_id: WireUuid,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+    /// The vantage point to resolve the key from. Always on the wire.
+    pub scope: CredentialScope,
+}
+
+/// LLM_CREDENTIAL_VERIFY_RESP (`0x00F9`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmCredentialVerifyResponse {
+    pub outcome: VerifyOutcome,
+    /// The provider and model exercised. `None` when there was no credential.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model: Option<String>,
+    /// The provider's own message on a failure. Never key material.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detail: Option<String>,
 }

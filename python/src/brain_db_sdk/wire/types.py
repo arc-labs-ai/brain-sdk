@@ -2082,7 +2082,11 @@ class MemoryListRequest:
     to_unix_nanos: int  # 0 = no upper bound
     salience_min: float  # f32
     salience_max: float  # f32
-    text_contains: str  # empty = no filter
+    # Substring/token filter over memory text; empty = no filter. Only the
+    # empty value is served in v1: a non-empty filter is refused rather than
+    # answered by scanning every text body. RECALL is the supported way to
+    # find memories by their content.
+    text_contains: str
     # Effective identity this list runs as. Omitted from the CBOR map when None
     # so the common single-tenant path stays byte-identical.
     act_as: Optional[ActAs] = None
@@ -2874,6 +2878,17 @@ class SchemaDropRequest:
     force: bool
     request_id: bytes
     act_as: Optional[ActAs] = None
+    #: Which scope this operation narrows: the namespace base, or an overlay
+    #: at the caller's effective space. See :class:`SchemaScope`.
+    #:
+    #: A narrowing reaches exactly the declarations the named scope made.
+    #: Dropping at the base leaves every space's own overlay standing;
+    #: dropping in a space leaves the tenant's base standing, because a space
+    #: may not narrow vocabulary its siblings resolve.
+    #:
+    #: ALWAYS ON THE WIRE -- never skipped. The server declares it the same
+    #: way, so a client that omits it sends a map the server cannot decode.
+    scope: int = SchemaScope.NAMESPACE
 
     def to_map(self) -> dict[str, Any]:
         m = {
@@ -2885,6 +2900,8 @@ class SchemaDropRequest:
         }
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
+        # ``scope`` follows ``act_as``, always present (never skipped).
+        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -2897,6 +2914,7 @@ class SchemaDropRequest:
             m["force"],
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
+            m["scope"],
         )
 
 
@@ -2961,6 +2979,17 @@ class SchemaReplaceRequest:
     force_drop_existing: bool
     request_id: bytes
     act_as: Optional[ActAs] = None
+    #: Which scope this operation narrows: the namespace base, or an overlay
+    #: at the caller's effective space. See :class:`SchemaScope`.
+    #:
+    #: A narrowing reaches exactly the declarations the named scope made.
+    #: Dropping at the base leaves every space's own overlay standing;
+    #: dropping in a space leaves the tenant's base standing, because a space
+    #: may not narrow vocabulary its siblings resolve.
+    #:
+    #: ALWAYS ON THE WIRE -- never skipped. The server declares it the same
+    #: way, so a client that omits it sends a map the server cannot decode.
+    scope: int = SchemaScope.NAMESPACE
 
     def to_map(self) -> dict[str, Any]:
         m = {
@@ -2970,6 +2999,8 @@ class SchemaReplaceRequest:
         }
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
+        # ``scope`` follows ``act_as``, always present (never skipped).
+        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -2980,6 +3011,7 @@ class SchemaReplaceRequest:
             m["force_drop_existing"],
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
+            m["scope"],
         )
 
 
@@ -4409,11 +4441,24 @@ class StageHypePayload:
 
 @dataclass
 class StageExtractorPayload:
-    """Extractor stage detail: entity/statement/relation counts, the audit status, and any error message."""
+    """Extractor stage detail: what the extraction yielded, what it threw away,
+    the audit status, and any error message.
+
+    ``dropped_count`` is the denominator the three counts lack — they are
+    survivors, so two statements out of two and two out of nine are otherwise
+    indistinguishable. ``undeclared_entity_count`` is the entity half of the
+    same question, and means something only alongside ``has_active_schema``:
+    a schema is an optional add-on, so with none declared there is no
+    vocabulary to be outside of.
+    """
 
     entity_count: int
     statement_count: int
     relation_count: int
+    dropped_count: int
+    contradiction_count: int
+    undeclared_entity_count: int
+    has_active_schema: bool
     audit_status: int
     error_message: str
 
@@ -4422,6 +4467,10 @@ class StageExtractorPayload:
             "entity_count": self.entity_count,
             "statement_count": self.statement_count,
             "relation_count": self.relation_count,
+            "dropped_count": self.dropped_count,
+            "contradiction_count": self.contradiction_count,
+            "undeclared_entity_count": self.undeclared_entity_count,
+            "has_active_schema": self.has_active_schema,
             "audit_status": self.audit_status,
             "error_message": self.error_message,
         }
@@ -4432,6 +4481,10 @@ class StageExtractorPayload:
             m["entity_count"],
             m["statement_count"],
             m["relation_count"],
+            m["dropped_count"],
+            m["contradiction_count"],
+            m["undeclared_entity_count"],
+            m["has_active_schema"],
             m["audit_status"],
             m["error_message"],
         )
@@ -5277,7 +5330,9 @@ class EntityGetResponse:
 class EntityListRequest:
     """ENTITY_LIST (``0x0137``). Page through entities under optional type/name-prefix/mention filters, with tombstone and merge inclusion, a limit, and a cursor."""
 
-    entity_type_id: int  # 0 = no filter
+    # The entity type id to enumerate. Required: listing every type at once
+    # is not offered in v1.0, and 0 is refused as an invalid request.
+    entity_type_id: int
     name_prefix: str  # empty = no filter
     mention_count_min: int
     include_tombstoned: bool
@@ -6033,17 +6088,33 @@ class SchemaValidateRequest:
 
     schema_document: str
     act_as: Optional[ActAs] = None
+    #: Which scope the document is validated against: the namespace base, or
+    #: an overlay at the caller's effective space. See :class:`SchemaScope`.
+    #:
+    #: VALIDATE predicts UPLOAD, so it takes the same selector -- validating
+    #: a space's document against the namespace base reports references to
+    #: that space's own types as undeclared.
+    #:
+    #: ALWAYS ON THE WIRE -- never skipped. The server declares it the same
+    #: way, so a client that omits it sends a map the server cannot decode.
+    scope: int = SchemaScope.NAMESPACE
 
     def to_map(self) -> dict[str, Any]:
         m: dict[str, Any] = {"schema_document": self.schema_document}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
+        # ``scope`` follows ``act_as``, always present (never skipped).
+        m["scope"] = self.scope
         return m
 
     @classmethod
     def from_map(cls, m: dict[str, Any]) -> SchemaValidateRequest:
         act_as = m.get("act_as")
-        return cls(m["schema_document"], None if act_as is None else ActAs.from_map(act_as))
+        return cls(
+            m["schema_document"],
+            None if act_as is None else ActAs.from_map(act_as),
+            m["scope"],
+        )
 
 
 @dataclass
@@ -7398,4 +7469,302 @@ class SessionDeleteResponse:
             m["session_id"],
             m["existed"],
             m["memories_forgotten"],
+        )
+
+
+class CredentialScope:
+    """The scope an LLM provider credential is registered AT, or read FROM,
+    as its on-wire integer discriminant.
+
+    A two-state selector, not a space identifier: the scope is the caller's own
+    effective space, already resolved for this request, so there is nothing
+    here to point at someone else's space with. Separate from ``act_as`` for
+    the same reason :class:`SchemaScope` is -- nearly every request names a
+    space, so reading the scope off ``act_as.space`` would turn every ordinary
+    tenant-wide registration into a per-space override.
+
+    ``SPACE`` is accepted by the server's storage layer but **refused at the
+    op** today: derivation resolves credentials at the namespace base, so a
+    space-scoped key would seal and then never be used.
+    """
+
+    NAMESPACE = 0
+    SPACE = 1
+
+
+class VerifyOutcome:
+    """How a registered credential fared against its provider.
+
+    Every value is a *successful* verification: a key the provider rejects is
+    an answer, not an error.
+    """
+
+    OK = "ok"
+    NO_CREDENTIAL = "no_credential"
+    UNAUTHORIZED = "unauthorized"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    UNREACHABLE = "unreachable"
+
+
+@dataclass
+class LlmCredentialView:
+    """What a read reports about an installed credential.
+
+    Carries no key material. ``fingerprint`` is a display-safe tail, enough to
+    tell which key is installed and too little to narrow a search for the rest.
+    """
+
+    provider: str
+    model: str
+    fingerprint: str
+    created_at_unix_nanos: int
+    #: True when a space-scoped read resolved the namespace's key rather than
+    #: one of its own. Always False while space scope is refused at the op.
+    inherited: bool = False
+
+    def to_map(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "fingerprint": self.fingerprint,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "inherited": self.inherited,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialView:
+        return cls(
+            m["provider"],
+            m["model"],
+            m["fingerprint"],
+            m["created_at_unix_nanos"],
+            bool(m["inherited"]),
+        )
+
+
+@dataclass
+class LlmCredentialPutRequest:
+    """LLM_CREDENTIAL_PUT (``0x0076``). Register or replace this namespace's
+    provider key.
+
+    The only wire shape in the protocol that carries a plaintext provider key.
+    The server refuses it unless the connection is TLS, mTLS or loopback, seals
+    it on arrival bound to the namespace and provider, and never returns it.
+    """
+
+    provider: str  # "openai" | "anthropic"
+    model: str
+    api_key: str
+    request_id: bytes  # 16-byte byte string
+    act_as: Optional[ActAs] = None
+    #: Where the key lands. ALWAYS ON THE WIRE -- the server declares it the
+    #: same way, so a client that omits it sends a map it cannot decode.
+    scope: int = CredentialScope.NAMESPACE
+
+    def __repr__(self) -> str:
+        # Hand-written so a logged request cannot carry a live provider key.
+        return (
+            f"LlmCredentialPutRequest(provider={self.provider!r}, "
+            f"model={self.model!r}, api_key='[redacted]', scope={self.scope!r})"
+        )
+
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {
+            "provider": self.provider,
+            "model": self.model,
+            "api_key": self.api_key,
+            "request_id": self.request_id,
+        }
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        m["scope"] = self.scope
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialPutRequest:
+        act_as = m.get("act_as")
+        return cls(
+            m["provider"],
+            m["model"],
+            m["api_key"],
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+            int(m["scope"]),
+        )
+
+
+@dataclass
+class LlmCredentialPutResponse:
+    """LLM_CREDENTIAL_PUT_RESP (``0x00F6``). ``replaced`` distinguishes a first
+    registration from a rotation."""
+
+    provider: str
+    model: str
+    fingerprint: str
+    created_at_unix_nanos: int
+    replaced: bool
+
+    def to_map(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "fingerprint": self.fingerprint,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+            "replaced": self.replaced,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialPutResponse:
+        return cls(
+            m["provider"],
+            m["model"],
+            m["fingerprint"],
+            m["created_at_unix_nanos"],
+            bool(m["replaced"]),
+        )
+
+
+@dataclass
+class LlmCredentialGetRequest:
+    """LLM_CREDENTIAL_GET (``0x0077``). What this namespace has installed."""
+
+    act_as: Optional[ActAs] = None
+    scope: int = CredentialScope.NAMESPACE
+
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        m["scope"] = self.scope
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialGetRequest:
+        act_as = m.get("act_as")
+        return cls(
+            None if act_as is None else ActAs.from_map(act_as),
+            int(m["scope"]),
+        )
+
+
+@dataclass
+class LlmCredentialGetResponse:
+    """LLM_CREDENTIAL_GET_RESP (``0x00F7``). ``credential`` is None until the
+    namespace registers one -- the state every namespace starts in."""
+
+    credential: Optional[LlmCredentialView] = None
+
+    def to_map(self) -> dict[str, Any]:
+        return {"credential": None if self.credential is None else self.credential.to_map()}
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialGetResponse:
+        c = m.get("credential")
+        return cls(None if c is None else LlmCredentialView.from_map(c))
+
+
+@dataclass
+class LlmCredentialDeleteRequest:
+    """LLM_CREDENTIAL_DELETE (``0x0078``). Revoke the key at exactly ``scope``.
+
+    Exact rather than resolved: a space revoking its own key must not be able
+    to remove the tenant's by accident.
+    """
+
+    request_id: bytes  # 16-byte byte string
+    act_as: Optional[ActAs] = None
+    scope: int = CredentialScope.NAMESPACE
+
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"request_id": self.request_id}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        m["scope"] = self.scope
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialDeleteRequest:
+        act_as = m.get("act_as")
+        return cls(
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+            int(m["scope"]),
+        )
+
+
+@dataclass
+class LlmCredentialDeleteResponse:
+    """LLM_CREDENTIAL_DELETE_RESP (``0x00F8``). ``existed`` is False when that
+    scope owned no key -- reported rather than always succeeding, because a
+    caller revoking during an incident needs to tell "revoked" from "there was
+    nothing there"."""
+
+    existed: bool
+
+    def to_map(self) -> dict[str, Any]:
+        return {"existed": self.existed}
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialDeleteResponse:
+        return cls(bool(m["existed"]))
+
+
+@dataclass
+class LlmCredentialVerifyRequest:
+    """LLM_CREDENTIAL_VERIFY (``0x0079``). Exercise the registered key against
+    its provider with the cheapest call that proves it works.
+
+    Exists because the alternative first signal of a bad key is thin recall,
+    several derivation stages downstream, where nobody is looking.
+    """
+
+    request_id: bytes  # 16-byte byte string
+    act_as: Optional[ActAs] = None
+    scope: int = CredentialScope.NAMESPACE
+
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"request_id": self.request_id}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        m["scope"] = self.scope
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialVerifyRequest:
+        act_as = m.get("act_as")
+        return cls(
+            m["request_id"],
+            None if act_as is None else ActAs.from_map(act_as),
+            int(m["scope"]),
+        )
+
+
+@dataclass
+class LlmCredentialVerifyResponse:
+    """LLM_CREDENTIAL_VERIFY_RESP (``0x00F9``). ``outcome`` is one of
+    :class:`VerifyOutcome`; ``detail`` carries the provider's own message on a
+    failure and never key material."""
+
+    outcome: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    detail: Optional[str] = None
+
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {"outcome": self.outcome}
+        if self.provider is not None:
+            m["provider"] = self.provider
+        if self.model is not None:
+            m["model"] = self.model
+        if self.detail is not None:
+            m["detail"] = self.detail
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> LlmCredentialVerifyResponse:
+        return cls(
+            m["outcome"],
+            m.get("provider"),
+            m.get("model"),
+            m.get("detail"),
         )

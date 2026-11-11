@@ -1355,6 +1355,13 @@
      "name": "created_at_unix_nanos",
      "serde": {},
      "shape": "int"
+    },
+    {
+     "name": "graph",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(RecallGraphDto)"
     }
    ]
   },
@@ -1604,6 +1611,13 @@
       "default": true
      },
      "shape": "opt(string)"
+    },
+    {
+     "name": "include_trace",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
     }
    ]
   },
@@ -1613,6 +1627,18 @@
      "name": "steps",
      "serde": {},
      "shape": "list(PlanStepDto)"
+    },
+    {
+     "name": "status",
+     "serde": {},
+     "shape": "opt(string)"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -1824,6 +1850,13 @@
       "default": "default_wall_ms"
      },
      "shape": "int"
+    },
+    {
+     "name": "include_trace",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
     }
    ]
   },
@@ -1833,6 +1866,18 @@
      "name": "inferences",
      "serde": {},
      "shape": "list(InferenceStepDto)"
+    },
+    {
+     "name": "status",
+     "serde": {},
+     "shape": "opt(string)"
+    },
+    {
+     "name": "trace",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -1870,6 +1915,70 @@
       "default": true
      },
      "shape": "opt(bool)"
+    },
+    {
+     "name": "include_graph",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(bool)"
+    }
+   ]
+  },
+  "RecallEntityDto": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "type_qname",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
+  "RecallGraphDto": {
+   "fields": [
+    {
+     "name": "entities",
+     "serde": {},
+     "shape": "list(RecallEntityDto)"
+    },
+    {
+     "name": "statements",
+     "serde": {},
+     "shape": "list(RecallStatementDto)"
+    },
+    {
+     "name": "relations",
+     "serde": {},
+     "shape": "list(RecallRelationDto)"
+    }
+   ]
+  },
+  "RecallRelationDto": {
+   "fields": [
+    {
+     "name": "from_name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "to_name",
+     "serde": {},
+     "shape": "string"
     }
    ]
   },
@@ -1891,6 +2000,49 @@
       "skip_serializing_if": "Option::is_none"
      },
      "shape": "opt(string)"
+    }
+   ]
+  },
+  "RecallStatementDto": {
+   "fields": [
+    {
+     "name": "id",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "subject_name",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "predicate",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "object_label",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "object_entity_id",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(string)"
+    },
+    {
+     "name": "confidence",
+     "serde": {},
+     "shape": "float"
+    },
+    {
+     "name": "event_at_unix_nanos",
+     "serde": {
+      "skip_serializing_if": "Option::is_none"
+     },
+     "shape": "opt(int)"
     }
    ]
   },
@@ -2114,6 +2266,13 @@
       "default": true
      },
      "shape": "bool"
+    },
+    {
+     "name": "scope",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -2248,6 +2407,13 @@
      "name": "force_drop_existing",
      "serde": {},
      "shape": "bool"
+    },
+    {
+     "name": "scope",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
     }
    ]
   },
@@ -2335,6 +2501,13 @@
      "name": "schema_document",
      "serde": {},
      "shape": "string"
+    },
+    {
+     "name": "scope",
+     "serde": {
+      "default": true
+     },
+     "shape": "opt(string)"
     }
    ]
   },

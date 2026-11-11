@@ -102,6 +102,14 @@ import {
   type CancelStreamAck,
   type CancellationReason,
   type SchemaDropRequest,
+  type LlmCredentialDeleteRequest,
+  type LlmCredentialDeleteResponse,
+  type LlmCredentialGetRequest,
+  type LlmCredentialGetResponse,
+  type LlmCredentialPutRequest,
+  type LlmCredentialPutResponse,
+  type LlmCredentialVerifyRequest,
+  type LlmCredentialVerifyResponse,
   type SchemaDropResponse,
   type SchemaReplaceRequest,
   type SchemaReplaceResponse,
@@ -243,6 +251,14 @@ import {
   encodeSchemaList,
   encodeCancelStream,
   encodeSchemaDrop,
+  encodeLlmCredentialDelete,
+  encodeLlmCredentialGet,
+  encodeLlmCredentialPut,
+  encodeLlmCredentialVerify,
+  decodeLlmCredentialDeleteResponse,
+  decodeLlmCredentialGetResponse,
+  decodeLlmCredentialPutResponse,
+  decodeLlmCredentialVerifyResponse,
   encodeSchemaReplace,
   encodeSchemaUpload,
   encodeSchemaValidate,
@@ -1075,6 +1091,82 @@ export class BrainClient {
     const frame = await this.conn.requestOne(Opcode.SchemaDropReq, encodeSchemaDrop(request));
     this.expect(frame.opcode, Opcode.SchemaDropResp, "SCHEMA_DROP_RESP");
     return decodeSchemaDropResponse(frame.payload);
+  }
+
+  /**
+   * Register (or replace) this namespace's own LLM provider key.
+   *
+   * Brain's extraction and HyPE stages call an LLM, and under
+   * bring-your-own-key that call bills to the key registered here. A
+   * deployment holds no provider credential of its own, so this is what makes
+   * those stages able to run — and until one is registered, ENCODE is refused
+   * with `LlmCredentialMissing`.
+   *
+   * The only request in the protocol that carries a plaintext provider key.
+   * The server refuses it unless the connection is TLS, mTLS or loopback. The
+   * key is sealed on arrival and never returned: the response carries a
+   * display fingerprint instead.
+   */
+  async putLlmCredential(request: LlmCredentialPutRequest): Promise<LlmCredentialPutResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.LlmCredentialPutReq,
+      encodeLlmCredentialPut(request),
+    );
+    this.expect(frame.opcode, Opcode.LlmCredentialPutResp, "LLM_CREDENTIAL_PUT_RESP");
+    return decodeLlmCredentialPutResponse(frame.payload);
+  }
+
+  /**
+   * What this namespace has installed (LLM_CREDENTIAL_GET).
+   *
+   * Answers with the provider, the model and a display fingerprint, never with
+   * anything a key can be rebuilt from. `credential` is `null` until the
+   * namespace registers one.
+   */
+  async getLlmCredential(request: LlmCredentialGetRequest): Promise<LlmCredentialGetResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.LlmCredentialGetReq,
+      encodeLlmCredentialGet(request),
+    );
+    this.expect(frame.opcode, Opcode.LlmCredentialGetResp, "LLM_CREDENTIAL_GET_RESP");
+    return decodeLlmCredentialGetResponse(frame.payload);
+  }
+
+  /**
+   * Revoke this namespace's key (LLM_CREDENTIAL_DELETE).
+   *
+   * Reports whether anything was removed rather than always succeeding, so a
+   * caller revoking during an incident can tell "revoked" from "there was
+   * nothing there".
+   */
+  async deleteLlmCredential(
+    request: LlmCredentialDeleteRequest,
+  ): Promise<LlmCredentialDeleteResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.LlmCredentialDeleteReq,
+      encodeLlmCredentialDelete(request),
+    );
+    this.expect(frame.opcode, Opcode.LlmCredentialDeleteResp, "LLM_CREDENTIAL_DELETE_RESP");
+    return decodeLlmCredentialDeleteResponse(frame.payload);
+  }
+
+  /**
+   * Exercise the registered key against its provider.
+   *
+   * Resolves with an outcome rather than rejecting: a key the provider refuses
+   * is a *successful* verification that says the key is bad. Worth calling
+   * right after registering one — the alternative first signal of a bad key is
+   * thin recall, several derivation stages later, where nobody is looking.
+   */
+  async verifyLlmCredential(
+    request: LlmCredentialVerifyRequest,
+  ): Promise<LlmCredentialVerifyResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.LlmCredentialVerifyReq,
+      encodeLlmCredentialVerify(request),
+    );
+    this.expect(frame.opcode, Opcode.LlmCredentialVerifyResp, "LLM_CREDENTIAL_VERIFY_RESP");
+    return decodeLlmCredentialVerifyResponse(frame.payload);
   }
 
   /**
