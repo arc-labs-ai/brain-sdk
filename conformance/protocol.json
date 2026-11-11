@@ -241,6 +241,21 @@
     }
    ]
   },
+  "CredentialScope": {
+   "encoding": "int",
+   "repr": "u8",
+   "serde": {},
+   "variants": [
+    {
+     "discriminant": 0,
+     "name": "Namespace"
+    },
+    {
+     "discriminant": 1,
+     "name": "Space"
+    }
+   ]
+  },
   "DurationUnit": {
    "encoding": "tagged",
    "repr": null,
@@ -1939,6 +1954,38 @@
      "name": "SessionDeleteResp"
     },
     {
+     "discriminant": 118,
+     "name": "LlmCredentialPutReq"
+    },
+    {
+     "discriminant": 246,
+     "name": "LlmCredentialPutResp"
+    },
+    {
+     "discriminant": 119,
+     "name": "LlmCredentialGetReq"
+    },
+    {
+     "discriminant": 247,
+     "name": "LlmCredentialGetResp"
+    },
+    {
+     "discriminant": 120,
+     "name": "LlmCredentialDeleteReq"
+    },
+    {
+     "discriminant": 248,
+     "name": "LlmCredentialDeleteResp"
+    },
+    {
+     "discriminant": 121,
+     "name": "LlmCredentialVerifyReq"
+    },
+    {
+     "discriminant": 249,
+     "name": "LlmCredentialVerifyResp"
+    },
+    {
      "discriminant": 255,
      "name": "Error"
     },
@@ -2820,6 +2867,22 @@
     {
      "name": "SessionDelete",
      "payload": "SessionDeleteRequest"
+    },
+    {
+     "name": "LlmCredentialPut",
+     "payload": "LlmCredentialPutRequest"
+    },
+    {
+     "name": "LlmCredentialGet",
+     "payload": "LlmCredentialGetRequest"
+    },
+    {
+     "name": "LlmCredentialDelete",
+     "payload": "LlmCredentialDeleteRequest"
+    },
+    {
+     "name": "LlmCredentialVerify",
+     "payload": "LlmCredentialVerifyRequest"
     }
    ]
   },
@@ -3146,6 +3209,22 @@
     {
      "name": "SessionDelete",
      "payload": "SessionDeleteResponse"
+    },
+    {
+     "name": "LlmCredentialPut",
+     "payload": "LlmCredentialPutResponse"
+    },
+    {
+     "name": "LlmCredentialGet",
+     "payload": "LlmCredentialGetResponse"
+    },
+    {
+     "name": "LlmCredentialDelete",
+     "payload": "LlmCredentialDeleteResponse"
+    },
+    {
+     "name": "LlmCredentialVerify",
+     "payload": "LlmCredentialVerifyResponse"
     },
     {
      "name": "Error",
@@ -3604,6 +3683,30 @@
     }
    ]
   },
+  "VerifyOutcome": {
+   "encoding": "tagged",
+   "repr": null,
+   "serde": {
+    "rename_all": "snake_case"
+   },
+   "variants": [
+    {
+     "name": "Ok"
+    },
+    {
+     "name": "NoCredential"
+    },
+    {
+     "name": "Unauthorized"
+    },
+    {
+     "name": "ModelUnavailable"
+    },
+    {
+     "name": "Unreachable"
+    }
+   ]
+  },
   "WaitMode": {
    "encoding": "int",
    "repr": "u8",
@@ -3725,6 +3828,14 @@
   "Hello": 1,
   "LinkReq": 37,
   "LinkResp": 165,
+  "LlmCredentialDeleteReq": 120,
+  "LlmCredentialDeleteResp": 248,
+  "LlmCredentialGetReq": 119,
+  "LlmCredentialGetResp": 247,
+  "LlmCredentialPutReq": 118,
+  "LlmCredentialPutResp": 246,
+  "LlmCredentialVerifyReq": 121,
+  "LlmCredentialVerifyResp": 249,
   "MaterializeProceduralReq": 356,
   "MaterializeProceduralResp": 484,
   "MemoryInspectReq": 40,
@@ -6918,6 +7029,228 @@
    ],
    "serde": {}
   },
+  "LlmCredentialDeleteRequest": {
+   "fields": [
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "CredentialScope"
+    }
+   ],
+   "serde": {}
+  },
+  "LlmCredentialDeleteResponse": {
+   "fields": [
+    {
+     "name": "existed",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "LlmCredentialGetRequest": {
+   "fields": [
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "CredentialScope"
+    }
+   ],
+   "serde": {}
+  },
+  "LlmCredentialGetResponse": {
+   "fields": [
+    {
+     "name": "credential",
+     "serde": {},
+     "type": "Option<LlmCredentialView>"
+    }
+   ],
+   "serde": {}
+  },
+  "LlmCredentialPutRequest": {
+   "fields": [
+    {
+     "name": "provider",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "model",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "api_key",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "CredentialScope"
+    }
+   ],
+   "serde": {}
+  },
+  "LlmCredentialPutResponse": {
+   "fields": [
+    {
+     "name": "provider",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "model",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "fingerprint",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "replaced",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
+  "LlmCredentialVerifyRequest": {
+   "fields": [
+    {
+     "name": "request_id",
+     "serde": {
+      "with": "serde_bytes"
+     },
+     "type": "[u8; 16]"
+    },
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "CredentialScope"
+    }
+   ],
+   "serde": {}
+  },
+  "LlmCredentialVerifyResponse": {
+   "fields": [
+    {
+     "name": "outcome",
+     "serde": {},
+     "type": "VerifyOutcome"
+    },
+    {
+     "name": "provider",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    },
+    {
+     "name": "model",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    },
+    {
+     "name": "detail",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<String>"
+    }
+   ],
+   "serde": {}
+  },
+  "LlmCredentialView": {
+   "fields": [
+    {
+     "name": "provider",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "model",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "fingerprint",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    },
+    {
+     "name": "inherited",
+     "serde": {},
+     "type": "bool"
+    }
+   ],
+   "serde": {}
+  },
   "MaterializeProceduralRequest": {
    "fields": [
     {
@@ -9347,6 +9680,11 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "SchemaScope"
     }
    ],
    "serde": {}
@@ -9558,6 +9896,11 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "SchemaScope"
     }
    ],
    "serde": {}
@@ -9696,6 +10039,11 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
+    },
+    {
+     "name": "scope",
+     "serde": {},
+     "type": "SchemaScope"
     }
    ],
    "serde": {}
@@ -10369,6 +10717,26 @@
      "name": "relation_count",
      "serde": {},
      "type": "u32"
+    },
+    {
+     "name": "dropped_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "contradiction_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "undeclared_entity_count",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "has_active_schema",
+     "serde": {},
+     "type": "bool"
     },
     {
      "name": "audit_status",
