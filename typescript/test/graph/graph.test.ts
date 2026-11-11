@@ -36,6 +36,7 @@ import {
   encodeSchemaUploadResponse,
   encodeStatementCreateResponse,
   encodeWelcome,
+  SchemaScope,
 } from "../../src/wire/types.js";
 
 const ENTITY_ID = new Uint8Array(16).fill(0x11);
@@ -238,6 +239,7 @@ describe("typed-graph verbs", () => {
         schemaDocument: "entity Person {}",
         dryRun: true,
         allowBreaking: false,
+        scope: SchemaScope.Namespace,
         requestId: newId(),
       });
       expect(schema.namespace).toBe("people");
