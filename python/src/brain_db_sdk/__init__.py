@@ -67,6 +67,8 @@ from .errors import (
     BrainError,
     BrainTimeout,
     ConnectionClosed,
+    LlmCredentialMissing,
+    LlmCredentialUnavailable,
     ProtocolError,
     ServerError,
     VersionMismatch,
@@ -122,5 +124,7 @@ __all__ = [
     "VersionMismatch",
     "ServerError",
     "ActAsDenied",
+    "LlmCredentialMissing",
+    "LlmCredentialUnavailable",
     "is_retryable",
 ]
