@@ -288,6 +288,8 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("resp_llm_credential_delete", LlmCredentialDeleteResponse);
     payload!("req_llm_credential_verify", LlmCredentialVerifyRequest);
     payload!("resp_llm_credential_verify", LlmCredentialVerifyResponse);
+    payload!("req_entity_type_list", EntityTypeListRequest);
+    payload!("resp_entity_type_list", EntityTypeListResponseFrame);
     payload!("req_extractor_list", ExtractorListRequest);
     payload!("resp_extractor_list", ExtractorListResponseFrame);
     payload!("resp_pong", PongResponse);

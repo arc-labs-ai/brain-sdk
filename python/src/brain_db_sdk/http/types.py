@@ -1595,3 +1595,37 @@ class SubscriptionClosed:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SubscriptionClosed:
         return cls(final_lsn=d["final_lsn"], reason=d["reason"])
+
+
+@dataclass
+class EntityType:
+    """One entity type: the id every other entity call takes, its
+    ``<namespace>:<Name>`` qname, and whether a schema document declared it
+    (``False`` when the extractor coined it from a write)."""
+
+    entity_type_id: int
+    type_qname: str
+    declared: bool
+    created_at_unix_nanos: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> EntityType:
+        return cls(
+            entity_type_id=d["entity_type_id"],
+            type_qname=d["type_qname"],
+            declared=d["declared"],
+            created_at_unix_nanos=d["created_at_unix_nanos"],
+        )
+
+
+@dataclass
+class ListEntityTypesResult:
+    items: list[EntityType]
+    total: int
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ListEntityTypesResult:
+        return cls(
+            items=[EntityType.from_dict(i) for i in d.get("items", [])],
+            total=d["total"],
+        )

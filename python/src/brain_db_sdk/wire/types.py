@@ -7744,3 +7744,73 @@ class LlmCredentialVerifyResponse:
             m.get("model"),
             m.get("detail"),
         )
+
+
+@dataclass
+class EntityTypeListRequest:
+    """ENTITY_TYPE_LIST (``0x0139``). The entity types the caller's scope
+    resolves, each with the numeric id every other entity op takes."""
+
+    # Effective identity this listing runs as. Omitted from the CBOR map
+    # when None so the common single-tenant path stays byte-identical.
+    act_as: Optional[ActAs] = None
+
+    def to_map(self) -> dict[str, Any]:
+        m: dict[str, Any] = {}
+        if self.act_as is not None:
+            m["act_as"] = self.act_as.to_map()
+        return m
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> EntityTypeListRequest:
+        raw = m.get("act_as")
+        return cls(ActAs.from_map(raw) if raw is not None else None)
+
+
+@dataclass
+class EntityTypeListItem:
+    """One entity type: the ``entity_type_id`` every other entity op takes,
+    its ``<namespace>:<Name>`` qname, whether a schema document declared it
+    (``False`` when the extractor coined it from a write), and when it was
+    created."""
+
+    entity_type_id: int
+    type_qname: str
+    declared: bool
+    created_at_unix_nanos: int
+
+    def to_map(self) -> dict[str, Any]:
+        return {
+            "entity_type_id": self.entity_type_id,
+            "type_qname": self.type_qname,
+            "declared": self.declared,
+            "created_at_unix_nanos": self.created_at_unix_nanos,
+        }
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> EntityTypeListItem:
+        return cls(
+            m["entity_type_id"],
+            m["type_qname"],
+            m["declared"],
+            m["created_at_unix_nanos"],
+        )
+
+
+@dataclass
+class EntityTypeListResponseFrame:
+    """ENTITY_TYPE_LIST_RESP (``0x01B9``). Single-frame snapshot of the
+    entity type registry as the caller's scope resolves it."""
+
+    items: list[EntityTypeListItem]
+    total: int
+
+    def to_map(self) -> dict[str, Any]:
+        return {"items": [i.to_map() for i in self.items], "total": self.total}
+
+    @classmethod
+    def from_map(cls, m: dict[str, Any]) -> EntityTypeListResponseFrame:
+        return cls(
+            [EntityTypeListItem.from_map(i) for i in m["items"]],
+            m["total"],
+        )

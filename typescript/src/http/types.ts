@@ -1004,7 +1004,12 @@ export interface SupersedeRelationResult {
   version: number;
 }
 export interface TombstoneRelationQuery {
-  reason?: string;
+  /** Why the edge is being retired, from Brain's closed audit set:
+   * `1` SourceMemoryForgotten, `2` UserRequest, `3` SchemaInvalidation,
+   * `4` ExtractorRetraction. Matches {@link RetireStatementQuery}. */
+  reason?: number;
+  /** A human note kept alongside the code. */
+  message?: string;
 }
 
 // --- schema introspection + drop -------------------------------------------
@@ -1245,3 +1250,19 @@ export interface SubscriptionClosed {
 export type FeedItem =
   | { kind: "event"; event: SubscriptionEvent }
   | { kind: "closed"; closed: SubscriptionClosed };
+
+/** One entity type: the id every other entity call takes, its
+ * `<namespace>:<Name>` qname, and whether a schema document declared it
+ * (`false` when the extractor coined it from a write). */
+export interface EntityType {
+  entityTypeId: number;
+  typeQname: string;
+  declared: boolean;
+  createdAtUnixNanos: bigint;
+}
+
+/** `listEntityTypes` result. */
+export interface ListEntityTypesResult {
+  items: EntityType[];
+  total: number;
+}

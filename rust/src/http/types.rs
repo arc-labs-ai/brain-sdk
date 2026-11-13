@@ -1539,8 +1539,15 @@ pub struct SupersedeRelationResult {
 /// `tombstone_relation` query.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct TombstoneRelationQuery {
+    /// Why the edge is being retired, from Brain's closed audit set:
+    /// `1` SourceMemoryForgotten, `2` UserRequest, `3` SchemaInvalidation,
+    /// `4` ExtractorRetraction. Matches `RetireStatementQuery`: the wire
+    /// protocol made both a code, and this route now follows.
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub reason: u8,
+    /// A human note kept alongside the code.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
+    pub message: Option<String>,
 }
 
 // --- schema introspection + drop -------------------------------------------
@@ -1591,6 +1598,28 @@ pub struct Extractor {
 #[derive(Clone, Debug, Deserialize)]
 pub struct ListExtractorsResult {
     pub items: Vec<Extractor>,
+    pub total: u32,
+}
+
+/// One entity type: the id every other entity call takes, its
+/// `<namespace>:<Name>` qname, and whether a schema document declared it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct EntityType {
+    /// What `entity_type_id` means on every other entity call.
+    pub entity_type_id: u32,
+    /// `brain:Person` for a built-in, the caller's own namespace for a type
+    /// they declared or the extractor coined.
+    pub type_qname: String,
+    /// False when a write coined the type rather than a document declaring
+    /// it. Both are usable; only a declared type survives a schema replace.
+    pub declared: bool,
+    pub created_at_unix_nanos: u64,
+}
+
+/// `list_entity_types` result.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ListEntityTypesResult {
+    pub items: Vec<EntityType>,
     pub total: u32,
 }
 

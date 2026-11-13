@@ -33,6 +33,7 @@ from .types import (
     GraphPage,
     LinkResult,
     ListEntitiesResult,
+    ListEntityTypesResult,
     ListExtractorsResult,
     ListRelationsResult,
     ListSchemasResult,
@@ -1001,20 +1002,24 @@ class BrainHttpClient:
             )
         )
 
-    def tombstone_relation(self, relation_id: str, reason: Optional[str] = None) -> TombstoneResult:
+    def tombstone_relation(
+        self,
+        relation_id: str,
+        reason: int = TOMBSTONE_USER_REQUEST,
+        message: Optional[str] = None,
+    ) -> TombstoneResult:
         """Retire an edge.
 
-        ``reason`` is free text here, unlike :meth:`tombstone_statement`,
-        which takes a code from Brain's closed audit set. The asymmetry is
-        the HTTP edge's: the wire protocol made both a code, and this route
-        has not followed yet. It moves when the edge does, not before — the
-        client cannot send a field the edge would refuse.
+        ``reason`` is a code from Brain's closed audit set, the same one
+        :meth:`tombstone_statement` takes. Both were free text on this route
+        once, while the wire protocol had already made them codes; the edge
+        has since followed, so the two retire verbs now agree.
         """
         return TombstoneResult.from_dict(
             self._request(
                 "DELETE",
                 f"/v1/relations/{_seg(relation_id)}",
-                query=_compact({"reason": reason}),
+                query=_compact({"reason": reason, "message": message}),
                 idempotent=True,
             )
         )
@@ -1036,6 +1041,20 @@ class BrainHttpClient:
                 query=_compact({"limit": limit, "cursor": cursor}),
                 idempotent=True,
             )
+        )
+
+    def list_entity_types(self) -> ListEntityTypesResult:
+        """The entity types this caller can use, with their ids.
+
+        Every other entity call takes ``entity_type_id``, a number the
+        registry assigns. Nothing else reports it: a schema document names
+        its types without ids, and a type the extractor coined is in no
+        document at all. Read this to turn a ``type_qname`` seen on a
+        recalled memory into the id ``create_entity`` and ``list_entities``
+        require.
+        """
+        return ListEntityTypesResult.from_dict(
+            self._request("GET", "/v1/entity-types", idempotent=True)
         )
 
     def list_extractors(self) -> ListExtractorsResult:

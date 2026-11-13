@@ -2103,6 +2103,14 @@
      "name": "EntityTombstoneResp"
     },
     {
+     "discriminant": 313,
+     "name": "EntityTypeListReq"
+    },
+    {
+     "discriminant": 441,
+     "name": "EntityTypeListResp"
+    },
+    {
      "discriminant": 320,
      "name": "StatementCreateReq"
     },
@@ -2730,6 +2738,10 @@
      "payload": "EntityListRequest"
     },
     {
+     "name": "EntityTypeList",
+     "payload": "EntityTypeListRequest"
+    },
+    {
      "name": "EntityTombstone",
      "payload": "EntityTombstoneRequest"
     },
@@ -3070,6 +3082,10 @@
     {
      "name": "EntityList",
      "payload": "EntityListResponseFrame"
+    },
+    {
+     "name": "EntityTypeList",
+     "payload": "EntityTypeListResponseFrame"
     },
     {
      "name": "EntityTombstone",
@@ -3797,6 +3813,8 @@
   "EntityResolveResp": 438,
   "EntityTombstoneReq": 312,
   "EntityTombstoneResp": 440,
+  "EntityTypeListReq": 313,
+  "EntityTypeListResp": 441,
   "EntityUnmergeReq": 309,
   "EntityUnmergeResp": 437,
   "EntityUpdateReq": 306,
@@ -6072,6 +6090,59 @@
       "default": true
      },
      "type": "Vec<AttributeDecl>"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityTypeListItem": {
+   "fields": [
+    {
+     "name": "entity_type_id",
+     "serde": {},
+     "type": "u32"
+    },
+    {
+     "name": "type_qname",
+     "serde": {},
+     "type": "String"
+    },
+    {
+     "name": "declared",
+     "serde": {},
+     "type": "bool"
+    },
+    {
+     "name": "created_at_unix_nanos",
+     "serde": {},
+     "type": "u64"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityTypeListRequest": {
+   "fields": [
+    {
+     "name": "act_as",
+     "serde": {
+      "default": true,
+      "skip_serializing_if": "Option::is_none"
+     },
+     "type": "Option<ActAs>"
+    }
+   ],
+   "serde": {}
+  },
+  "EntityTypeListResponseFrame": {
+   "fields": [
+    {
+     "name": "items",
+     "serde": {},
+     "type": "Vec<EntityTypeListItem>"
+    },
+    {
+     "name": "total",
+     "serde": {},
+     "type": "u32"
     }
    ],
    "serde": {}

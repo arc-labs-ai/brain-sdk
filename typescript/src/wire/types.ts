@@ -8489,3 +8489,83 @@ export function decodeLlmCredentialVerifyResponse(bytes: Uint8Array): LlmCredent
     detail: m.has("detail") ? asStr(field(m, "detail")) : null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// ENTITY_TYPE_LIST.
+// ---------------------------------------------------------------------------
+
+/** ENTITY_TYPE_LIST (`0x0139`): the entity types the caller's scope resolves,
+ * each with the numeric id every other entity op takes. */
+export interface EntityTypeListRequest {
+  /** Effective identity this listing runs as. Absent (the common case) means
+   * it runs as the connection's own key-bound identity. */
+  actAs?: ActAs | null;
+}
+
+/** Encode an ENTITY_TYPE_LIST (`0x0139`) request. Encodes to an empty CBOR
+ * map when no selector is set, like every other selector-only request. */
+export function encodeEntityTypeList(p: EntityTypeListRequest): Uint8Array {
+  return toCbor(requestMapWithActAs([], p.actAs));
+}
+
+/** Decode an ENTITY_TYPE_LIST (`0x0139`) request payload. */
+export function decodeEntityTypeList(bytes: Uint8Array): EntityTypeListRequest {
+  const m = asMap(fromCbor(bytes));
+  return { actAs: decodeOptActAs(m) };
+}
+
+/** One row in an {@link EntityTypeListResponseFrame}: the `entityTypeId`
+ * every other entity op takes, the `<namespace>:<Name>` qname, whether a
+ * schema document declared it (`false` when the extractor coined it from a
+ * write), and when it was created. */
+export interface EntityTypeListItem {
+  entityTypeId: number;
+  typeQname: string;
+  declared: boolean;
+  createdAtUnixNanos: bigint;
+}
+
+/** ENTITY_TYPE_LIST_RESP (`0x01B9`): a single-frame snapshot of the entity
+ * type registry as the caller's scope resolves it. */
+export interface EntityTypeListResponseFrame {
+  items: EntityTypeListItem[];
+  total: number;
+}
+
+/** Encode an ENTITY_TYPE_LIST_RESP (`0x01B9`) payload. */
+export function encodeEntityTypeListResponse(p: EntityTypeListResponseFrame): Uint8Array {
+  return toCbor(
+    new Map<string, unknown>([
+      [
+        "items",
+        p.items.map(
+          (it) =>
+            new Map<string, unknown>([
+              ["entity_type_id", it.entityTypeId],
+              ["type_qname", it.typeQname],
+              ["declared", it.declared],
+              ["created_at_unix_nanos", it.createdAtUnixNanos],
+            ]),
+        ),
+      ],
+      ["total", p.total],
+    ]),
+  );
+}
+
+/** Decode an ENTITY_TYPE_LIST_RESP (`0x01B9`) payload. */
+export function decodeEntityTypeListResponse(bytes: Uint8Array): EntityTypeListResponseFrame {
+  const m = asMap(fromCbor(bytes));
+  return {
+    items: asArray(field(m, "items")).map((v) => {
+      const im = asMap(v);
+      return {
+        entityTypeId: asNum(field(im, "entity_type_id")),
+        typeQname: asStr(field(im, "type_qname")),
+        declared: asBool(field(im, "declared")),
+        createdAtUnixNanos: asBig(field(im, "created_at_unix_nanos")),
+      };
+    }),
+    total: asNum(field(m, "total")),
+  };
+}

@@ -19,15 +19,16 @@ use super::types::{
     DeleteSessionQuery, DropSchemaQuery, DropSchemaResult, EncodeInput, EncodeResult,
     EncodeVectorInput, EntityDetail, ForgetInput, ForgetResult, GetRelationQuery,
     GetStatementQuery, GraphFetchQuery, GraphPage, LinkInput, LinkResult, ListEntitiesQuery,
-    ListEntitiesResult, ListExtractorsResult, ListRelationsQuery, ListRelationsResult,
-    ListSchemasQuery, ListSchemasResult, ListSessionsQuery, ListSessionsResult, ListSpacesQuery,
-    ListSpacesResult, ListStatementsQuery, ListStatementsResult, LlmCredential, LlmCredentialCheck,
-    LlmCredentialDeleted, MaterializeProceduralInput, MaterializeProceduralResult, MemoryInspect,
-    MemoryListPage, MemoryListQuery, MergeEntitiesInput, MergeEntitiesResult, PlanInput,
-    PlanResult, PutLlmCredentialInput, QueryExplainResult, QueryInput, QueryTraceResult,
-    ReasonInput, ReasonResult, RecallInput, RecallResult, RelationDetail, RenameEntityInput,
-    ResolveEntityInput, ResolveEntityResult, RetireStatementQuery, RetractStatementResult, Schema,
-    SchemaGetQuery, SchemaReplaceInput, SchemaReplaceResult, SchemaUploadInput, SchemaUploadResult,
+    ListEntitiesResult, ListEntityTypesResult, ListExtractorsResult, ListRelationsQuery,
+    ListRelationsResult, ListSchemasQuery, ListSchemasResult, ListSessionsQuery,
+    ListSessionsResult, ListSpacesQuery, ListSpacesResult, ListStatementsQuery,
+    ListStatementsResult, LlmCredential, LlmCredentialCheck, LlmCredentialDeleted,
+    MaterializeProceduralInput, MaterializeProceduralResult, MemoryInspect, MemoryListPage,
+    MemoryListQuery, MergeEntitiesInput, MergeEntitiesResult, PlanInput, PlanResult,
+    PutLlmCredentialInput, QueryExplainResult, QueryInput, QueryTraceResult, ReasonInput,
+    ReasonResult, RecallInput, RecallResult, RelationDetail, RenameEntityInput, ResolveEntityInput,
+    ResolveEntityResult, RetireStatementQuery, RetractStatementResult, Schema, SchemaGetQuery,
+    SchemaReplaceInput, SchemaReplaceResult, SchemaUploadInput, SchemaUploadResult,
     SchemaValidateInput, SchemaValidateResult, SessionErased, SessionProvision, SpaceErased,
     SpaceProvision, StatementDetail, StatementHistoryQuery, StatementHistoryResult, SubscribeQuery,
     SupersedeRelationResult, SupersedeStatementResult, TombstoneEntityQuery,
@@ -864,6 +865,18 @@ impl BrainHttpClient {
     /// `extractor_id` on a statement can find out what produced it.
     pub async fn list_extractors(&self) -> Result<ListExtractorsResult, BrainHttpError> {
         self.send::<(), _>(reqwest::Method::GET, "/v1/extractors", None, true)
+            .await
+    }
+
+    /// The entity types this caller can use, with their ids.
+    ///
+    /// Every other entity call takes `entity_type_id`, a number the registry
+    /// assigns, and nothing else reports it: a schema document names its
+    /// types without ids, and a type the extractor coined is in no document
+    /// at all. Read this to turn a `type_qname` seen on a recalled memory
+    /// into the id `create_entity` and `list_entities` require.
+    pub async fn list_entity_types(&self) -> Result<ListEntityTypesResult, BrainHttpError> {
+        self.send::<(), _>(reqwest::Method::GET, "/v1/entity-types", None, true)
             .await
     }
 

@@ -61,6 +61,8 @@ from brain_db_sdk.wire.types import (
     EntityResolveResponse,
     EntityTombstoneRequest,
     EntityTombstoneResponse,
+    EntityTypeListRequest,
+    EntityTypeListResponseFrame,
     EntityUnmergeRequest,
     EntityUnmergeResponse,
     EntityUpdateRequest,
@@ -725,6 +727,21 @@ class AsyncBrainClient:
             await self._conn.request_on_connection(
                 Opcode.PING, encode_payload(PingRequest(client_timestamp_unix_nanos=ts))
             )
+        )
+
+    async def entity_type_list(
+        self, request: EntityTypeListRequest | None = None
+    ) -> EntityTypeListResponseFrame:
+        """List the entity types the caller's scope resolves
+        (ENTITY_TYPE_LIST): the built-ins, the tenant's declared types, and
+        any the extractor coined — each with the ``entity_type_id`` that
+        ENTITY_CREATE and ENTITY_LIST take."""
+        request = request or EntityTypeListRequest()
+        return await self._unary(
+            Opcode.ENTITY_TYPE_LIST_REQ,
+            Opcode.ENTITY_TYPE_LIST_RESP,
+            EntityTypeListResponseFrame,
+            request,
         )
 
     async def extractor_list(

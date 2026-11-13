@@ -155,6 +155,8 @@ pub enum Opcode {
     EntityUnmergeResp = 0x01B5,
     EntityTombstoneReq = 0x0138,
     EntityTombstoneResp = 0x01B8,
+    EntityTypeListReq = 0x0139,
+    EntityTypeListResp = 0x01B9,
     StatementCreateReq = 0x0140,
     StatementCreateResp = 0x01C0,
     StatementGetReq = 0x0141,

@@ -4310,3 +4310,35 @@ pub struct LlmCredentialVerifyResponse {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub detail: Option<String>,
 }
+
+/// ENTITY_TYPE_LIST (`0x0139`). The entity types the caller can use, each
+/// with the numeric id every other entity op takes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityTypeListRequest {
+    /// Effective identity this listing runs as. `None` (omitted on the
+    /// wire) means the op runs as the connection's own key-bound identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub act_as: Option<ActAs>,
+}
+
+/// One entity type in [`EntityTypeListResponseFrame`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityTypeListItem {
+    /// What every other entity op means by `entity_type_id`.
+    pub entity_type_id: u32,
+    /// `<namespace>:<Name>` — `brain:Person` for a built-in, the caller's
+    /// own namespace for a type they declared or the extractor coined.
+    pub type_qname: String,
+    /// False when the type was coined from a write rather than declared in
+    /// a schema document.
+    pub declared: bool,
+    pub created_at_unix_nanos: u64,
+}
+
+/// ENTITY_TYPE_LIST_RESP (`0x01B9`). Single-frame snapshot of the entity
+/// type registry as the caller's scope resolves it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityTypeListResponseFrame {
+    pub items: Vec<EntityTypeListItem>,
+    pub total: u32,
+}

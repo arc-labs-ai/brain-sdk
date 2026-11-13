@@ -37,6 +37,7 @@ import type {
   LinkResult,
   ListEntitiesQuery,
   ListEntitiesResult,
+  ListEntityTypesResult,
   ListExtractorsResult,
   ListRelationsQuery,
   ListRelationsResult,
@@ -657,6 +658,19 @@ export class BrainHttpClient {
    */
   listExtractors(): Promise<ListExtractorsResult> {
     return this.requestWithRetry("GET", "/v1/extractors");
+  }
+
+  /**
+   * The entity types this caller can use, with their ids.
+   *
+   * Every other entity call takes `entityTypeId`, a number the registry
+   * assigns, and nothing else reports it: a schema document names its types
+   * without ids, and a type the extractor coined is in no document at all.
+   * Read this to turn a `typeQname` seen on a recalled memory into the id
+   * `createEntity` and `listEntities` require.
+   */
+  listEntityTypes(): Promise<ListEntityTypesResult> {
+    return this.requestWithRetry("GET", "/v1/entity-types");
   }
 
   /**

@@ -140,6 +140,8 @@ export const Opcode = {
   EntityUnmergeResp: 0x01b5,
   EntityTombstoneReq: 0x0138,
   EntityTombstoneResp: 0x01b8,
+  EntityTypeListReq: 0x0139,
+  EntityTypeListResp: 0x01b9,
   StatementCreateReq: 0x0140,
   StatementCreateResp: 0x01c0,
   StatementSupersedeReq: 0x0142,

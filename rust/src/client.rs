@@ -25,36 +25,37 @@ use crate::wire::types::{
     EntityCreateRequest, EntityCreateResponse, EntityGetRequest, EntityGetResponse, EntityListItem,
     EntityListRequest, EntityListResponseFrame, EntityMergeRequest, EntityMergeResponse,
     EntityRenameRequest, EntityRenameResponse, EntityResolveRequest, EntityResolveResponse,
-    EntityTombstoneRequest, EntityTombstoneResponse, EntityUnmergeRequest, EntityUnmergeResponse,
-    EntityUpdateRequest, EntityUpdateResponse, ExtractorListRequest, ExtractorListResponseFrame,
-    ForgetRequest, ForgetResponse, GetCapabilitiesRequest, GetCapabilitiesResponse, GraphEdge,
-    GraphFetchRequest, GraphFetchResponseFrame, GraphNode, HelloCapabilities, HelloPayload,
-    InferenceStep, LinkRequest, LinkResponse, LlmCredentialDeleteRequest,
-    LlmCredentialDeleteResponse, LlmCredentialGetRequest, LlmCredentialGetResponse,
-    LlmCredentialPutRequest, LlmCredentialPutResponse, LlmCredentialVerifyRequest,
-    LlmCredentialVerifyResponse, MaterializeProceduralRequest, MaterializeProceduralResponse,
-    MemoryInspectRequest, MemoryInspectResponse, MemoryListItem, MemoryListRequest,
-    MemoryListResponseFrame, MemoryResult, MtlsClaim, PingRequest, PlanRequest, PlanResponseFrame,
-    PlanStep, PongResponse, QueryExplainRequest, QueryExplainResponse, QueryTraceRequest,
-    QueryTraceResponse, ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame,
-    RelationCreateRequest, RelationCreateResponse, RelationGetRequest, RelationGetResponse,
-    RelationListFromRequest, RelationListFromResponseFrame, RelationListToRequest,
-    RelationListToResponseFrame, RelationSupersedeRequest, RelationSupersedeResponse,
-    RelationTombstoneRequest, RelationTombstoneResponse, RelationTraverseRequest,
-    RelationTraverseResponseFrame, RelationView, SchemaDropRequest, SchemaDropResponse,
-    SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
-    SchemaListResponseFrame, SchemaReplaceRequest, SchemaReplaceResponse, SchemaUploadRequest,
-    SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse, ServerFeatures,
-    SessionCreateRequest, SessionCreateResponse, SessionDeleteRequest, SessionDeleteResponse,
-    SessionListRequest, SessionListResponse, SpaceCreateRequest, SpaceCreateResponse,
-    SpaceDeleteRequest, SpaceDeleteResponse, SpaceListRequest, SpaceListResponse, SpacePermissions,
-    StatementCreateRequest, StatementCreateResponse, StatementGetRequest, StatementGetResponse,
-    StatementHistoryRequest, StatementHistoryResponseFrame, StatementListRequest,
-    StatementListResponseFrame, StatementRetractRequest, StatementRetractResponse,
-    StatementSupersedeRequest, StatementSupersedeResponse, StatementTombstoneRequest,
-    StatementTombstoneResponse, StatementView, SubscribeRequest, TraversalPathWire,
-    TxnAbortRequest, TxnAbortResponse, TxnBeginRequest, TxnBeginResponse, TxnCommitRequest,
-    TxnCommitResponse, UnlinkRequest, UnlinkResponse, WaitMode,
+    EntityTombstoneRequest, EntityTombstoneResponse, EntityTypeListRequest,
+    EntityTypeListResponseFrame, EntityUnmergeRequest, EntityUnmergeResponse, EntityUpdateRequest,
+    EntityUpdateResponse, ExtractorListRequest, ExtractorListResponseFrame, ForgetRequest,
+    ForgetResponse, GetCapabilitiesRequest, GetCapabilitiesResponse, GraphEdge, GraphFetchRequest,
+    GraphFetchResponseFrame, GraphNode, HelloCapabilities, HelloPayload, InferenceStep,
+    LinkRequest, LinkResponse, LlmCredentialDeleteRequest, LlmCredentialDeleteResponse,
+    LlmCredentialGetRequest, LlmCredentialGetResponse, LlmCredentialPutRequest,
+    LlmCredentialPutResponse, LlmCredentialVerifyRequest, LlmCredentialVerifyResponse,
+    MaterializeProceduralRequest, MaterializeProceduralResponse, MemoryInspectRequest,
+    MemoryInspectResponse, MemoryListItem, MemoryListRequest, MemoryListResponseFrame,
+    MemoryResult, MtlsClaim, PingRequest, PlanRequest, PlanResponseFrame, PlanStep, PongResponse,
+    QueryExplainRequest, QueryExplainResponse, QueryTraceRequest, QueryTraceResponse,
+    ReasonRequest, ReasonResponseFrame, RecallRequest, RecallResponseFrame, RelationCreateRequest,
+    RelationCreateResponse, RelationGetRequest, RelationGetResponse, RelationListFromRequest,
+    RelationListFromResponseFrame, RelationListToRequest, RelationListToResponseFrame,
+    RelationSupersedeRequest, RelationSupersedeResponse, RelationTombstoneRequest,
+    RelationTombstoneResponse, RelationTraverseRequest, RelationTraverseResponseFrame,
+    RelationView, SchemaDropRequest, SchemaDropResponse, SchemaGetRequest, SchemaGetResponse,
+    SchemaListItemWire, SchemaListRequest, SchemaListResponseFrame, SchemaReplaceRequest,
+    SchemaReplaceResponse, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
+    SchemaValidateResponse, ServerFeatures, SessionCreateRequest, SessionCreateResponse,
+    SessionDeleteRequest, SessionDeleteResponse, SessionListRequest, SessionListResponse,
+    SpaceCreateRequest, SpaceCreateResponse, SpaceDeleteRequest, SpaceDeleteResponse,
+    SpaceListRequest, SpaceListResponse, SpacePermissions, StatementCreateRequest,
+    StatementCreateResponse, StatementGetRequest, StatementGetResponse, StatementHistoryRequest,
+    StatementHistoryResponseFrame, StatementListRequest, StatementListResponseFrame,
+    StatementRetractRequest, StatementRetractResponse, StatementSupersedeRequest,
+    StatementSupersedeResponse, StatementTombstoneRequest, StatementTombstoneResponse,
+    StatementView, SubscribeRequest, TraversalPathWire, TxnAbortRequest, TxnAbortResponse,
+    TxnBeginRequest, TxnBeginResponse, TxnCommitRequest, TxnCommitResponse, UnlinkRequest,
+    UnlinkResponse, WaitMode,
 };
 
 /// Default `client_id` advertised in HELLO.
@@ -768,6 +769,23 @@ impl BrainClient {
             Opcode::ExtractorListReq,
             Opcode::ExtractorListResp,
             "EXTRACTOR_LIST_RESP",
+            request,
+        )
+        .await
+    }
+
+    /// List the entity types the caller's scope resolves
+    /// (ENTITY_TYPE_LIST): the built-ins, the tenant's declared types, and
+    /// any the extractor coined — each with the `entity_type_id` that
+    /// `ENTITY_CREATE` and `ENTITY_LIST` take.
+    pub async fn entity_type_list(
+        &self,
+        request: &EntityTypeListRequest,
+    ) -> Result<EntityTypeListResponseFrame> {
+        self.unary(
+            Opcode::EntityTypeListReq,
+            Opcode::EntityTypeListResp,
+            "ENTITY_TYPE_LIST_RESP",
             request,
         )
         .await

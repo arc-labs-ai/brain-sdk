@@ -179,6 +179,8 @@ PAYLOAD_TYPES = {
     # the extractor detail's own keys are pinned, not just the event's.
     "resp_subscribe_event_stage": t.SubscriptionEvent,
     # Extractor introspection (read-only; empty request).
+    "req_entity_type_list": t.EntityTypeListRequest,
+    "resp_entity_type_list": t.EntityTypeListResponseFrame,
     "req_extractor_list": t.ExtractorListRequest,
     "resp_extractor_list": t.ExtractorListResponseFrame,
     # Space registry.
