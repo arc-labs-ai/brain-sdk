@@ -6356,10 +6356,15 @@ export function decodeRelationSupersedeResponse(bytes: Uint8Array): RelationSupe
 }
 
 /** RELATION_TOMBSTONE (`0x0153`) request. Soft-retire a relation with an audit
- * `reason`; the row survives but drops out of traversal. */
+ * `reason`; the row survives but drops out of traversal.
+ *
+ * `reason` is the same closed audit set `STATEMENT_TOMBSTONE` takes —
+ * `1=SourceMemoryForgotten / 2=UserRequest / 3=SchemaInvalidation /
+ * 4=ExtractorRetraction` — and `reasonMessage` is the free-text note. */
 export interface RelationTombstoneRequest {
   relationId: WireUuid;
-  reason: string;
+  reason: number;
+  reasonMessage: string;
   requestId: WireUuid;
   /** Effective identity this relation tombstone runs as. `null` (CBOR-omitted)
    * runs as the connection's own key-bound identity. */
@@ -6373,6 +6378,7 @@ export function encodeRelationTombstone(p: RelationTombstoneRequest): Uint8Array
       [
         ["relation_id", p.relationId],
         ["reason", p.reason],
+        ["reason_message", p.reasonMessage],
         ["request_id", p.requestId],
       ],
       p.actAs,
@@ -6385,7 +6391,8 @@ export function decodeRelationTombstone(bytes: Uint8Array): RelationTombstoneReq
   const m = asMap(fromCbor(bytes));
   return {
     relationId: asBytes(field(m, "relation_id")),
-    reason: asStr(field(m, "reason")),
+    reason: asNum(field(m, "reason")),
+    reasonMessage: asStr(field(m, "reason_message")),
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
   };
@@ -8214,19 +8221,6 @@ export const decodeStatementHistoryResponse = decodeStatementHistoryResponseFram
 // Tenant LLM provider credentials (0x0076-0x0079)
 // ---------------------------------------------------------------------------
 
-/** The scope an LLM provider credential is registered AT, or read FROM.
- *
- * A two-state selector, not a space identifier: the scope is the caller's own
- * effective space, already resolved for this request, so there is nothing here
- * to point at someone else's space with.
- *
- * `Space` is accepted by the server's storage layer but **refused at the op**
- * today — derivation resolves credentials at the namespace base, so a
- * space-scoped key would seal and then never be used. */
-export enum CredentialScope {
-  Namespace = 0,
-  Space = 1,
-}
 
 /** How a registered credential fared against its provider.
  *
@@ -8270,7 +8264,6 @@ export interface LlmCredentialPutRequest {
   requestId: WireUuid;
   actAs?: ActAs | null;
   /** Where the key lands. ALWAYS ON THE WIRE — never skipped. */
-  scope: CredentialScope;
 }
 
 /** Encode an LLM_CREDENTIAL_PUT (`0x0076`) request. `scope` is last, after
@@ -8285,7 +8278,6 @@ export function encodeLlmCredentialPut(p: LlmCredentialPutRequest): Uint8Array {
     ],
     p.actAs ?? null,
   );
-  map.set("scope", p.scope ?? CredentialScope.Namespace);
   return toCbor(map);
 }
 
@@ -8298,7 +8290,6 @@ export function decodeLlmCredentialPut(bytes: Uint8Array): LlmCredentialPutReque
     apiKey: asStr(field(m, "api_key")),
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
-    scope: asNum(field(m, "scope")) as CredentialScope,
   };
 }
 
@@ -8340,13 +8331,11 @@ export function decodeLlmCredentialPutResponse(bytes: Uint8Array): LlmCredential
 export interface LlmCredentialGetRequest {
   actAs?: ActAs | null;
   /** The vantage point to resolve from. ALWAYS ON THE WIRE. */
-  scope: CredentialScope;
 }
 
 /** Encode an LLM_CREDENTIAL_GET (`0x0077`) request. */
 export function encodeLlmCredentialGet(p: LlmCredentialGetRequest): Uint8Array {
   const map = requestMapWithActAs([], p.actAs ?? null);
-  map.set("scope", p.scope ?? CredentialScope.Namespace);
   return toCbor(map);
 }
 
@@ -8355,7 +8344,6 @@ export function decodeLlmCredentialGet(bytes: Uint8Array): LlmCredentialGetReque
   const m = asMap(fromCbor(bytes));
   return {
     actAs: decodeOptActAs(m),
-    scope: asNum(field(m, "scope")) as CredentialScope,
   };
 }
 
@@ -8409,13 +8397,11 @@ export interface LlmCredentialDeleteRequest {
   requestId: WireUuid;
   actAs?: ActAs | null;
   /** Which scope's key to remove. ALWAYS ON THE WIRE. */
-  scope: CredentialScope;
 }
 
 /** Encode an LLM_CREDENTIAL_DELETE (`0x0078`) request. */
 export function encodeLlmCredentialDelete(p: LlmCredentialDeleteRequest): Uint8Array {
   const map = requestMapWithActAs([["request_id", p.requestId]], p.actAs ?? null);
-  map.set("scope", p.scope ?? CredentialScope.Namespace);
   return toCbor(map);
 }
 
@@ -8425,7 +8411,6 @@ export function decodeLlmCredentialDelete(bytes: Uint8Array): LlmCredentialDelet
   return {
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
-    scope: asNum(field(m, "scope")) as CredentialScope,
   };
 }
 
@@ -8456,13 +8441,11 @@ export interface LlmCredentialVerifyRequest {
   requestId: WireUuid;
   actAs?: ActAs | null;
   /** The vantage point to resolve the key from. ALWAYS ON THE WIRE. */
-  scope: CredentialScope;
 }
 
 /** Encode an LLM_CREDENTIAL_VERIFY (`0x0079`) request. */
 export function encodeLlmCredentialVerify(p: LlmCredentialVerifyRequest): Uint8Array {
   const map = requestMapWithActAs([["request_id", p.requestId]], p.actAs ?? null);
-  map.set("scope", p.scope ?? CredentialScope.Namespace);
   return toCbor(map);
 }
 
@@ -8472,7 +8455,6 @@ export function decodeLlmCredentialVerify(bytes: Uint8Array): LlmCredentialVerif
   return {
     requestId: asBytes(field(m, "request_id")),
     actAs: decodeOptActAs(m),
-    scope: asNum(field(m, "scope")) as CredentialScope,
   };
 }
 

@@ -6802,10 +6802,16 @@ class RelationSupersedeResponse:
 
 @dataclass
 class RelationTombstoneRequest:
-    """RELATION_TOMBSTONE (``0x0153``). Soft-retire a relation with a reason."""
+    """RELATION_TOMBSTONE (``0x0153``). Soft-retire a relation with a reason.
+
+    ``reason`` is the same closed audit set ``STATEMENT_TOMBSTONE`` takes --
+    ``1=SourceMemoryForgotten / 2=UserRequest / 3=SchemaInvalidation /
+    4=ExtractorRetraction`` -- and ``reason_message`` is the free-text note.
+    """
 
     relation_id: bytes
-    reason: str
+    reason: int  # u8, one of 1..=4
+    reason_message: str
     request_id: bytes
 
     # Effective identity this tombstone runs as. Omitted from the CBOR map
@@ -6816,6 +6822,7 @@ class RelationTombstoneRequest:
         m: dict[str, Any] = {
             "relation_id": self.relation_id,
             "reason": self.reason,
+            "reason_message": self.reason_message,
             "request_id": self.request_id,
         }
         if self.act_as is not None:
@@ -6828,6 +6835,7 @@ class RelationTombstoneRequest:
         return cls(
             m["relation_id"],
             m["reason"],
+            m["reason_message"],
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
         )
@@ -7472,40 +7480,6 @@ class SessionDeleteResponse:
         )
 
 
-class CredentialScope:
-    """The scope an LLM provider credential is registered AT, or read FROM,
-    as its on-wire integer discriminant.
-
-    A two-state selector, not a space identifier: the scope is the caller's own
-    effective space, already resolved for this request, so there is nothing
-    here to point at someone else's space with. Separate from ``act_as`` for
-    the same reason :class:`SchemaScope` is -- nearly every request names a
-    space, so reading the scope off ``act_as.space`` would turn every ordinary
-    tenant-wide registration into a per-space override.
-
-    ``SPACE`` is accepted by the server's storage layer but **refused at the
-    op** today: derivation resolves credentials at the namespace base, so a
-    space-scoped key would seal and then never be used.
-    """
-
-    NAMESPACE = 0
-    SPACE = 1
-
-
-class VerifyOutcome:
-    """How a registered credential fared against its provider.
-
-    Every value is a *successful* verification: a key the provider rejects is
-    an answer, not an error.
-    """
-
-    OK = "ok"
-    NO_CREDENTIAL = "no_credential"
-    UNAUTHORIZED = "unauthorized"
-    MODEL_UNAVAILABLE = "model_unavailable"
-    UNREACHABLE = "unreachable"
-
-
 @dataclass
 class LlmCredentialView:
     """What a read reports about an installed credential.
@@ -7542,6 +7516,20 @@ class LlmCredentialView:
         )
 
 
+class VerifyOutcome:
+    """How a registered credential fared against its provider.
+
+    Every value is a *successful* verification: a key the provider rejects is
+    an answer, not an error.
+    """
+
+    OK = "ok"
+    NO_CREDENTIAL = "no_credential"
+    UNAUTHORIZED = "unauthorized"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    UNREACHABLE = "unreachable"
+
+
 @dataclass
 class LlmCredentialPutRequest:
     """LLM_CREDENTIAL_PUT (``0x0076``). Register or replace this namespace's
@@ -7559,13 +7547,12 @@ class LlmCredentialPutRequest:
     act_as: Optional[ActAs] = None
     #: Where the key lands. ALWAYS ON THE WIRE -- the server declares it the
     #: same way, so a client that omits it sends a map it cannot decode.
-    scope: int = CredentialScope.NAMESPACE
 
     def __repr__(self) -> str:
         # Hand-written so a logged request cannot carry a live provider key.
         return (
             f"LlmCredentialPutRequest(provider={self.provider!r}, "
-            f"model={self.model!r}, api_key='[redacted]', scope={self.scope!r})"
+            f"model={self.model!r}, api_key='[redacted]')"
         )
 
     def to_map(self) -> dict[str, Any]:
@@ -7577,7 +7564,6 @@ class LlmCredentialPutRequest:
         }
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
-        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -7589,7 +7575,6 @@ class LlmCredentialPutRequest:
             m["api_key"],
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
-            int(m["scope"]),
         )
 
 
@@ -7629,13 +7614,11 @@ class LlmCredentialGetRequest:
     """LLM_CREDENTIAL_GET (``0x0077``). What this namespace has installed."""
 
     act_as: Optional[ActAs] = None
-    scope: int = CredentialScope.NAMESPACE
 
     def to_map(self) -> dict[str, Any]:
         m: dict[str, Any] = {}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
-        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -7643,7 +7626,6 @@ class LlmCredentialGetRequest:
         act_as = m.get("act_as")
         return cls(
             None if act_as is None else ActAs.from_map(act_as),
-            int(m["scope"]),
         )
 
 
@@ -7673,13 +7655,11 @@ class LlmCredentialDeleteRequest:
 
     request_id: bytes  # 16-byte byte string
     act_as: Optional[ActAs] = None
-    scope: int = CredentialScope.NAMESPACE
 
     def to_map(self) -> dict[str, Any]:
         m: dict[str, Any] = {"request_id": self.request_id}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
-        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -7688,7 +7668,6 @@ class LlmCredentialDeleteRequest:
         return cls(
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
-            int(m["scope"]),
         )
 
 
@@ -7720,13 +7699,11 @@ class LlmCredentialVerifyRequest:
 
     request_id: bytes  # 16-byte byte string
     act_as: Optional[ActAs] = None
-    scope: int = CredentialScope.NAMESPACE
 
     def to_map(self) -> dict[str, Any]:
         m: dict[str, Any] = {"request_id": self.request_id}
         if self.act_as is not None:
             m["act_as"] = self.act_as.to_map()
-        m["scope"] = self.scope
         return m
 
     @classmethod
@@ -7735,7 +7712,6 @@ class LlmCredentialVerifyRequest:
         return cls(
             m["request_id"],
             None if act_as is None else ActAs.from_map(act_as),
-            int(m["scope"]),
         )
 
 

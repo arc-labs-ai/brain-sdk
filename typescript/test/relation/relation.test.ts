@@ -93,7 +93,11 @@ describe.skipIf(T === null)("relation lifecycle (integration)", () => {
 
       const tombstoned = await client.tombstoneRelation({
         relationId: superseded.newRelationId,
-        reason: "merged duplicate",
+        // The audit set, as a code: 2 = UserRequest. Free text goes in
+        // `reasonMessage` — the reason itself is a closed set shared with
+        // statement retirement, not a sentence.
+        reason: 2,
+        reasonMessage: "merged duplicate",
         requestId: newId(),
       });
       expect(tombstoned.tombstonedAtUnixNanos > 0n).toBe(true);

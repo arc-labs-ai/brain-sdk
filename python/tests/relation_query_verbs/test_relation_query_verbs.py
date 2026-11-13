@@ -180,7 +180,7 @@ def test_relation_query_types_round_trip() -> None:
     )
     _round_trip(RelationSupersedeResponse(NEW_RELATION_ID, 2), RelationSupersedeResponse)
     _round_trip(
-        RelationTombstoneRequest(RELATION_ID, "merged duplicate", _rid()),
+        RelationTombstoneRequest(RELATION_ID, 2, "merged duplicate", _rid()),
         RelationTombstoneRequest,
     )
     _round_trip(RelationTombstoneResponse(999), RelationTombstoneResponse)
@@ -410,7 +410,7 @@ def test_relation_query_verbs() -> None:
         assert superseded.version == 2
 
         tombstoned = client.tombstone_relation(
-            RelationTombstoneRequest(RELATION_ID, "merged duplicate", _rid())
+            RelationTombstoneRequest(RELATION_ID, 2, "merged duplicate", _rid())
         )
         assert tombstoned.tombstoned_at_unix_nanos == 999
 

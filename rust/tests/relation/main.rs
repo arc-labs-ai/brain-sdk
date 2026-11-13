@@ -87,7 +87,8 @@ async fn get_supersede_tombstone() {
     let ts = client
         .tombstone_relation(&RelationTombstoneRequest {
             relation_id: sup.new_relation_id,
-            reason: "test cleanup".to_string(),
+            reason: 2,
+            reason_message: "test cleanup".to_string(),
             request_id: new_id(),
             act_as: None,
         })

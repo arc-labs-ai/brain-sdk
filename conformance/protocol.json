@@ -241,21 +241,6 @@
     }
    ]
   },
-  "CredentialScope": {
-   "encoding": "int",
-   "repr": "u8",
-   "serde": {},
-   "variants": [
-    {
-     "discriminant": 0,
-     "name": "Namespace"
-    },
-    {
-     "discriminant": 1,
-     "name": "Space"
-    }
-   ]
-  },
   "DurationUnit": {
    "encoding": "tagged",
    "repr": null,
@@ -7045,11 +7030,6 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
-    },
-    {
-     "name": "scope",
-     "serde": {},
-     "type": "CredentialScope"
     }
    ],
    "serde": {}
@@ -7073,11 +7053,6 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
-    },
-    {
-     "name": "scope",
-     "serde": {},
-     "type": "CredentialScope"
     }
    ],
    "serde": {}
@@ -7123,11 +7098,6 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
-    },
-    {
-     "name": "scope",
-     "serde": {},
-     "type": "CredentialScope"
     }
    ],
    "serde": {}
@@ -7178,11 +7148,6 @@
       "skip_serializing_if": "Option::is_none"
      },
      "type": "Option<ActAs>"
-    },
-    {
-     "name": "scope",
-     "serde": {},
-     "type": "CredentialScope"
     }
    ],
    "serde": {}
@@ -9323,6 +9288,11 @@
     },
     {
      "name": "reason",
+     "serde": {},
+     "type": "u8"
+    },
+    {
+     "name": "reason_message",
      "serde": {},
      "type": "String"
     },

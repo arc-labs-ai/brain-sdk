@@ -3956,11 +3956,16 @@ pub struct RelationSupersedeResponse {
 }
 
 /// RELATION_TOMBSTONE (`0x0153`). Soft-retire a relation with a reason.
+///
+/// `reason` is the same closed audit set `STATEMENT_TOMBSTONE` takes —
+/// `1=SourceMemoryForgotten / 2=UserRequest / 3=SchemaInvalidation /
+/// 4=ExtractorRetraction` — and `reason_message` is the free-text note.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RelationTombstoneRequest {
     #[serde(with = "serde_bytes")]
     pub relation_id: WireUuid,
-    pub reason: String,
+    pub reason: u8,
+    pub reason_message: String,
     #[serde(with = "serde_bytes")]
     pub request_id: WireUuid,
     /// Effective identity this tombstone runs as. `None` (omitted on the
@@ -4121,36 +4126,6 @@ mod error_code_forward_compat_tests {
 // Tenant LLM provider credentials (0x0076-0x0079)
 // ---------------------------------------------------------------------------
 
-/// The scope a credential is registered AT, or read FROM.
-///
-/// A two-state selector, not a space identifier: the scope is the caller's own
-/// effective space, already resolved for this request, so there is nothing
-/// here to point at someone else's space with.
-///
-/// `Space` is accepted by the server's storage layer but **refused at the op**
-/// today — derivation resolves credentials at the namespace base, so a
-/// space-scoped key would seal and then never be used.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    Eq,
-    Hash,
-    PartialEq,
-    serde_repr::Serialize_repr,
-    serde_repr::Deserialize_repr,
-)]
-#[repr(u8)]
-pub enum CredentialScope {
-    /// The tenant's namespace-wide key: every space resolves it unless it has
-    /// one of its own.
-    #[default]
-    Namespace = 0,
-    /// A key for the caller's effective space alone.
-    Space = 1,
-}
-
 /// How a registered credential fared against its provider.
 ///
 /// Every variant is a *successful* verification: a key the provider rejects is
@@ -4247,8 +4222,6 @@ pub struct LlmCredentialPutRequest {
     pub request_id: WireUuid,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
-    /// Where the key lands. Always on the wire.
-    pub scope: CredentialScope,
 }
 
 /// Redacting `Debug`, written by hand rather than derived.
@@ -4262,7 +4235,6 @@ impl core::fmt::Debug for LlmCredentialPutRequest {
             .field("provider", &self.provider)
             .field("model", &self.model)
             .field("api_key", &"[redacted]")
-            .field("scope", &self.scope)
             .finish_non_exhaustive()
     }
 }
@@ -4284,8 +4256,6 @@ pub struct LlmCredentialPutResponse {
 pub struct LlmCredentialGetRequest {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
-    /// The vantage point to resolve from. Always on the wire.
-    pub scope: CredentialScope,
 }
 
 /// LLM_CREDENTIAL_GET_RESP (`0x00F7`).
@@ -4306,8 +4276,6 @@ pub struct LlmCredentialDeleteRequest {
     pub request_id: WireUuid,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
-    /// Which scope's key to remove. Always on the wire.
-    pub scope: CredentialScope,
 }
 
 /// LLM_CREDENTIAL_DELETE_RESP (`0x00F8`).
@@ -4327,8 +4295,6 @@ pub struct LlmCredentialVerifyRequest {
     pub request_id: WireUuid,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub act_as: Option<ActAs>,
-    /// The vantage point to resolve the key from. Always on the wire.
-    pub scope: CredentialScope,
 }
 
 /// LLM_CREDENTIAL_VERIFY_RESP (`0x00F9`).
