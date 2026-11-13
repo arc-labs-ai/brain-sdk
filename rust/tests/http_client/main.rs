@@ -1220,7 +1220,7 @@ fn a_wide_id_would_not_survive_a_64_bit_field() {
     // arithmetic that makes the ids wrong rather than the type that makes the
     // build fail.
     let observed: u128 = 18_446_744_078_004_518_912;
-    assert!(observed > u64::MAX as u128);
+    assert!(observed > u128::from(u64::MAX));
     assert_ne!(
         observed & u128::from(u64::MAX),
         observed,

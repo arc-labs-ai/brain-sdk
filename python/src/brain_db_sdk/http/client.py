@@ -859,7 +859,9 @@ class BrainHttpClient:
         )
 
     def tombstone_statement(
-        self, statement_id: str, reason: int = TOMBSTONE_USER_REQUEST,
+        self,
+        statement_id: str,
+        reason: int = TOMBSTONE_USER_REQUEST,
         message: Optional[str] = None,
     ) -> TombstoneResult:
         """Retire a claim. The row stays; reads stop returning it."""
@@ -873,7 +875,9 @@ class BrainHttpClient:
         )
 
     def retract_statement(
-        self, statement_id: str, reason: int = TOMBSTONE_USER_REQUEST,
+        self,
+        statement_id: str,
+        reason: int = TOMBSTONE_USER_REQUEST,
         message: Optional[str] = None,
     ) -> RetractStatementResult:
         """Withdraw a claim.
@@ -988,7 +992,9 @@ class BrainHttpClient:
         )
 
     def tombstone_relation(
-        self, relation_id: str, reason: int = TOMBSTONE_USER_REQUEST,
+        self,
+        relation_id: str,
+        reason: int = TOMBSTONE_USER_REQUEST,
         message: Optional[str] = None,
     ) -> TombstoneResult:
         """Retire an edge.

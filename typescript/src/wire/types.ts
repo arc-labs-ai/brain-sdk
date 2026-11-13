@@ -8221,7 +8221,6 @@ export const decodeStatementHistoryResponse = decodeStatementHistoryResponseFram
 // Tenant LLM provider credentials (0x0076-0x0079)
 // ---------------------------------------------------------------------------
 
-
 /** How a registered credential fared against its provider.
  *
  * Every value is a *successful* verification: a key the provider rejects is an
