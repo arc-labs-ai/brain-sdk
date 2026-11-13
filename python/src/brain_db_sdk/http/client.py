@@ -144,6 +144,7 @@ class BrainHttpClient:
         subject: Optional[str] = None,
         scope: Optional[str] = None,
         include_trace: Optional[bool] = None,
+        include_graph: Optional[bool] = None,
     ) -> RecallResult:
         """Recall memories for a cue.
 
@@ -171,6 +172,7 @@ class BrainHttpClient:
                 "subject": subject,
                 "scope": scope,
                 "include_trace": include_trace,
+                "include_graph": include_graph,
             }
         )
         return RecallResult.from_dict(self._request("POST", "/v1/recall", body, idempotent=True))
@@ -210,6 +212,7 @@ class BrainHttpClient:
         max_wall_time_ms: Optional[int] = None,
         max_branches: Optional[int] = None,
         strategy: Optional[str] = None,
+        include_trace: Optional[bool] = None,
     ) -> PlanResult:
         """Plan a path from a start state to a goal state.
 
@@ -223,6 +226,7 @@ class BrainHttpClient:
                 "max_wall_time_ms": max_wall_time_ms,
                 "max_branches": max_branches,
                 "strategy": strategy,
+                "include_trace": include_trace,
             }
         )
         return PlanResult.from_dict(self._request("POST", "/v1/plan", body, idempotent=True))
@@ -234,6 +238,7 @@ class BrainHttpClient:
         confidence_threshold: Optional[float] = None,
         max_inferences: Optional[int] = None,
         budget_wall_time_ms: Optional[int] = None,
+        include_trace: Optional[bool] = None,
     ) -> ReasonResult:
         """Infer over the graph from an observation.
 
@@ -246,6 +251,7 @@ class BrainHttpClient:
                 "confidence_threshold": confidence_threshold,
                 "max_inferences": max_inferences,
                 "budget_wall_time_ms": budget_wall_time_ms,
+                "include_trace": include_trace,
             }
         )
         return ReasonResult.from_dict(self._request("POST", "/v1/reason", body, idempotent=True))
@@ -567,7 +573,7 @@ class BrainHttpClient:
         )
         return SchemaUpload.from_dict(self._request("POST", "/v1/schema", body))
 
-    def validate_schema(self, schema_document: str) -> SchemaValidate:
+    def validate_schema(self, schema_document: str, scope: Optional[str] = None) -> SchemaValidate:
         """Check a schema document without registering it.
 
         A pure dry run — nothing on the edge changes — so this one POST is safe
@@ -577,7 +583,7 @@ class BrainHttpClient:
             self._request(
                 "POST",
                 "/v1/schema/validate",
-                {"schema_document": schema_document},
+                _compact({"schema_document": schema_document, "scope": scope}),
                 idempotent=True,
             )
         )
@@ -586,6 +592,7 @@ class BrainHttpClient:
         self,
         schema_document: str,
         force_drop_existing: bool = False,
+        scope: Optional[str] = None,
     ) -> SchemaReplace:
         """Replace the schema wholesale.
 
@@ -598,10 +605,13 @@ class BrainHttpClient:
             self._request(
                 "PUT",
                 "/v1/schema",
-                {
-                    "schema_document": schema_document,
-                    "force_drop_existing": force_drop_existing,
-                },
+                _compact(
+                    {
+                        "schema_document": schema_document,
+                        "force_drop_existing": force_drop_existing,
+                        "scope": scope,
+                    }
+                ),
             )
         )
 
@@ -991,23 +1001,20 @@ class BrainHttpClient:
             )
         )
 
-    def tombstone_relation(
-        self,
-        relation_id: str,
-        reason: int = TOMBSTONE_USER_REQUEST,
-        message: Optional[str] = None,
-    ) -> TombstoneResult:
+    def tombstone_relation(self, relation_id: str, reason: Optional[str] = None) -> TombstoneResult:
         """Retire an edge.
 
-        ``reason`` is Brain's closed audit set, the same one
-        :meth:`tombstone_statement` takes, so one audit trail classifies a
-        retired edge and a retired claim the same way.
+        ``reason`` is free text here, unlike :meth:`tombstone_statement`,
+        which takes a code from Brain's closed audit set. The asymmetry is
+        the HTTP edge's: the wire protocol made both a code, and this route
+        has not followed yet. It moves when the edge does, not before — the
+        client cannot send a field the edge would refuse.
         """
         return TombstoneResult.from_dict(
             self._request(
                 "DELETE",
                 f"/v1/relations/{_seg(relation_id)}",
-                query=_compact({"reason": reason, "message": message}),
+                query=_compact({"reason": reason}),
                 idempotent=True,
             )
         )
@@ -1042,7 +1049,9 @@ class BrainHttpClient:
             self._request("GET", "/v1/extractors", idempotent=True)
         )
 
-    def drop_schema(self, kind: str, name: str, force: bool = False) -> DropSchemaResult:
+    def drop_schema(
+        self, kind: str, name: str, force: bool = False, scope: Optional[str] = None
+    ) -> DropSchemaResult:
         """Drop one declared predicate or relation type.
 
         ``kind`` is ``predicate`` or ``relation_type``. Entity types are not
@@ -1057,7 +1066,7 @@ class BrainHttpClient:
             self._request(
                 "DELETE",
                 f"/v1/schema/{_seg(kind)}/{_seg(name)}",
-                query=_compact({"force": force or None}),
+                query=_compact({"force": force or None, "scope": scope}),
             )
         )
 

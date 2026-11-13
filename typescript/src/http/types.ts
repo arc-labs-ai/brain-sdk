@@ -74,6 +74,17 @@ export interface RecallInput {
    * when chasing a bad answer. Free when off — the server only builds the
    * trace when asked. */
   includeTrace?: boolean;
+  /** Attach each hit's typed-graph neighbourhood as `MemoryHit.graph`: the
+   * entities, statements and relations the extractor tied to that memory.
+   * Off by default and free when off. Costs a few point reads per hit and is
+   * capped per memory, so unlike `includeTrace` it does not grow with the
+   * size of the space. */
+  includeGraph?: boolean;
+}
+export interface RecallGraph {
+  entities: unknown[];
+  statements: unknown[];
+  relations: unknown[];
 }
 export interface MemoryHit {
   memoryId: string;
@@ -83,6 +94,8 @@ export interface MemoryHit {
   salience: number;
   kind: number;
   createdAtUnixNanos: bigint;
+  /** What this memory is connected to, when `includeGraph` was set. */
+  graph?: RecallGraph;
 }
 export interface RecallResult {
   answerKind: AnswerKind;
@@ -148,6 +161,11 @@ export interface PlanInput {
   maxBranches?: number;
   /** `auto` (default), `astar`, `mcts` or `attractor_rollout`. */
   strategy?: string;
+  /** Return the engine's search trace as `trace` on the result. Off by
+   * default and free when off — the engine builds it only when asked.
+   * Mirrors recall's `includeTrace`: it reports everything considered, not
+   * only what came back, so it is for diagnosing one answer. */
+  includeTrace?: boolean;
 }
 export interface PlanStep {
   stepIndex: number;
@@ -159,6 +177,14 @@ export interface PlanStep {
 }
 export interface PlanResult {
   steps: PlanStep[];
+  /** How the search ended — goal reached, a budget exhausted, or nothing
+   * found. A budget-limited result is a real answer rather than an error, so
+   * this is the only place the difference shows. */
+  status?: string;
+  /** The search trace as a JSON STRING, when `includeTrace` was set.
+   * A string because its ids are 128-bit integers a JSON number would round;
+   * parse with a big-integer-safe reader. */
+  trace?: string;
 }
 export interface ReasonInput {
   observation: Endpoint;
@@ -170,6 +196,11 @@ export interface ReasonInput {
   maxInferences?: number;
   /** Default 5000; the cloud gateway accepts 1..=10000. */
   budgetWallTimeMs?: number;
+  /** Return the engine's search trace as `trace` on the result. Off by
+   * default and free when off — the engine builds it only when asked.
+   * Mirrors recall's `includeTrace`: it reports everything considered, not
+   * only what came back, so it is for diagnosing one answer. */
+  includeTrace?: boolean;
 }
 export interface InferenceStep {
   stepIndex: number;
@@ -181,6 +212,14 @@ export interface InferenceStep {
 }
 export interface ReasonResult {
   inferences: InferenceStep[];
+  /** How the search ended — goal reached, a budget exhausted, or nothing
+   * found. A budget-limited result is a real answer rather than an error, so
+   * this is the only place the difference shows. */
+  status?: string;
+  /** The search trace as a JSON STRING, when `includeTrace` was set.
+   * A string because its ids are 128-bit integers a JSON number would round;
+   * parse with a big-integer-safe reader. */
+  trace?: string;
 }
 
 // --- identity -------------------------------------------------------------
@@ -713,6 +752,11 @@ export interface SchemaUploadResult {
 }
 export interface SchemaValidateInput {
   schemaDocument: string;
+  /** Which scope the declaration applies at: `"namespace"` (the default —
+   * the tenant's base, which every space resolves) or `"space"`, an overlay
+   * only the caller's own space sees. Never inferred from the effective
+   * space; anything but those two values is rejected. */
+  scope?: string;
 }
 export interface SchemaValidateResult {
   namespace: string;
@@ -723,6 +767,11 @@ export interface SchemaReplaceInput {
   schemaDocument: string;
   /** Required, and not defaulted by the edge: drop what the new schema omits. */
   forceDropExisting: boolean;
+  /** Which scope the declaration applies at: `"namespace"` (the default —
+   * the tenant's base, which every space resolves) or `"space"`, an overlay
+   * only the caller's own space sees. Never inferred from the effective
+   * space; anything but those two values is rejected. */
+  scope?: string;
 }
 export interface SchemaReplaceResult {
   namespace: string;
@@ -1001,6 +1050,11 @@ export interface DropSchemaQuery {
    * it, so this is not a generic "yes I'm sure".
    */
   force?: boolean;
+  /** Which scope the declaration applies at: `"namespace"` (the default —
+   * the tenant's base, which every space resolves) or `"space"`, an overlay
+   * only the caller's own space sees. Never inferred from the effective
+   * space; anything but those two values is rejected. */
+  scope?: string;
 }
 export interface DropSchemaResult {
   namespace: string;

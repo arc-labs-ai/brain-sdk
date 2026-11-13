@@ -89,6 +89,32 @@ pub struct RecallInput {
     /// off — the server only builds the trace when the request asks for one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_trace: Option<bool>,
+    /// Attach each hit's typed-graph neighbourhood as [`MemoryHit::graph`]:
+    /// the entities, statements and relations the extractor tied to that
+    /// memory.
+    ///
+    /// Off by default and free when off — the engine walks the graph only
+    /// when the request asks. It costs a handful of point reads per hit, and
+    /// the engine caps what it returns per memory, so unlike `include_trace`
+    /// this one does not grow with the size of the space.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_graph: Option<bool>,
+}
+
+/// One hit's typed-graph neighbourhood, present when the request set
+/// `include_graph`.
+///
+/// Flat lists rather than a node/edge graph: these are the rows the
+/// extractor attached to this one memory, not a subgraph to traverse. Use
+/// `GET /v1/graph` for structure.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RecallGraph {
+    #[serde(default)]
+    pub entities: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub statements: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub relations: Vec<serde_json::Value>,
 }
 
 /// One recalled memory.
@@ -101,6 +127,11 @@ pub struct MemoryHit {
     pub salience: f32,
     pub kind: u8,
     pub created_at_unix_nanos: u64,
+    /// What this memory is connected to. Present only when the request set
+    /// `include_graph`; omitted entirely otherwise, so a caller that did not
+    /// ask sees the response it always saw.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<RecallGraph>,
 }
 
 /// `recall` result.
@@ -218,6 +249,14 @@ pub struct PlanInput {
     pub max_branches: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy: Option<String>,
+    /// Return the engine's search trace as `trace` on the result.
+    ///
+    /// Off by default and free when off — the engine builds it only when the
+    /// request asks. Mirrors `recall`'s `include_trace`, and like it, the
+    /// trace reports everything considered rather than only what came back,
+    /// so it is for diagnosing one answer rather than for leaving on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_trace: Option<bool>,
 }
 
 /// One planned step.
@@ -235,6 +274,17 @@ pub struct PlanStep {
 #[derive(Clone, Debug, Deserialize)]
 pub struct PlanResult {
     pub steps: Vec<PlanStep>,
+    /// How the search ended — whether it reached the goal, exhausted a
+    /// budget, or found nothing. A budget-limited result is a real answer
+    /// and not an error, so the distinction is only visible here.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// The search trace as a JSON **string**, present only when
+    /// `include_trace` was asked for. A string rather than a parsed value
+    /// because its ids are 128-bit integers that a JSON number would round;
+    /// parse it with a big-integer-safe reader.
+    #[serde(default)]
+    pub trace: Option<String>,
 }
 
 /// `reason` input.
@@ -249,6 +299,14 @@ pub struct ReasonInput {
     pub max_inferences: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_wall_time_ms: Option<u32>,
+    /// Return the engine's search trace as `trace` on the result.
+    ///
+    /// Off by default and free when off — the engine builds it only when the
+    /// request asks. Mirrors `recall`'s `include_trace`, and like it, the
+    /// trace reports everything considered rather than only what came back,
+    /// so it is for diagnosing one answer rather than for leaving on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_trace: Option<bool>,
 }
 
 /// One inference step.
@@ -266,6 +324,17 @@ pub struct InferenceStep {
 #[derive(Clone, Debug, Deserialize)]
 pub struct ReasonResult {
     pub inferences: Vec<InferenceStep>,
+    /// How the search ended — whether it reached the goal, exhausted a
+    /// budget, or found nothing. A budget-limited result is a real answer
+    /// and not an error, so the distinction is only visible here.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// The search trace as a JSON **string**, present only when
+    /// `include_trace` was asked for. A string rather than a parsed value
+    /// because its ids are 128-bit integers that a JSON number would round;
+    /// parse it with a big-integer-safe reader.
+    #[serde(default)]
+    pub trace: Option<String>,
 }
 
 // --- identity --------------------------------------------------------------
@@ -990,6 +1059,15 @@ pub struct SchemaUploadResult {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct SchemaValidateInput {
     pub schema_document: String,
+    /// Which scope the declaration applies at: `"namespace"` (the default —
+    /// the tenant's base, which every space resolves) or `"space"`, an
+    /// overlay only the caller's own space sees.
+    ///
+    /// Never inferred from the effective space: inferring it would turn every
+    /// ordinary namespace-wide declaration into a per-space one invisible to
+    /// the rest of the tenant. Anything but those two values is rejected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 /// `validate_schema` result. `would_be_version` is what an upload would produce.
@@ -1009,6 +1087,15 @@ pub struct SchemaValidateResult {
 #[derive(Clone, Debug, Serialize)]
 pub struct SchemaReplaceInput {
     pub schema_document: String,
+    /// Which scope the declaration applies at: `"namespace"` (the default —
+    /// the tenant's base, which every space resolves) or `"space"`, an
+    /// overlay only the caller's own space sees.
+    ///
+    /// Never inferred from the effective space: inferring it would turn every
+    /// ordinary namespace-wide declaration into a per-space one invisible to
+    /// the rest of the tenant. Anything but those two values is rejected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// Must be `true`; the edge rejects the request otherwise.
     pub force_drop_existing: bool,
 }
@@ -1515,6 +1602,15 @@ pub struct DropSchemaQuery {
     /// without it, so this is not a generic "yes I'm sure".
     #[serde(skip_serializing_if = "is_false")]
     pub force: bool,
+    /// Which scope the declaration applies at: `"namespace"` (the default —
+    /// the tenant's base, which every space resolves) or `"space"`, an
+    /// overlay only the caller's own space sees.
+    ///
+    /// Never inferred from the effective space: inferring it would turn every
+    /// ordinary namespace-wide declaration into a per-space one invisible to
+    /// the rest of the tenant. Anything but those two values is rejected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 /// `drop_schema` result.

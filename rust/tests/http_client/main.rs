@@ -784,6 +784,7 @@ async fn schema_routes_are_three_verbs_on_one_path() {
     let out = client(&edge)
         .validate_schema(&SchemaValidateInput {
             schema_document: "entity ?".to_string(),
+            scope: None,
         })
         .await
         .expect("validate_schema");
@@ -800,6 +801,7 @@ async fn schema_routes_are_three_verbs_on_one_path() {
         .replace_schema(&SchemaReplaceInput {
             schema_document: "entity Person".to_string(),
             force_drop_existing: true,
+            scope: None,
         })
         .await
         .expect("replace_schema");
@@ -906,6 +908,7 @@ async fn the_new_routes_retry_by_idempotence_not_by_verb() {
     client(&edge)
         .validate_schema(&SchemaValidateInput {
             schema_document: "entity Person".to_string(),
+            scope: None,
         })
         .await
         .expect("retry then succeed");
@@ -931,6 +934,7 @@ async fn the_new_routes_retry_by_idempotence_not_by_verb() {
         .replace_schema(&SchemaReplaceInput {
             schema_document: "entity Person".to_string(),
             force_drop_existing: true,
+            scope: None,
         })
         .await
         .expect_err("must fail");

@@ -42,6 +42,11 @@ class MemoryHit:
     kind: int
     created_at_unix_nanos: int
 
+    #: What this memory is connected to — the entities, statements and
+    #: relations the extractor tied to it. Present only when
+    #: ``include_graph`` was asked for.
+    graph: Optional[dict[str, Any]] = None
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> MemoryHit:
         return cls(
@@ -52,6 +57,7 @@ class MemoryHit:
             salience=d["salience"],
             kind=d["kind"],
             created_at_unix_nanos=d["created_at_unix_nanos"],
+            graph=d.get("graph"),
         )
 
 
@@ -148,10 +154,22 @@ class PlanStep:
 @dataclass
 class PlanResult:
     steps: list[PlanStep]
+    #: How the search ended — goal reached, a budget exhausted, or nothing
+    #: found. A budget-limited result is a real answer rather than an error,
+    #: so this is the only place the difference shows.
+    status: Optional[str] = None
+    #: The search trace as a JSON **string**, present only when
+    #: ``include_trace`` was asked for. A string rather than a parsed object
+    #: because its ids are 128-bit integers that a JSON number would round.
+    trace: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> PlanResult:
-        return cls(steps=[PlanStep.from_dict(s) for s in d.get("steps", [])])
+        return cls(
+            steps=[PlanStep.from_dict(s) for s in d.get("steps", [])],
+            status=d.get("status"),
+            trace=d.get("trace"),
+        )
 
 
 @dataclass
@@ -178,10 +196,22 @@ class InferenceStep:
 @dataclass
 class ReasonResult:
     inferences: list[InferenceStep]
+    #: How the search ended — goal reached, a budget exhausted, or nothing
+    #: found. A budget-limited result is a real answer rather than an error,
+    #: so this is the only place the difference shows.
+    status: Optional[str] = None
+    #: The search trace as a JSON **string**, present only when
+    #: ``include_trace`` was asked for. A string rather than a parsed object
+    #: because its ids are 128-bit integers that a JSON number would round.
+    trace: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ReasonResult:
-        return cls(inferences=[InferenceStep.from_dict(s) for s in d.get("inferences", [])])
+        return cls(
+            inferences=[InferenceStep.from_dict(s) for s in d.get("inferences", [])],
+            status=d.get("status"),
+            trace=d.get("trace"),
+        )
 
 
 @dataclass
