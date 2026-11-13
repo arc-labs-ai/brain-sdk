@@ -75,6 +75,12 @@ from .types import (
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080"
 
+#: ``TombstoneReason::UserRequest``. Brain's audit set is ``1..=4`` and has no
+#: "unspecified" member, so a retire call has to name one; a caller retiring a
+#: row by hand is what this code describes, which makes it the only sensible
+#: default. ``0`` was the previous default and Brain refuses it.
+TOMBSTONE_USER_REQUEST = 2
+
 
 class BrainHttpClient:
     """A synchronous HTTP client for the Brain edge."""
@@ -853,20 +859,22 @@ class BrainHttpClient:
         )
 
     def tombstone_statement(
-        self, statement_id: str, reason: int = 0, message: Optional[str] = None
+        self, statement_id: str, reason: int = TOMBSTONE_USER_REQUEST,
+        message: Optional[str] = None,
     ) -> TombstoneResult:
         """Retire a claim. The row stays; reads stop returning it."""
         return TombstoneResult.from_dict(
             self._request(
                 "DELETE",
                 f"/v1/statements/{_seg(statement_id)}",
-                query=_compact({"reason": reason or None, "message": message}),
+                query=_compact({"reason": reason, "message": message}),
                 idempotent=True,
             )
         )
 
     def retract_statement(
-        self, statement_id: str, reason: int = 0, message: Optional[str] = None
+        self, statement_id: str, reason: int = TOMBSTONE_USER_REQUEST,
+        message: Optional[str] = None,
     ) -> RetractStatementResult:
         """Withdraw a claim.
 
@@ -877,7 +885,7 @@ class BrainHttpClient:
             self._request(
                 "POST",
                 f"/v1/statements/{_seg(statement_id)}/retract",
-                query=_compact({"reason": reason or None, "message": message}),
+                query=_compact({"reason": reason, "message": message}),
                 idempotent=True,
             )
         )
@@ -979,13 +987,21 @@ class BrainHttpClient:
             )
         )
 
-    def tombstone_relation(self, relation_id: str, reason: Optional[str] = None) -> TombstoneResult:
-        """Retire an edge."""
+    def tombstone_relation(
+        self, relation_id: str, reason: int = TOMBSTONE_USER_REQUEST,
+        message: Optional[str] = None,
+    ) -> TombstoneResult:
+        """Retire an edge.
+
+        ``reason`` is Brain's closed audit set, the same one
+        :meth:`tombstone_statement` takes, so one audit trail classifies a
+        retired edge and a retired claim the same way.
+        """
         return TombstoneResult.from_dict(
             self._request(
                 "DELETE",
                 f"/v1/relations/{_seg(relation_id)}",
-                query=_compact({"reason": reason}),
+                query=_compact({"reason": reason, "message": message}),
                 idempotent=True,
             )
         )
