@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.4](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.3...v0.4.4) (2026-11-13)
+
+
+### Fixes
+
+* **deps:** take the quinn-udp patch for RUSTSEC-2026-0538 ([998f2c5](https://github.com/arc-labs-ai/brain-sdk/commit/998f2c58a8b382353125f4a658d1396f80825b32))
+* **python:** default a retire to UserRequest instead of 0 ([5c09883](https://github.com/arc-labs-ai/brain-sdk/commit/5c0988399235af06aa33db03b024c2992331fcf0))
+* **python:** export the LLM credential errors ([6c6eb11](https://github.com/arc-labs-ai/brain-sdk/commit/6c6eb1102f2c759b73949f04aae3ffb4425fc40c))
+* **sdk:** re-export every HTTP contract type from the http entry ([fb80843](https://github.com/arc-labs-ai/brain-sdk/commit/fb8084371eebe43320b6c6f500710d3d0aa1e765))
+* **test:** give the schema requests the scope they now require ([5dfb9c0](https://github.com/arc-labs-ai/brain-sdk/commit/5dfb9c0656f1c7d8c61ba43d5c84cbe93ab8da7e))
+* **wire:** track the relation tombstone reason and the dropped credential scope ([f7723ec](https://github.com/arc-labs-ai/brain-sdk/commit/f7723ecb28714e5f62fe42d635b9bceaaa8db483))
+
+
+### Features
+
+* **http:** expose the schema declaration scope ([38f1bef](https://github.com/arc-labs-ai/brain-sdk/commit/38f1befb2410bdbfb2c17100020b380eb39f7b2f))
+* **sdk:** bind ENTITY_TYPE_LIST, and send a relation retirement's code ([40565c0](https://github.com/arc-labs-ai/brain-sdk/commit/40565c0c045e6277da1dda89a63e9a8c354f0b37))
+* **sdk:** expose the edge-only request and response fields ([67d2b51](https://github.com/arc-labs-ai/brain-sdk/commit/67d2b512b8ae36508e8416d6ac6c33008dff3b7f))
+* **wire:** carry the schema declaration scope ([538e60c](https://github.com/arc-labs-ai/brain-sdk/commit/538e60cda2aacbb29968f6242af0cdd3149227e6))
+* **wire:** the LLM_CREDENTIAL ops and the extractor stage payload ([ca7a794](https://github.com/arc-labs-ai/brain-sdk/commit/ca7a79496e42c909d7cb18ce6819cf1b5abc54f5))
+* **wire:** the LLM_CREDENTIAL ops, re-vendored from brain-db v0.4.1 ([f41fd64](https://github.com/arc-labs-ai/brain-sdk/commit/f41fd64cf8ea63298ec327e4caf2b1d1851b257c))
+
 ## [0.4.3](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.2...v0.4.3) (2026-11-03)
 
 
