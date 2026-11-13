@@ -14,6 +14,7 @@
  * from, which is the only place the omission is visible.
  */
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import * as httpEntry from "../../src/http/index.js";
@@ -91,6 +92,33 @@ describe("the package entry", () => {
       }, entry.DEFAULT_RETRY_POLICY),
     ).rejects.toBeInstanceOf(TypeError);
     expect(calls).toBe(1);
+  });
+
+  /**
+   * Every HTTP contract type is re-exported from the `http` entry.
+   *
+   * Types are erased before the code runs, so this reads the sources rather
+   * than the module object. The sibling SDKs re-export by a hand-written
+   * list, and in both of them the list stopped growing with the file it
+   * re-exports — every type added after the original twenty-five-verb
+   * surface was unreachable from the entry. This SDK re-exports with a star
+   * and so cannot drift; the check exists so that swapping the star for a
+   * list later does not quietly reintroduce the same gap.
+   */
+  it("re-exports every HTTP contract type from the http entry", () => {
+    const typesSrc = readFileSync(new URL("../../src/http/types.ts", import.meta.url), "utf8");
+    const indexSrc = readFileSync(new URL("../../src/http/index.ts", import.meta.url), "utf8");
+
+    const defined = [
+      ...typesSrc.matchAll(/^export (?:type|interface|class|const enum|enum) ([A-Za-z0-9_$]+)/gm),
+    ].map((m) => m[1] as string);
+    expect(defined.length, "the parse, not the surface, is what broke").toBeGreaterThan(50);
+
+    const starred = /export \* from "\.\/types\.js";/.test(indexSrc);
+    if (starred) return;
+
+    const missing = defined.filter((name) => !new RegExp(`\\b${name}\\b`).test(indexSrc));
+    expect(missing, "defined in http/types.ts but not re-exported").toEqual([]);
   });
 
   it("serves the same BrainHttpClient from both entries", () => {

@@ -139,3 +139,66 @@ async fn the_default_retry_entry_point_is_wired_too() {
     .expect("one clean attempt");
     assert_eq!((out, calls.get()), (7, 1));
 }
+
+/// Every contract type the HTTP tier defines is reachable from
+/// `brain_db_sdk::http`, not only from `brain_db_sdk::http::types`.
+///
+/// The module's `pub use` list is hand-written, which is deliberate — adding
+/// a name to a public entry point should be a reviewable act rather than
+/// something a glob does silently. The cost is that the list does not grow
+/// with the file it re-exports: every type added after the original
+/// twenty-five-verb surface was left out of it, so a caller writing
+/// `use brain_db_sdk::http::CreateStatementInput` got a compile error while
+/// the Python and TypeScript SDKs export the same type from their single
+/// entry point.
+///
+/// Comparing the two lists here keeps the decision explicit and the drift
+/// impossible: the list stays hand-written, and omitting a name from it
+/// fails this rather than a consumer's build.
+#[test]
+fn the_http_module_re_exports_every_type_it_defines() {
+    const TYPES: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/http/types.rs"));
+    const MOD: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/http/mod.rs"));
+
+    let defined: Vec<&str> = TYPES
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix("pub struct ")
+                .or_else(|| l.strip_prefix("pub enum "))
+        })
+        .map(|rest| {
+            rest.split([' ', '{', '(', '<', ';'])
+                .next()
+                .unwrap_or("")
+                .trim()
+        })
+        .filter(|n| !n.is_empty())
+        .collect();
+    assert!(
+        defined.len() > 100,
+        "parsed only {} public types — the parse, not the surface, is what broke",
+        defined.len()
+    );
+
+    let list = MOD
+        .split_once("pub use types::{")
+        .and_then(|(_, rest)| rest.split_once("};"))
+        .map(|(inner, _)| inner)
+        .expect("http/mod.rs must re-export types");
+    let exported: Vec<&str> = list
+        .split(',')
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .collect();
+
+    let missing: Vec<&&str> = defined.iter().filter(|n| !exported.contains(n)).collect();
+    assert!(
+        missing.is_empty(),
+        "defined in http::types but not re-exported from http: {missing:?}"
+    );
+    let stale: Vec<&&str> = exported.iter().filter(|n| !defined.contains(n)).collect();
+    assert!(
+        stale.is_empty(),
+        "re-exported from http but not defined: {stale:?}"
+    );
+}

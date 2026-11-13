@@ -132,3 +132,36 @@ def test_it_gives_up_on_a_non_retryable_error_without_rerunning() -> None:
 def test_both_entries_serve_the_same_http_client() -> None:
     assert entry.BrainHttpClient is http_entry.BrainHttpClient
     assert entry.BrainHttpError is http_entry.BrainHttpError
+
+
+def test_the_http_entry_re_exports_every_contract_type_it_defines() -> None:
+    """Every HTTP contract type is reachable from ``brain_db_sdk.http``.
+
+    The entry's import list is hand-written, which is deliberate — adding a
+    name to a public entry point should be a reviewable act rather than
+    something a star-import does silently. The cost is that the list does not
+    grow with the module it re-exports: every type added after the original
+    twenty-five-verb surface was left out of it, so
+    ``from brain_db_sdk.http import SpaceProvision`` raised ImportError while
+    the TypeScript SDK exported the same type from its single entry point.
+
+    Comparing the two lists here keeps the decision explicit and the drift
+    impossible: the list stays hand-written, and omitting a name from it fails
+    this rather than a caller's import.
+    """
+    import ast
+    import pathlib
+
+    from brain_db_sdk.http import types as http_types
+
+    source = pathlib.Path(http_types.__file__).read_text()
+    defined = {node.name for node in ast.parse(source).body if isinstance(node, ast.ClassDef)}
+    assert len(defined) > 50, (
+        f"parsed only {len(defined)} contract types — the parse, not the surface, is what broke"
+    )
+
+    missing = sorted(name for name in defined if not hasattr(http_entry, name))
+    assert not missing, f"defined in http.types but not importable from http: {missing}"
+
+    undeclared = sorted(defined - set(http_entry.__all__))
+    assert not undeclared, f"importable but absent from http.__all__: {undeclared}"
