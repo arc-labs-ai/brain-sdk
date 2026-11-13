@@ -33,6 +33,7 @@ from .types import (
     GraphPage,
     LinkResult,
     ListEntitiesResult,
+    ListEntityTypesResult,
     ListExtractorsResult,
     ListRelationsResult,
     ListSchemasResult,
@@ -74,6 +75,12 @@ from .types import (
 )
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080"
+
+#: ``TombstoneReason::UserRequest``. Brain's audit set is ``1..=4`` and has no
+#: "unspecified" member, so a retire call has to name one; a caller retiring a
+#: row by hand is what this code describes, which makes it the only sensible
+#: default. ``0`` was the previous default and Brain refuses it.
+TOMBSTONE_USER_REQUEST = 2
 
 
 class BrainHttpClient:
@@ -138,6 +145,7 @@ class BrainHttpClient:
         subject: Optional[str] = None,
         scope: Optional[str] = None,
         include_trace: Optional[bool] = None,
+        include_graph: Optional[bool] = None,
     ) -> RecallResult:
         """Recall memories for a cue.
 
@@ -165,6 +173,7 @@ class BrainHttpClient:
                 "subject": subject,
                 "scope": scope,
                 "include_trace": include_trace,
+                "include_graph": include_graph,
             }
         )
         return RecallResult.from_dict(self._request("POST", "/v1/recall", body, idempotent=True))
@@ -204,6 +213,7 @@ class BrainHttpClient:
         max_wall_time_ms: Optional[int] = None,
         max_branches: Optional[int] = None,
         strategy: Optional[str] = None,
+        include_trace: Optional[bool] = None,
     ) -> PlanResult:
         """Plan a path from a start state to a goal state.
 
@@ -217,6 +227,7 @@ class BrainHttpClient:
                 "max_wall_time_ms": max_wall_time_ms,
                 "max_branches": max_branches,
                 "strategy": strategy,
+                "include_trace": include_trace,
             }
         )
         return PlanResult.from_dict(self._request("POST", "/v1/plan", body, idempotent=True))
@@ -228,6 +239,7 @@ class BrainHttpClient:
         confidence_threshold: Optional[float] = None,
         max_inferences: Optional[int] = None,
         budget_wall_time_ms: Optional[int] = None,
+        include_trace: Optional[bool] = None,
     ) -> ReasonResult:
         """Infer over the graph from an observation.
 
@@ -240,6 +252,7 @@ class BrainHttpClient:
                 "confidence_threshold": confidence_threshold,
                 "max_inferences": max_inferences,
                 "budget_wall_time_ms": budget_wall_time_ms,
+                "include_trace": include_trace,
             }
         )
         return ReasonResult.from_dict(self._request("POST", "/v1/reason", body, idempotent=True))
@@ -536,22 +549,32 @@ class BrainHttpClient:
         schema_document: str,
         dry_run: Optional[bool] = None,
         allow_breaking: Optional[bool] = None,
+        scope: Optional[str] = None,
     ) -> SchemaUpload:
         """Register a new schema version.
 
         Not retried: an upload that times out may still have landed, and a
         second attempt would mint a second version.
+
+        ``scope`` says where the document declares: ``"namespace"`` (the
+        default -- the tenant's base, which every space resolves) or
+        ``"space"`` (an overlay at the caller's effective space, which only
+        that space resolves). Case-insensitive; anything else the edge refuses
+        rather than narrowing to the base. ``None`` omits the field, which the
+        edge reads as the namespace base -- it is NOT inferred from the
+        effective space, which almost every request names.
         """
         body = _compact(
             {
                 "schema_document": schema_document,
                 "dry_run": dry_run,
                 "allow_breaking": allow_breaking,
+                "scope": scope,
             }
         )
         return SchemaUpload.from_dict(self._request("POST", "/v1/schema", body))
 
-    def validate_schema(self, schema_document: str) -> SchemaValidate:
+    def validate_schema(self, schema_document: str, scope: Optional[str] = None) -> SchemaValidate:
         """Check a schema document without registering it.
 
         A pure dry run — nothing on the edge changes — so this one POST is safe
@@ -561,7 +584,7 @@ class BrainHttpClient:
             self._request(
                 "POST",
                 "/v1/schema/validate",
-                {"schema_document": schema_document},
+                _compact({"schema_document": schema_document, "scope": scope}),
                 idempotent=True,
             )
         )
@@ -570,6 +593,7 @@ class BrainHttpClient:
         self,
         schema_document: str,
         force_drop_existing: bool = False,
+        scope: Optional[str] = None,
     ) -> SchemaReplace:
         """Replace the schema wholesale.
 
@@ -582,10 +606,13 @@ class BrainHttpClient:
             self._request(
                 "PUT",
                 "/v1/schema",
-                {
-                    "schema_document": schema_document,
-                    "force_drop_existing": force_drop_existing,
-                },
+                _compact(
+                    {
+                        "schema_document": schema_document,
+                        "force_drop_existing": force_drop_existing,
+                        "scope": scope,
+                    }
+                ),
             )
         )
 
@@ -843,20 +870,26 @@ class BrainHttpClient:
         )
 
     def tombstone_statement(
-        self, statement_id: str, reason: int = 0, message: Optional[str] = None
+        self,
+        statement_id: str,
+        reason: int = TOMBSTONE_USER_REQUEST,
+        message: Optional[str] = None,
     ) -> TombstoneResult:
         """Retire a claim. The row stays; reads stop returning it."""
         return TombstoneResult.from_dict(
             self._request(
                 "DELETE",
                 f"/v1/statements/{_seg(statement_id)}",
-                query=_compact({"reason": reason or None, "message": message}),
+                query=_compact({"reason": reason, "message": message}),
                 idempotent=True,
             )
         )
 
     def retract_statement(
-        self, statement_id: str, reason: int = 0, message: Optional[str] = None
+        self,
+        statement_id: str,
+        reason: int = TOMBSTONE_USER_REQUEST,
+        message: Optional[str] = None,
     ) -> RetractStatementResult:
         """Withdraw a claim.
 
@@ -867,7 +900,7 @@ class BrainHttpClient:
             self._request(
                 "POST",
                 f"/v1/statements/{_seg(statement_id)}/retract",
-                query=_compact({"reason": reason or None, "message": message}),
+                query=_compact({"reason": reason, "message": message}),
                 idempotent=True,
             )
         )
@@ -969,13 +1002,24 @@ class BrainHttpClient:
             )
         )
 
-    def tombstone_relation(self, relation_id: str, reason: Optional[str] = None) -> TombstoneResult:
-        """Retire an edge."""
+    def tombstone_relation(
+        self,
+        relation_id: str,
+        reason: int = TOMBSTONE_USER_REQUEST,
+        message: Optional[str] = None,
+    ) -> TombstoneResult:
+        """Retire an edge.
+
+        ``reason`` is a code from Brain's closed audit set, the same one
+        :meth:`tombstone_statement` takes. Both were free text on this route
+        once, while the wire protocol had already made them codes; the edge
+        has since followed, so the two retire verbs now agree.
+        """
         return TombstoneResult.from_dict(
             self._request(
                 "DELETE",
                 f"/v1/relations/{_seg(relation_id)}",
-                query=_compact({"reason": reason}),
+                query=_compact({"reason": reason, "message": message}),
                 idempotent=True,
             )
         )
@@ -999,6 +1043,20 @@ class BrainHttpClient:
             )
         )
 
+    def list_entity_types(self) -> ListEntityTypesResult:
+        """The entity types this caller can use, with their ids.
+
+        Every other entity call takes ``entity_type_id``, a number the
+        registry assigns. Nothing else reports it: a schema document names
+        its types without ids, and a type the extractor coined is in no
+        document at all. Read this to turn a ``type_qname`` seen on a
+        recalled memory into the id ``create_entity`` and ``list_entities``
+        require.
+        """
+        return ListEntityTypesResult.from_dict(
+            self._request("GET", "/v1/entity-types", idempotent=True)
+        )
+
     def list_extractors(self) -> ListExtractorsResult:
         """The extractors registered on the shard.
 
@@ -1010,7 +1068,9 @@ class BrainHttpClient:
             self._request("GET", "/v1/extractors", idempotent=True)
         )
 
-    def drop_schema(self, kind: str, name: str, force: bool = False) -> DropSchemaResult:
+    def drop_schema(
+        self, kind: str, name: str, force: bool = False, scope: Optional[str] = None
+    ) -> DropSchemaResult:
         """Drop one declared predicate or relation type.
 
         ``kind`` is ``predicate`` or ``relation_type``. Entity types are not
@@ -1025,7 +1085,7 @@ class BrainHttpClient:
             self._request(
                 "DELETE",
                 f"/v1/schema/{_seg(kind)}/{_seg(name)}",
-                query=_compact({"force": force or None}),
+                query=_compact({"force": force or None, "scope": scope}),
             )
         )
 

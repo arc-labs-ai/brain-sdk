@@ -763,6 +763,7 @@ async fn schema_routes_are_three_verbs_on_one_path() {
             schema_document: "entity Person".to_string(),
             dry_run: true,
             allow_breaking: false,
+            scope: None,
         })
         .await
         .expect("upload_schema");
@@ -770,6 +771,9 @@ async fn schema_routes_are_three_verbs_on_one_path() {
     let body = &edge.seen()[0].body;
     assert!(body.contains(r#""dry_run":true"#), "{body}");
     assert!(!body.contains("allow_breaking"), "{body}");
+    // `None` omits the field entirely, which the edge reads as the namespace
+    // base. Sending `"scope":null` would be a different request.
+    assert!(!body.contains("scope"), "{body}");
 
     let edge = mock_edge(vec![(
         200,
@@ -780,6 +784,7 @@ async fn schema_routes_are_three_verbs_on_one_path() {
     let out = client(&edge)
         .validate_schema(&SchemaValidateInput {
             schema_document: "entity ?".to_string(),
+            scope: None,
         })
         .await
         .expect("validate_schema");
@@ -796,6 +801,7 @@ async fn schema_routes_are_three_verbs_on_one_path() {
         .replace_schema(&SchemaReplaceInput {
             schema_document: "entity Person".to_string(),
             force_drop_existing: true,
+            scope: None,
         })
         .await
         .expect("replace_schema");
@@ -902,6 +908,7 @@ async fn the_new_routes_retry_by_idempotence_not_by_verb() {
     client(&edge)
         .validate_schema(&SchemaValidateInput {
             schema_document: "entity Person".to_string(),
+            scope: None,
         })
         .await
         .expect("retry then succeed");
@@ -927,6 +934,7 @@ async fn the_new_routes_retry_by_idempotence_not_by_verb() {
         .replace_schema(&SchemaReplaceInput {
             schema_document: "entity Person".to_string(),
             force_drop_existing: true,
+            scope: None,
         })
         .await
         .expect_err("must fail");
@@ -1159,4 +1167,67 @@ fn try_new_rejects_a_control_character_in_the_api_key() {
         // The message must not echo the credential, even in part.
         assert!(!err.message.contains("evil"), "the message leaked the key");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Wide memory ids.
+// ---------------------------------------------------------------------------
+//
+// Brain's memory ids are 128-bit and real ones already exceed `u64::MAX`:
+// `18446744078004518912` came off a live server during acceptance, against a
+// ceiling of `18446744073709551615`. The HTTP contract carries the id as a
+// decimal string for that reason — it is also why the TypeScript SDK needs
+// `http-bigint`, since `JSON.parse` has no integer wider than a double.
+//
+// Rust cannot round it either, because the field is a `String`. That is the
+// point of pinning it: nothing fails today, so nothing would notice if the
+// field were narrowed to `u64`, which would truncate ids that already exist.
+//
+// Mirrors `typescript/test/http-bigint` and
+// `python/tests/http_client/test_http_wide_ids.py`.
+
+#[test]
+fn a_wide_memory_id_is_carried_verbatim() {
+    use brain_db_sdk::http::types::EncodeResult;
+
+    // Real and boundary values, not round numbers.
+    for wire_id in [
+        "18446744073709551615",                    // u64::MAX
+        "18446744073709551616",                    // u64::MAX + 1
+        "18446744078004518912",                    // observed on a live server
+        "340282366920938463463374607431768211455", // u128::MAX
+    ] {
+        let body = format!(
+            r#"{{"memory_id":"{wire_id}","was_deduplicated":false,"salience":0.5,
+                 "kind":0,"created_at_unix_nanos":1794490715610387801,
+                 "auto_edges_added":0}}"#
+        );
+        let r: EncodeResult = serde_json::from_str(&body).expect("decodes");
+
+        // The exact decimal the server sent: no parse, no reformat, no loss.
+        assert_eq!(r.memory_id, wire_id);
+        // And still the number it claims to be, which a caller that does
+        // convert it depends on.
+        assert_eq!(
+            r.memory_id
+                .parse::<u128>()
+                .expect("a decimal id")
+                .to_string(),
+            wire_id
+        );
+    }
+}
+
+#[test]
+fn a_wide_id_would_not_survive_a_64_bit_field() {
+    // Pins why the field is a String. If it is narrowed, this is the
+    // arithmetic that makes the ids wrong rather than the type that makes the
+    // build fail.
+    let observed: u128 = 18_446_744_078_004_518_912;
+    assert!(observed > u128::from(u64::MAX));
+    assert_ne!(
+        observed & u128::from(u64::MAX),
+        observed,
+        "truncation would change the id"
+    );
 }

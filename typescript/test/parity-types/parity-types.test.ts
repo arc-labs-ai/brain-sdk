@@ -19,6 +19,7 @@ import {
   PlanStatus,
   PlanStrategy,
   ReasonStatus,
+  SchemaScope,
   StageAuditStatus,
   StageKind,
   StageOutcome,
@@ -488,7 +489,16 @@ describe("SCHEMA read-side round-trip", () => {
       nextCursor: new Uint8Array(0),
       isFinal: true,
     });
-    rt(encodeSchemaValidate, decodeSchemaValidate, { schemaDocument: "entity Person {}" });
+    // `scope` is always on the wire — VALIDATE predicts UPLOAD, so it takes
+    // the same selector and a caller states it.
+    rt(encodeSchemaValidate, decodeSchemaValidate, {
+      schemaDocument: "entity Person {}",
+      scope: SchemaScope.Namespace,
+    });
+    rt(encodeSchemaValidate, decodeSchemaValidate, {
+      schemaDocument: "entity Person {}",
+      scope: SchemaScope.Space,
+    });
     rt(encodeSchemaValidateResponse, decodeSchemaValidateResponse, {
       namespace: "people",
       wouldBeVersion: 4,
@@ -623,6 +633,14 @@ describe("SUBSCRIBE round-trip", () => {
           entityCount: 2,
           statementCount: 3,
           relationCount: 1,
+          // Non-zero so the yield counts are pinned to survive the round
+          // trip rather than defaulting. `hasActiveSchema` is the
+          // denominator for `undeclaredEntityCount`: without a declared
+          // schema there is no vocabulary to be outside of.
+          droppedCount: 4,
+          contradictionCount: 1,
+          undeclaredEntityCount: 2,
+          hasActiveSchema: true,
           auditStatus: StageAuditStatus.Succeeded,
           errorMessage: "",
         },

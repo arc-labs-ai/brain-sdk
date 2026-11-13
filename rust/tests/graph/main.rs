@@ -12,9 +12,10 @@ use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
     AuthOkPayload, AuthPayload, EntityCreateRequest, EntityCreateResponse, EvidenceRefWire,
     HelloPayload, MaterializeProceduralRequest, MaterializeProceduralResponse,
-    RelationCreateRequest, RelationCreateResponse, SchemaUploadRequest, SchemaUploadResponse,
-    ServerFeatures, SpacePermissions, StatementCreateRequest, StatementCreateResponse,
-    StatementKindWire, StatementObjectWire, StatementValueWire, WelcomePayload,
+    RelationCreateRequest, RelationCreateResponse, SchemaScope, SchemaUploadRequest,
+    SchemaUploadResponse, ServerFeatures, SpacePermissions, StatementCreateRequest,
+    StatementCreateResponse, StatementKindWire, StatementObjectWire, StatementValueWire,
+    WelcomePayload,
 };
 use brain_db_sdk::{Auth, BrainClient};
 
@@ -236,6 +237,7 @@ async fn typed_graph_verbs_round_trip() {
             allow_breaking: false,
             request_id: rid(),
             act_as: None,
+            scope: SchemaScope::Namespace,
         })
         .await
         .expect("upload_schema");
@@ -529,6 +531,7 @@ fn read_side_types_round_trip() {
     round_trip(&SchemaValidateRequest {
         schema_document: "entity Person {}".to_string(),
         act_as: None,
+        scope: SchemaScope::Namespace,
     });
     round_trip(&SchemaValidateResponse {
         namespace: "people".to_string(),
@@ -863,6 +866,7 @@ async fn read_side_verbs_over_connection() {
         .validate_schema(&SchemaValidateRequest {
             schema_document: "entity Person {}".to_string(),
             act_as: None,
+            scope: SchemaScope::Namespace,
         })
         .await
         .expect("validate_schema");

@@ -1,8 +1,15 @@
 Corpus vendored from arc-labs-ai/brain-db
-commit: ee71f9569c54d5730792bacc7b1cda3af9461fc0
-date: 2026-08-31
+commit: 4e8ed12aa34a924b8fb434c3c14e8f13a1198d31
+date: 2026-11-13
 
-req_schema_drop / resp_schema_drop added at this commit for the new
+req_entity_type_list / resp_entity_type_list added at this commit for the
+new ENTITY_TYPE_LIST opcode (0x0139 / 0x01B9, brain-db 4e8ed12a), copied
+byte-for-byte from the server corpus. The request vector is a single `a0`,
+pinning the empty-CBOR-map encoding of a selector-only request; the
+response carries a declared built-in and a coined tenant type, so the
+`declared` flag is pinned in both states.
+
+req_schema_drop / resp_schema_drop added at an earlier commit for the
 SCHEMA_DROP opcode (0x0125 / 0x01A5, brain-db ee71f956), copied
 byte-for-byte from the server corpus.
 
@@ -12,3 +19,34 @@ merge-redirect chain (EntityGetResponse.resolved_from, brain-db
 server's representative set; resolved_from was added to it in lockstep.
 The remaining cases carry over unchanged from the previous vendor
 (c1269a4, 2026-07-30) and are byte-identical to the server corpus.
+
+resp_subscribe_event_stage added for the populated StageCompleted form:
+stage_kind / stage_outcome / stage_payload set, with the extractor payload
+carrying its yield counts (dropped_count, contradiction_count,
+undeclared_entity_count) and has_active_schema. The existing
+resp_subscribe_event keeps the all-absent form. Copied byte-for-byte from
+the server corpus; index.json re-vendored with it.
+
+req_schema_validate and req_schema_validate_act_as re-vendored for
+SchemaValidateRequest.scope. VALIDATE predicts UPLOAD, so it now takes the
+same SchemaScope selector; the field is always on the wire, which changes
+both fixtures' bytes. The act_as fixture carries scope=Space so the corpus
+pins both encodings of the selector for this verb. Copied byte-for-byte
+from the server corpus; index.json re-vendored with them.
+
+req_schema_replace / req_schema_drop and their _act_as_grant variants
+re-vendored for the SchemaScope selector those two verbs now carry. A
+narrowing reaches exactly the declarations the named scope made, so the
+scope has to be on the wire; it is always present, which changes all four
+fixtures' bytes. The act_as variants carry scope=Space so each verb pins
+both encodings of the selector. Copied byte-for-byte from the server
+corpus; index.json re-vendored with them.
+
+The nine llm_credential_* cases (PUT / GET / GET_absent / VERIFY / DELETE,
+request and response) added for the LLM_CREDENTIAL ops brain-db v0.4.1
+ships. A credential request carries key material, so the fixtures pin the
+redacted shapes too: a GET response returns a fingerprint and never a key.
+Copied byte-for-byte from the server corpus at v0.4.1
+(75df00c7dcb11b4915eae53edf6b68f77b59b127); index.json re-vendored with
+them.
+

@@ -71,6 +71,7 @@ PAYLOAD_TYPES = {
     "req_entity_create_act_as": t.EntityCreateRequest,
     "req_get_capabilities_act_as": t.GetCapabilitiesRequest,
     "req_schema_upload_act_as_grant": t.SchemaUploadRequest,
+    "req_schema_upload_space_scope": t.SchemaUploadRequest,
     "req_schema_drop_act_as_grant": t.SchemaDropRequest,
     "req_schema_get_act_as": t.SchemaGetRequest,
     "req_schema_list_act_as": t.SchemaListRequest,
@@ -174,7 +175,12 @@ PAYLOAD_TYPES = {
     # Capabilities + subscription event.
     "resp_get_capabilities": t.GetCapabilitiesResponse,
     "resp_subscribe_event": t.SubscriptionEvent,
+    # The populated StageCompleted form. Same payload type; the case exists so
+    # the extractor detail's own keys are pinned, not just the event's.
+    "resp_subscribe_event_stage": t.SubscriptionEvent,
     # Extractor introspection (read-only; empty request).
+    "req_entity_type_list": t.EntityTypeListRequest,
+    "resp_entity_type_list": t.EntityTypeListResponseFrame,
     "req_extractor_list": t.ExtractorListRequest,
     "resp_extractor_list": t.ExtractorListResponseFrame,
     # Space registry.
@@ -191,6 +197,17 @@ PAYLOAD_TYPES = {
     "resp_session_list": t.SessionListResponse,
     "req_session_delete": t.SessionDeleteRequest,
     "resp_session_delete": t.SessionDeleteResponse,
+    "req_llm_credential_put": t.LlmCredentialPutRequest,
+    "resp_llm_credential_put": t.LlmCredentialPutResponse,
+    "req_llm_credential_get": t.LlmCredentialGetRequest,
+    "resp_llm_credential_get": t.LlmCredentialGetResponse,
+    # The absent arm is pinned separately: `None` is the state a namespace
+    # sits in before it registers anything, so its encoding is contract.
+    "resp_llm_credential_get_absent": t.LlmCredentialGetResponse,
+    "req_llm_credential_delete": t.LlmCredentialDeleteRequest,
+    "resp_llm_credential_delete": t.LlmCredentialDeleteResponse,
+    "req_llm_credential_verify": t.LlmCredentialVerifyRequest,
+    "resp_llm_credential_verify": t.LlmCredentialVerifyResponse,
     # Keepalive responses.
     "resp_pong": t.PongResponse,
     "resp_server_ping": t.ServerPingResponse,
@@ -339,7 +356,7 @@ def test_frame_round_trip(name):
 
 
 def test_all_cases_present():
-    """The corpus has 86 .bin/.json pairs; every one must be covered."""
+    """Every .bin/.json pair in the corpus must be covered by this test."""
     index = _load_index()
     assert len(index) > 50, f"index.json produced only {len(index)} cases — is it truncated?"
     covered = set(PAYLOAD_TYPES) | set(FRAME_PAYLOAD_TYPES)

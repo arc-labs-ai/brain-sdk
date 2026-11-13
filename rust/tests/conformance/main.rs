@@ -261,6 +261,10 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("resp_txn_abort", TxnAbortResponse);
     payload!("resp_get_capabilities", GetCapabilitiesResponse);
     payload!("resp_subscribe_event", SubscriptionEvent);
+    // A stage-completion event. The vector existed upstream for ten cases'
+    // worth of vendoring without reaching this registry, so the shape the
+    // server actually emits for a derivation stage went unverified here.
+    payload!("resp_subscribe_event_stage", SubscriptionEvent);
     payload!("req_space_create", SpaceCreateRequest);
     payload!("req_space_list", SpaceListRequest);
     payload!("req_space_delete", SpaceDeleteRequest);
@@ -273,6 +277,19 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("resp_session_create", SessionCreateResponse);
     payload!("resp_session_list", SessionListResponse);
     payload!("resp_session_delete", SessionDeleteResponse);
+    payload!("req_llm_credential_put", LlmCredentialPutRequest);
+    payload!("resp_llm_credential_put", LlmCredentialPutResponse);
+    payload!("req_llm_credential_get", LlmCredentialGetRequest);
+    payload!("resp_llm_credential_get", LlmCredentialGetResponse);
+    // The absent arm is pinned separately: `None` is the state a namespace
+    // sits in before it registers anything, so its encoding is contract.
+    payload!("resp_llm_credential_get_absent", LlmCredentialGetResponse);
+    payload!("req_llm_credential_delete", LlmCredentialDeleteRequest);
+    payload!("resp_llm_credential_delete", LlmCredentialDeleteResponse);
+    payload!("req_llm_credential_verify", LlmCredentialVerifyRequest);
+    payload!("resp_llm_credential_verify", LlmCredentialVerifyResponse);
+    payload!("req_entity_type_list", EntityTypeListRequest);
+    payload!("resp_entity_type_list", EntityTypeListResponseFrame);
     payload!("req_extractor_list", ExtractorListRequest);
     payload!("resp_extractor_list", ExtractorListResponseFrame);
     payload!("resp_pong", PongResponse);
@@ -324,6 +341,7 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("req_schema_replace", SchemaReplaceRequest);
     payload!("req_schema_drop", SchemaDropRequest);
     payload!("req_schema_upload_act_as_grant", SchemaUploadRequest);
+    payload!("req_schema_upload_space_scope", SchemaUploadRequest);
     payload!("req_schema_get_act_as", SchemaGetRequest);
     payload!("req_schema_list_act_as", SchemaListRequest);
     payload!("req_schema_validate_act_as", SchemaValidateRequest);

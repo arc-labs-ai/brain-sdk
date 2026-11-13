@@ -16,8 +16,8 @@ use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
     AuthOkPayload, AuthPayload, CancelStreamAck, CancelStreamRequest, CancellationReason,
-    HelloPayload, SchemaReplaceRequest, SchemaReplaceResponse, ServerFeatures, SpacePermissions,
-    WelcomePayload,
+    HelloPayload, SchemaReplaceRequest, SchemaReplaceResponse, SchemaScope, ServerFeatures,
+    SpacePermissions, WelcomePayload,
 };
 use brain_db_sdk::{Auth, BrainClient};
 
@@ -141,6 +141,9 @@ async fn schema_replace_and_cancel_stream() {
             force_drop_existing: true,
             request_id: REQUEST_ID,
             act_as: None,
+            // A replace narrows exactly the scope it names; the base is what
+            // this fixture's canned server answers for.
+            scope: SchemaScope::Namespace,
         })
         .await
         .expect("replace_schema");

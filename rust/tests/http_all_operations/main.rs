@@ -563,6 +563,7 @@ async fn validate_schema_rejects_a_malformed_document() {
     let result = client
         .validate_schema(&SchemaValidateInput {
             schema_document: "this is not a schema".into(),
+            scope: None,
         })
         .await
         .expect("validate reports problems in the body, not as an HTTP error");

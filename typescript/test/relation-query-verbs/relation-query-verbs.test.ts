@@ -197,7 +197,8 @@ async function serve(sock: net.Socket): Promise<void> {
   // RELATION_TOMBSTONE.
   f = await chan.read();
   expect(f.opcode).toBe(Opcode.RelationTombstoneReq);
-  expect(decodeRelationTombstone(f.payload).reason).toBe("merged away");
+  expect(decodeRelationTombstone(f.payload).reason).toBe(2);
+  expect(decodeRelationTombstone(f.payload).reasonMessage).toBe("merged away");
   const tombResp: RelationTombstoneResponse = { tombstonedAtUnixNanos: 123n };
   await chan.write({
     opcode: Opcode.RelationTombstoneResp,
@@ -364,7 +365,8 @@ describe("relation lifecycle + query variant verbs", () => {
 
       const tomb = await client.tombstoneRelation({
         relationId: RELATION_ID,
-        reason: "merged away",
+        reason: 2,
+        reasonMessage: "merged away",
         requestId: newId(),
       });
       expect(tomb.tombstonedAtUnixNanos).toBe(123n);

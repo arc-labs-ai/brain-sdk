@@ -67,6 +67,18 @@ export const Opcode = {
   SessionDeleteReq: 0x0075,
   SessionDeleteResp: 0x00f5,
 
+  // Tenant LLM provider credentials. These sit with spaces and sessions
+  // rather than in the typed-graph namespace: a key is registered on a fresh
+  // deployment, before any schema has been declared.
+  LlmCredentialPutReq: 0x0076,
+  LlmCredentialPutResp: 0x00f6,
+  LlmCredentialGetReq: 0x0077,
+  LlmCredentialGetResp: 0x00f7,
+  LlmCredentialDeleteReq: 0x0078,
+  LlmCredentialDeleteResp: 0x00f8,
+  LlmCredentialVerifyReq: 0x0079,
+  LlmCredentialVerifyResp: 0x00f9,
+
   // Subscriptions (server push).
   SubscribeReq: 0x0030,
   SubscribeEvent: 0x00b0,
@@ -128,6 +140,8 @@ export const Opcode = {
   EntityUnmergeResp: 0x01b5,
   EntityTombstoneReq: 0x0138,
   EntityTombstoneResp: 0x01b8,
+  EntityTypeListReq: 0x0139,
+  EntityTypeListResp: 0x01b9,
   StatementCreateReq: 0x0140,
   StatementCreateResp: 0x01c0,
   StatementSupersedeReq: 0x0142,

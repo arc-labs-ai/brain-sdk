@@ -90,6 +90,18 @@ class Opcode(IntEnum):
     SESSION_DELETE_REQ = 0x0075
     SESSION_DELETE_RESP = 0x00F5
 
+    # Tenant LLM provider credentials. These sit with spaces and sessions
+    # rather than in the typed-graph namespace: a key is registered on a fresh
+    # deployment, before any schema has been declared.
+    LLM_CREDENTIAL_PUT_REQ = 0x0076
+    LLM_CREDENTIAL_PUT_RESP = 0x00F6
+    LLM_CREDENTIAL_GET_REQ = 0x0077
+    LLM_CREDENTIAL_GET_RESP = 0x00F7
+    LLM_CREDENTIAL_DELETE_REQ = 0x0078
+    LLM_CREDENTIAL_DELETE_RESP = 0x00F8
+    LLM_CREDENTIAL_VERIFY_REQ = 0x0079
+    LLM_CREDENTIAL_VERIFY_RESP = 0x00F9
+
     # Transactions.
     TXN_BEGIN = 0x0040
     TXN_BEGIN_RESP = 0x00C0
@@ -140,6 +152,8 @@ class Opcode(IntEnum):
     ENTITY_UNMERGE_RESP = 0x01B5
     ENTITY_TOMBSTONE_REQ = 0x0138
     ENTITY_TOMBSTONE_RESP = 0x01B8
+    ENTITY_TYPE_LIST_REQ = 0x0139
+    ENTITY_TYPE_LIST_RESP = 0x01B9
     STATEMENT_CREATE_REQ = 0x0140
     STATEMENT_CREATE_RESP = 0x01C0
     STATEMENT_GET_REQ = 0x0141

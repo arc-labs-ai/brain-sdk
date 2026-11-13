@@ -163,6 +163,38 @@ export const codecs: Record<string, Codec> = {
     t.decodeSessionDeleteResponse,
     t.encodeSessionDeleteResponse,
   ),
+  req_llm_credential_put: payloadRoundTrip(t.decodeLlmCredentialPut, t.encodeLlmCredentialPut),
+  resp_llm_credential_put: payloadRoundTrip(
+    t.decodeLlmCredentialPutResponse,
+    t.encodeLlmCredentialPutResponse,
+  ),
+  req_llm_credential_get: payloadRoundTrip(t.decodeLlmCredentialGet, t.encodeLlmCredentialGet),
+  resp_llm_credential_get: payloadRoundTrip(
+    t.decodeLlmCredentialGetResponse,
+    t.encodeLlmCredentialGetResponse,
+  ),
+  // The absent arm is pinned separately: `null` is the state a namespace sits
+  // in before it registers anything, so its encoding is contract.
+  resp_llm_credential_get_absent: payloadRoundTrip(
+    t.decodeLlmCredentialGetResponse,
+    t.encodeLlmCredentialGetResponse,
+  ),
+  req_llm_credential_delete: payloadRoundTrip(
+    t.decodeLlmCredentialDelete,
+    t.encodeLlmCredentialDelete,
+  ),
+  resp_llm_credential_delete: payloadRoundTrip(
+    t.decodeLlmCredentialDeleteResponse,
+    t.encodeLlmCredentialDeleteResponse,
+  ),
+  req_llm_credential_verify: payloadRoundTrip(
+    t.decodeLlmCredentialVerify,
+    t.encodeLlmCredentialVerify,
+  ),
+  resp_llm_credential_verify: payloadRoundTrip(
+    t.decodeLlmCredentialVerifyResponse,
+    t.encodeLlmCredentialVerifyResponse,
+  ),
   resp_materialize_procedural: payloadRoundTrip(
     t.decodeMaterializeProceduralResponse,
     t.encodeMaterializeProceduralResponse,
@@ -200,6 +232,7 @@ export const codecs: Record<string, Codec> = {
     t.decodeGetCapabilitiesResponse,
     t.encodeGetCapabilitiesResponse,
   ),
+  req_entity_type_list: payloadRoundTrip(t.decodeEntityTypeList, t.encodeEntityTypeList),
   req_extractor_list: payloadRoundTrip(t.decodeExtractorList, t.encodeExtractorList),
 
   req_entity_get: payloadRoundTrip(t.decodeEntityGet, t.encodeEntityGet),
@@ -273,6 +306,7 @@ export const codecs: Record<string, Codec> = {
   req_schema_replace: payloadRoundTrip(t.decodeSchemaReplace, t.encodeSchemaReplace),
   req_schema_drop: payloadRoundTrip(t.decodeSchemaDrop, t.encodeSchemaDrop),
   req_schema_upload_act_as_grant: payloadRoundTrip(t.decodeSchemaUpload, t.encodeSchemaUpload),
+  req_schema_upload_space_scope: payloadRoundTrip(t.decodeSchemaUpload, t.encodeSchemaUpload),
   req_schema_get_act_as: payloadRoundTrip(t.decodeSchemaGet, t.encodeSchemaGet),
   req_schema_list_act_as: payloadRoundTrip(t.decodeSchemaList, t.encodeSchemaList),
   req_schema_validate_act_as: payloadRoundTrip(t.decodeSchemaValidate, t.encodeSchemaValidate),
@@ -310,11 +344,21 @@ export const codecs: Record<string, Codec> = {
   req_query_trace: payloadRoundTrip(t.decodeQueryTrace, t.encodeQueryTrace),
   resp_query_explain: payloadRoundTrip(t.decodeQueryExplainResponse, t.encodeQueryExplainResponse),
   resp_query_trace: payloadRoundTrip(t.decodeQueryTraceResponse, t.encodeQueryTraceResponse),
+  resp_entity_type_list: payloadRoundTrip(
+    t.decodeEntityTypeListResponse,
+    t.encodeEntityTypeListResponse,
+  ),
   resp_extractor_list: payloadRoundTrip(
     t.decodeExtractorListResponse,
     t.encodeExtractorListResponse,
   ),
   resp_subscribe_event: payloadRoundTrip(t.decodeSubscriptionEvent, t.encodeSubscriptionEvent),
+  // The populated StageCompleted form, so the extractor detail's own keys are
+  // pinned across languages and not only the event's.
+  resp_subscribe_event_stage: payloadRoundTrip(
+    t.decodeSubscriptionEvent,
+    t.encodeSubscriptionEvent,
+  ),
 
   resp_pong: payloadRoundTrip(t.decodePong, t.encodePong),
   resp_server_ping: payloadRoundTrip(t.decodeServerPing, t.encodeServerPing),

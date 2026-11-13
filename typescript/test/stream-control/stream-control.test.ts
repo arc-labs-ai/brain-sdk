@@ -30,6 +30,7 @@ import {
   encodeCancelStreamAck,
   encodeSchemaReplaceResponse,
   encodeWelcome,
+  SchemaScope,
 } from "../../src/wire/types.js";
 
 /** The stream the client asks the server to stop. */
@@ -151,6 +152,7 @@ describe("stream control", () => {
       const replaced = await client.replaceSchema({
         schemaDocument: "entity Person {}",
         forceDropExisting: true,
+        scope: SchemaScope.Namespace,
         requestId: newId(),
       });
       expect(replaced.schemaVersion).toBe(4);

@@ -41,6 +41,7 @@ import {
   encodeSchemaListResponse,
   encodeTxnAbortResponse,
   encodeWelcome,
+  SchemaScope,
 } from "../../src/wire/types.js";
 
 const TXN_ID = new Uint8Array(16).fill(0x77);
@@ -280,6 +281,7 @@ describe("schema-drop over a mock server", () => {
         targetKind: 0,
         targetName: "likes",
         force: false,
+        scope: SchemaScope.Namespace,
         requestId: newId(),
       });
       expect(dropped.dropped).toBe(true);
@@ -292,6 +294,7 @@ describe("schema-drop over a mock server", () => {
         targetKind: 0,
         targetName: "likes",
         force: false,
+        scope: SchemaScope.Namespace,
         requestId: newId(),
       });
       expect(
