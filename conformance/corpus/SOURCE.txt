@@ -1,8 +1,15 @@
 Corpus vendored from arc-labs-ai/brain-db
-commit: ee71f9569c54d5730792bacc7b1cda3af9461fc0
-date: 2026-08-31
+commit: 4e8ed12aa34a924b8fb434c3c14e8f13a1198d31
+date: 2026-11-13
 
-req_schema_drop / resp_schema_drop added at this commit for the new
+req_entity_type_list / resp_entity_type_list added at this commit for the
+new ENTITY_TYPE_LIST opcode (0x0139 / 0x01B9, brain-db 4e8ed12a), copied
+byte-for-byte from the server corpus. The request vector is a single `a0`,
+pinning the empty-CBOR-map encoding of a selector-only request; the
+response carries a declared built-in and a coined tenant type, so the
+`declared` flag is pinned in both states.
+
+req_schema_drop / resp_schema_drop added at an earlier commit for the
 SCHEMA_DROP opcode (0x0125 / 0x01A5, brain-db ee71f956), copied
 byte-for-byte from the server corpus.
 
