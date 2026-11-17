@@ -93,6 +93,7 @@ import type {
   SubscribeQuery,
   SupersedeRelationResult,
   SupersedeStatementResult,
+  TestLlmCredentialInput,
   TombstoneEntityQuery,
   TombstoneRelationQuery,
   TombstoneResult,
@@ -108,9 +109,12 @@ import type {
 /**
  * Retry policy for the HTTP tier — applied only to idempotent verbs (`encode`,
  * `whoami`, `capabilities`). Transport/timeout errors (`status === 0`), HTTP
- * `503` and `429` (rate limited) are retried; every other status is
- * terminal. The backoff grows exponentially from `baseDelayMs` (100ms, 200ms,
- * …), capped at `maxDelayMs`; a server `Retry-After` hint overrides it.
+ * `503` and `429` responses carrying `Retry-After` are retried; a `429`
+ * without that hint and every other status are terminal. The backoff grows
+ * exponentially from `baseDelayMs` (100ms, 200ms, …), capped at `maxDelayMs`;
+ * a server hint overrides it. `maxAttempts` bounds total attempts, the
+ * backoff caps the hint, and a 429 without a cool-off hint never spends retry
+ * budget.
  */
 export interface HttpRetryPolicy {
   /** Total attempts including the first. `1` disables retry. */
@@ -442,13 +446,8 @@ export class BrainHttpClient {
   }
 
   /** Whether to retry after `attempt` (1-based) produced `err`. */
-  private shouldRetry(attempt: number, err: BrainHttpError): boolean {
-    // 429 is a "slow down", not a refusal: an idempotent call is safe to repeat
-    // once the server's Retry-After has passed.
-    return (
-      attempt < this.retry.maxAttempts &&
-      (err.status === 0 || err.status === 503 || err.status === 429)
-    );
+  private shouldRetry(attempt: number, err: ErrorWithRetryAfter): boolean {
+    return attempt < this.retry.maxAttempts && isRetryable(err.status, err.retryAfterMs);
   }
 
   // --- space lifecycle -----------------------------------------------------
@@ -745,7 +744,8 @@ export class BrainHttpClient {
     return this.requestOnce("PUT", "/v1/llm-credential", input);
   }
 
-  /** What is installed for this tenant. Carries no key material. */
+  /** What is installed for this tenant. The fingerprint is the provider key's
+   * last-four display suffix: sensitive key material, not an opaque identifier. */
   getLlmCredential(): Promise<LlmCredential> {
     return this.requestWithRetry("GET", "/v1/llm-credential");
   }
@@ -763,7 +763,7 @@ export class BrainHttpClient {
    * is touched, so this is safe against a namespace that already has a
    * working credential.
    */
-  testLlmCredential(input: PutLlmCredentialInput): Promise<LlmCredentialCheck> {
+  testLlmCredential(input: TestLlmCredentialInput): Promise<LlmCredentialCheck> {
     return this.requestWithRetry("POST", "/v1/llm-credential/test", input);
   }
 
@@ -840,8 +840,11 @@ export class BrainHttpClient {
       });
     }
     if (!res.ok) {
-      const { code, message, fieldErrors } = parseErrorBody(res.status, await res.text());
-      throw new BrainHttpError(res.status, code, message, { fieldErrors });
+      const { code, message, fieldErrors, engineCode } = parseErrorBody(
+        res.status,
+        await res.text(),
+      );
+      throw new BrainHttpError(res.status, code, message, { fieldErrors, engineCode });
     }
     if (!res.body) {
       throw new BrainHttpError(0, "transport", `subscribe to ${url} returned no body`);
@@ -856,6 +859,13 @@ export class BrainHttpClient {
     }
     if (this.retry.baseDelayMs <= 0) return 0;
     return Math.min(this.retry.baseDelayMs * 2 ** (attempt - 1), this.retry.maxDelayMs);
+  }
+
+  /** The sleep actually taken after a failed attempt: the schedule, jittered. */
+  private sleepDelayMs(attempt: number, retryAfterMs: number | undefined): number {
+    const delay = this.backoffMs(attempt, retryAfterMs);
+    const floor = retryAfterMs !== undefined ? Math.min(retryAfterMs, this.retry.maxDelayMs) : 0;
+    return jitteredDelayMs(delay, floor);
   }
 
   /** Run an idempotent request, retrying `503`/transport per the policy. */
@@ -873,7 +883,7 @@ export class BrainHttpClient {
       } catch (e) {
         const err = e as ErrorWithRetryAfter;
         if (err instanceof BrainHttpError && this.shouldRetry(attempt, err)) {
-          const delay = this.backoffMs(attempt, err.retryAfterMs);
+          const delay = this.sleepDelayMs(attempt, err.retryAfterMs);
           await new Promise((resolve) => setTimeout(resolve, delay));
           attempt += 1;
           continue;
@@ -892,6 +902,9 @@ export class BrainHttpClient {
   ): Promise<T> {
     const url = path + encodeQuery(query);
     const controller = new AbortController();
+    // The deadline spans headers and body: a stalled or slow-dripping body is
+    // otherwise unbounded, and the abort signal is what makes the body read
+    // observe it.
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     const headers: Record<string, string> = {
@@ -904,40 +917,55 @@ export class BrainHttpClient {
       init.body = stringifyJsonWithBigInts(toSnakeKeys(body));
     }
 
-    let res: Response;
     try {
-      res = await this.fetchImpl(this.base + url, init);
-    } catch (e) {
-      // `cause` keeps the original error (and its stack) reachable; the message
-      // alone loses everything about where a transport failure came from.
-      //
-      // The rule below only recognises the two-argument
-      // `new Error(message, options)` shape, so it cannot see the `cause` in
-      // `BrainHttpError`'s (status, code, message, options) constructor.
-      // biome-ignore lint/style/useErrorCause: cause is passed in the options bag below
-      throw new BrainHttpError(
-        0,
-        "transport",
-        `request to ${this.base}${url} failed: ${describeThrown(e)}`,
-        { cause: e },
-      );
+      let res: Response;
+      try {
+        res = await this.fetchImpl(this.base + url, init);
+      } catch (e) {
+        // `cause` keeps the original error (and its stack) reachable; the message
+        // alone loses everything about where a transport failure came from.
+        //
+        // The rule below only recognises the two-argument
+        // `new Error(message, options)` shape, so it cannot see the `cause` in
+        // `BrainHttpError`'s (status, code, message, options) constructor.
+        // biome-ignore lint/style/useErrorCause: cause is passed in the options bag below
+        throw new BrainHttpError(
+          0,
+          "transport",
+          `request to ${this.base}${url} failed: ${describeThrown(e)}`,
+          { cause: e },
+        );
+      }
+
+      let text: string;
+      try {
+        text = await res.text();
+      } catch (e) {
+        // biome-ignore lint/style/useErrorCause: cause is passed in the options bag below
+        throw new BrainHttpError(
+          0,
+          "transport",
+          `read body from ${this.base}${url} failed: ${describeThrown(e)}`,
+          { cause: e },
+        );
+      }
+
+      if (!res.ok) {
+        const { code, message, fieldErrors, engineCode } = parseErrorBody(res.status, text);
+        const err: ErrorWithRetryAfter = new BrainHttpError(res.status, code, message, {
+          fieldErrors,
+          engineCode,
+        });
+        // Attach a server Retry-After hint for the retry scheduler. Not part of
+        // the public {status, code, message} shape.
+        const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
+        if (retryAfterMs !== undefined) err.retryAfterMs = retryAfterMs;
+        throw err;
+      }
+      return (text ? decodeJsonBody(text) : undefined) as T;
     } finally {
       clearTimeout(timer);
     }
-
-    const text = await res.text();
-    if (!res.ok) {
-      const { code, message, fieldErrors } = parseErrorBody(res.status, text);
-      const err: ErrorWithRetryAfter = new BrainHttpError(res.status, code, message, {
-        fieldErrors,
-      });
-      // Attach a server Retry-After hint for the retry scheduler. Not part of
-      // the public {status, code, message} shape.
-      const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
-      if (retryAfterMs !== undefined) err.retryAfterMs = retryAfterMs;
-      throw err;
-    }
-    return (text ? decodeJsonBody(text) : undefined) as T;
   }
 }
 
@@ -950,10 +978,24 @@ function newIdempotencyKey(): string {
     .slice(2)}`;
 }
 
+/** Return a full-jitter delay, never earlier than the server's floor. */
+export function jitteredDelayMs(delayMs: number, floorMs: number): number {
+  const floor = Math.min(floorMs, delayMs);
+  if (delayMs <= floor) return floor;
+  return floor + Math.random() * (delayMs - floor);
+}
+
+function isRetryable(status: number, retryAfterMs: number | undefined): boolean {
+  // maxAttempts bounds total attempts, the backoff caps Retry-After, and a
+  // 429 without a cool-off hint never spends retry budget.
+  return status === 0 || status === 503 || (status === 429 && retryAfterMs !== undefined);
+}
+
 /**
  * Read an error body in either shape a Brain HTTP server sends: brain-edge's
  * `{ error: { code, message } }`, or the cloud gateway's RFC 9457
- * `application/problem+json` (`{ code, title, detail, errors[] }`).
+ * `application/problem+json` (`{ code, title, detail, errors[] }`). A summary
+ * that names nothing is replaced by the fields; a real message is kept.
  */
 function parseErrorBody(
   status: number,
@@ -962,37 +1004,51 @@ function parseErrorBody(
   code: string;
   message: string;
   fieldErrors: { field: string; code?: string; message: string }[];
+  engineCode?: string | undefined;
 } {
   let code = "http_error";
   let message = text || `HTTP ${status}`;
   let fieldErrors: { field: string; code?: string; message: string }[] = [];
+  let engineCode: string | undefined;
   try {
     const parsed = JSON.parse(text) as Record<string, unknown> | null;
-    const nested = parsed?.error as { code?: string; message?: string } | undefined;
+    const nested = parsed?.error as
+      | {
+          code?: string;
+          message?: string;
+          engine_code?: string;
+          errors?: unknown;
+        }
+      | undefined;
     if (nested && typeof nested === "object") {
       code = nested.code ?? code;
       message = nested.message ?? message;
+      engineCode = typeof nested.engine_code === "string" ? nested.engine_code : undefined;
+      fieldErrors = parseFieldErrors(nested.errors);
     } else if (parsed && typeof parsed.code === "string") {
       code = parsed.code;
       const detail = typeof parsed.detail === "string" ? parsed.detail : undefined;
       const title = typeof parsed.title === "string" ? parsed.title : undefined;
       message = detail ?? title ?? message;
-      if (Array.isArray(parsed.errors)) {
-        fieldErrors = (parsed.errors as Record<string, unknown>[])
-          .filter((e) => typeof e.field === "string" && typeof e.message === "string")
-          .map((e) => ({
-            field: e.field as string,
-            ...(typeof e.code === "string" ? { code: e.code } : {}),
-            message: e.message as string,
-          }));
+      fieldErrors = parseFieldErrors(parsed.errors);
+      if (fieldErrors.length > 0) {
         // "one or more fields are invalid" says nothing; name the fields.
-        if (fieldErrors.length > 0) {
-          message = fieldErrors.map((e) => `${e.field}: ${e.message}`).join("; ");
-        }
+        message = fieldErrors.map((e) => `${e.field}: ${e.message}`).join("; ");
       }
     }
   } catch {
     // not JSON — keep the raw text
   }
-  return { code, message, fieldErrors };
+  return { code, message, fieldErrors, engineCode };
+}
+
+function parseFieldErrors(raw: unknown): { field: string; code?: string; message: string }[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Record<string, unknown>[])
+    .filter((e) => typeof e.field === "string" && typeof e.message === "string")
+    .map((e) => ({
+      field: e.field as string,
+      ...(typeof e.code === "string" ? { code: e.code } : {}),
+      message: e.message as string,
+    }));
 }

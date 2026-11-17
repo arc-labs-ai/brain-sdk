@@ -31,9 +31,9 @@ use super::types::{
     SchemaReplaceInput, SchemaReplaceResult, SchemaUploadInput, SchemaUploadResult,
     SchemaValidateInput, SchemaValidateResult, SessionErased, SessionProvision, SpaceErased,
     SpaceProvision, StatementDetail, StatementHistoryQuery, StatementHistoryResult, SubscribeQuery,
-    SupersedeRelationResult, SupersedeStatementResult, TombstoneEntityQuery,
-    TombstoneRelationQuery, TombstoneResult, TraverseInput, TraverseResult, UnlinkInput,
-    UnlinkResult, UnmergeEntityResult, UpdateEntityInput, Whoami,
+    SupersedeRelationResult, SupersedeStatementResult, TestLlmCredentialInput,
+    TombstoneEntityQuery, TombstoneRelationQuery, TombstoneResult, TraverseInput, TraverseResult,
+    UnlinkInput, UnlinkResult, UnmergeEntityResult, UpdateEntityInput, Whoami,
 };
 
 /// The default edge base URL (self-host).
@@ -85,12 +85,29 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
 }
 
 /// An async HTTP client for the Brain edge.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct BrainHttpClient {
     base: String,
     api_key: String,
     http: reqwest::Client,
     retry: HttpRetryPolicy,
+}
+
+/// Redacting `Debug`, written by hand rather than derived.
+///
+/// The client holds the bearer key for the lifetime of the process, which
+/// makes it the likeliest credential in the SDK to reach a log: clients get
+/// printed in connection errors, in assertion failures and in panic payloads
+/// long after this file was last read. The base URL and retry policy stay
+/// visible — they are what a reader is actually trying to see.
+impl std::fmt::Debug for BrainHttpClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrainHttpClient")
+            .field("base", &self.base)
+            .field("api_key", &"[redacted]")
+            .field("retry", &self.retry)
+            .finish_non_exhaustive()
+    }
 }
 
 impl BrainHttpClient {
@@ -984,7 +1001,10 @@ impl BrainHttpClient {
         .await
     }
 
-    /// What is installed for this tenant. Carries no key material.
+    /// What is installed for this tenant. The fingerprint is the provider
+    /// key's last four characters, verbatim, so it is a small amount of real
+    /// key material and must be treated as sensitive rather than as an opaque
+    /// identifier.
     pub async fn get_llm_credential(&self) -> Result<LlmCredential, BrainHttpError> {
         self.send::<(), _>(reqwest::Method::GET, "/v1/llm-credential", None, true)
             .await
@@ -1002,7 +1022,7 @@ impl BrainHttpClient {
     /// has a working credential.
     pub async fn test_llm_credential(
         &self,
-        input: &PutLlmCredentialInput,
+        input: &TestLlmCredentialInput,
     ) -> Result<LlmCredentialCheck, BrainHttpError> {
         self.send(
             reqwest::Method::POST,
@@ -1134,8 +1154,8 @@ impl BrainHttpClient {
             {
                 Ok(value) => return Ok(value),
                 Err((err, retry_after)) => {
-                    if idempotent && self.retry.should_retry(attempt, &err) {
-                        tokio::time::sleep(self.retry.backoff(attempt, retry_after)).await;
+                    if idempotent && self.retry.should_retry(attempt, &err, retry_after) {
+                        tokio::time::sleep(self.retry.sleep_delay(attempt, retry_after)).await;
                         attempt += 1;
                     } else {
                         return Err(err);
@@ -1193,5 +1213,19 @@ impl BrainHttpClient {
                 None,
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod credential_redaction_tests {
+    use super::BrainHttpClient;
+
+    #[test]
+    fn debug_hides_the_bearer_key_and_keeps_the_base_url() {
+        let client = BrainHttpClient::new("sk-live-DO-NOT-LOG", "https://edge.example");
+        let shown = format!("{client:?}");
+        assert!(!shown.contains("sk-live-DO-NOT-LOG"), "{shown}");
+        assert!(shown.contains("https://edge.example"), "{shown}");
+        assert!(shown.contains("[redacted]"), "{shown}");
     }
 }

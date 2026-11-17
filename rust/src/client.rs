@@ -9,14 +9,20 @@
 //! [`crate::retry::with_retry`]; the stable `request_id` each builder mints
 //! makes the resend idempotent server-side.
 
+use std::io::Cursor;
 use std::net::SocketAddr;
+use std::sync::{Arc, Once};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use rustls::pki_types::ServerName;
+use rustls::{ClientConfig as RustlsClientConfig, RootCertStore};
 use tokio::net::TcpStream;
+use tokio_rustls::TlsConnector;
 
 use crate::error::{BrainError, Result};
 use crate::mux::HandshakeOutcome;
 use crate::mux::{MuxConnection, Subscription};
+use crate::transport::BrainStream;
 use crate::wire::cbor::{f32_slice_to_le_bytes, from_cbor_bytes, to_cbor_bytes};
 use crate::wire::opcode::Opcode;
 use crate::wire::types::{
@@ -89,12 +95,27 @@ pub const DEFAULT_DERIVED_WRITE_TIMEOUT: Duration = Duration::from_secs(120);
 /// anonymous mode. The credential is the connection's whole identity — the
 /// server resolves `(namespace, space, permissions)` from it and refuses any
 /// connection it cannot resolve.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Auth {
     /// A shared bearer token.
     Token(Vec<u8>),
     /// An mTLS subject claim.
     Mtls(MtlsClaim),
+}
+
+/// Redacting `Debug`, written by hand rather than derived.
+///
+/// The token IS the connection's identity, so anything that prints it hands
+/// the reader a working credential. Configs get dumped into startup banners
+/// and connection-failure messages, which is exactly where this would land.
+/// The mTLS variant prints through [`MtlsClaim`], which redacts itself.
+impl std::fmt::Debug for Auth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Auth::Token(_) => f.debug_tuple("Token").field(&"[redacted]").finish(),
+            Auth::Mtls(claim) => f.debug_tuple("Mtls").field(claim).finish(),
+        }
+    }
 }
 
 impl Auth {
@@ -117,6 +138,10 @@ impl Auth {
 /// the mandatory credential and fills the rest with sensible defaults (wire
 /// version 1, streaming advertised). There is no `Default`: a connection with
 /// no credential cannot exist.
+///
+/// The derived `Debug` is safe to keep: the credential redacts itself in
+/// [`Auth`], so every field here can stay visible. Any new field that carries
+/// secret material must redact at its own type, not here.
 #[derive(Clone, Debug)]
 pub struct ClientConfig {
     /// Free-form client identifier sent in HELLO.
@@ -137,6 +162,74 @@ pub struct ClientConfig {
     /// asynchronous half of a write. Everything else keeps `request_timeout`;
     /// see [`DEFAULT_DERIVED_WRITE_TIMEOUT`] for the measurements behind it.
     pub derived_write_timeout: Option<Duration>,
+    /// Optional TLS transport settings. `None` keeps plaintext TCP as the
+    /// default for compatibility with existing deployments.
+    pub tls: Option<TlsConfig>,
+}
+
+/// TLS settings for the raw Brain wire connection.
+#[derive(Clone, Debug)]
+pub struct TlsConfig {
+    /// An additional PEM-encoded CA certificate or self-signed root.
+    pub additional_root_pem: Option<String>,
+    /// Expected certificate name for SNI and hostname verification. Defaults
+    /// to the address passed to [`BrainClient::connect_with`].
+    pub server_name: Option<String>,
+}
+
+fn install_rustls_provider() {
+    static PROVIDER: Once = Once::new();
+    PROVIDER.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
+async fn connect_tls(
+    stream: TcpStream,
+    tls: &TlsConfig,
+    addr: &SocketAddr,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
+    install_rustls_provider();
+    let mut roots = RootCertStore::empty();
+    let native = rustls_native_certs::load_native_certs();
+    for cert in native.certs {
+        roots
+            .add(cert)
+            .map_err(|e| BrainError::Protocol(format!("invalid system trust certificate: {e}")))?;
+    }
+    if let Some(pem) = &tls.additional_root_pem {
+        let mut pem_reader = Cursor::new(pem.as_bytes());
+        let mut added = 0;
+        for cert in rustls_pemfile::certs(&mut pem_reader) {
+            let cert = cert.map_err(|e| {
+                BrainError::Protocol(format!("invalid additional TLS root certificate: {e}"))
+            })?;
+            roots.add(cert).map_err(|e| {
+                BrainError::Protocol(format!("invalid additional TLS root certificate: {e}"))
+            })?;
+            added += 1;
+        }
+        if added == 0 {
+            return Err(BrainError::Protocol(
+                "additional TLS root PEM contained no certificates".to_string(),
+            ));
+        }
+    }
+    let mut config = RustlsClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    config.alpn_protocols.push(b"brain/1".to_vec());
+    let config = Arc::new(config);
+    let name = tls
+        .server_name
+        .clone()
+        .unwrap_or_else(|| addr.ip().to_string());
+    let server_name = ServerName::try_from(name)
+        .map_err(|e| BrainError::Protocol(format!("invalid TLS server name: {e}")))?;
+    TlsConnector::from(config)
+        .connect(server_name, stream)
+        .await
+        .map_err(|e| BrainError::Io(std::io::Error::other(e)))
 }
 
 impl ClientConfig {
@@ -155,6 +248,7 @@ impl ClientConfig {
             connect_timeout: Some(Duration::from_secs(10)),
             request_timeout: Some(Duration::from_secs(30)),
             derived_write_timeout: Some(DEFAULT_DERIVED_WRITE_TIMEOUT),
+            tls: None,
         }
     }
 }
@@ -216,7 +310,7 @@ impl RecallAnswer {
 /// A connected, handshaken Brain client over a multiplexed connection. Verbs
 /// take `&self` and are safe to call concurrently from many tasks.
 pub struct BrainClient {
-    conn: MuxConnection<TcpStream>,
+    conn: MuxConnection<BrainStream>,
     connection: ConnectionInfo,
     /// Deadline a [`WaitMode::Derived`] ENCODE runs under, carried from the
     /// config so [`Self::encode`] can apply it per request.
@@ -263,13 +357,18 @@ impl BrainClient {
         // transport already writes each frame in one call.
         stream.set_nodelay(true)?;
 
+        let stream = match config.tls.as_ref() {
+            None => BrainStream::Plain(stream),
+            Some(tls) => BrainStream::Tls(Box::new(connect_tls(stream, tls, &addr).await?)),
+        };
+
         Self::handshake_over(stream, config).await
     }
 
     /// Run the handshake over an already-connected stream, returning the live
     /// multiplexed client. Factored out so the path is exercised by in-process
     /// tests over a loopback socket.
-    async fn handshake_over(stream: TcpStream, config: ClientConfig) -> Result<Self> {
+    async fn handshake_over(stream: BrainStream, config: ClientConfig) -> Result<Self> {
         let hello = HelloPayload {
             client_id: config.client_id,
             supported_versions: config.supported_versions,
@@ -936,6 +1035,8 @@ impl BrainClient {
     /// or loopback, so an SDK built without TLS can register a credential only
     /// over loopback. The key is sealed on arrival and never returned: the
     /// response carries a display fingerprint instead.
+    /// The HTTP credential-test route is an edge convenience; the wire
+    /// protocol intentionally has no probe opcode.
     pub async fn put_llm_credential(
         &self,
         request: &LlmCredentialPutRequest,
@@ -1487,7 +1588,7 @@ impl BrainClient {
     /// `unsubscribe().await` for a clean teardown. The server pushes
     /// `SUBSCRIBE_EVENT` frames until the subscription is torn down, so this
     /// does not block on a single response.
-    pub async fn subscribe(&self, request: &SubscribeRequest) -> Result<Subscription<TcpStream>> {
+    pub async fn subscribe(&self, request: &SubscribeRequest) -> Result<Subscription<BrainStream>> {
         self.conn.subscribe(request).await
     }
 
@@ -1616,5 +1717,35 @@ mod space_id_tests {
     #[test]
     fn same_space_diverges_across_namespaces() {
         assert_ne!(derive_space_id("ns_a", "u1"), derive_space_id("ns_b", "u1"));
+    }
+}
+
+#[cfg(test)]
+mod credential_redaction_tests {
+    use super::{Auth, ClientConfig};
+    use crate::wire::types::MtlsClaim;
+
+    #[test]
+    fn debug_hides_the_token_and_keeps_the_config_readable() {
+        let token = b"live-token-DO-NOT-LOG".to_vec();
+        // What a derived `Debug` would print: the bytes, not the text.
+        let leaked = format!("{token:?}");
+        let config = ClientConfig::new(Auth::Token(token));
+        let shown = format!("{config:?}");
+        assert!(!shown.contains(&leaked), "{shown}");
+        assert!(shown.contains("[redacted]"), "{shown}");
+        assert!(shown.contains("connect_timeout"), "{shown}");
+    }
+
+    #[test]
+    fn debug_hides_the_mtls_fingerprint_and_keeps_the_subject() {
+        let claim = MtlsClaim {
+            cert_fingerprint: [0xAB; 32],
+            asserted_subject: "svc/ingest".to_string(),
+        };
+        let leaked = format!("{:?}", claim.cert_fingerprint);
+        let shown = format!("{:?}", Auth::Mtls(claim));
+        assert!(!shown.contains(&leaked), "{shown}");
+        assert!(shown.contains("svc/ingest"), "{shown}");
     }
 }

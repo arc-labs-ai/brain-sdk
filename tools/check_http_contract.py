@@ -65,6 +65,7 @@ What this does NOT check, and why:
     structurally rather than by an allowlist that would rot.
 
 Usage: check_http_contract.py [contract/http-routes.json] [--root DIR]
+                              [--strict-provenance]
 """
 
 from __future__ import annotations
@@ -74,6 +75,8 @@ import json
 import re
 import sys
 from pathlib import Path
+
+from baseline_provenance import read_provenance
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -743,6 +746,7 @@ def check_fields(manifest: dict, root: Path, expected: set) -> tuple[Report, boo
 def main(argv: list[str]) -> int:
     root = ROOT
     args = []
+    strict_provenance = False
     for i, arg in enumerate(argv):
         if arg == "--root":
             if i + 1 >= len(argv):
@@ -751,10 +755,21 @@ def main(argv: list[str]) -> int:
             root = Path(argv[i + 1])
         elif i and argv[i - 1] == "--root":
             continue
+        elif arg == "--strict-provenance":
+            strict_provenance = True
         else:
             args.append(arg)
 
     manifest_path = Path(args[0]) if args else root / "contract" / "http-routes.json"
+    source_path = root / "contract" / "SOURCE.txt"
+    provenance = read_provenance(source_path)
+    print("── Vendored HTTP contract baseline")
+    print(f"   provenance: {provenance.summary(source_path)}")
+    if provenance.status == "uncommitted":
+        print("   !!! This gate compares SDKs with an uncommitted baseline, not a deployed edge.")
+    if strict_provenance and not provenance.is_safe:
+        print("error: --strict-provenance requires a committed baseline.", file=sys.stderr)
+        return 2
     manifest = json.loads(manifest_path.read_text())
 
     if manifest.get("unparsed"):

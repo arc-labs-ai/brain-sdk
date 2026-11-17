@@ -71,10 +71,17 @@ impl It {
     /// return its secret string. Panics on any admin-plane failure — an
     /// integration test that cannot mint has nothing to assert.
     pub async fn mint(&self, space_id: [u8; 16]) -> String {
+        self.mint_in_namespace(space_id, &self.namespace).await
+    }
+
+    /// Mint a `FULL` data-plane token bound to a caller-selected namespace and
+    /// space, leaving the default integration namespace unchanged for existing
+    /// suites.
+    pub async fn mint_in_namespace(&self, space_id: [u8; 16], namespace: &str) -> String {
         let body = format!(
             r#"{{"space_id_hex":"{}","namespace":"{}","permissions":["FULL"]}}"#,
             hex16(&space_id),
-            self.namespace,
+            namespace,
         );
         let req = format!(
             "POST /v1/api-keys HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {secret}\r\n\
@@ -120,6 +127,18 @@ impl It {
     /// Mint a token for `space_id` and connect a client as that space.
     pub async fn connect_as(&self, space_id: [u8; 16]) -> BrainClient {
         let token = self.mint(space_id).await;
+        BrainClient::connect(self.data, Auth::Token(token.into_bytes()))
+            .await
+            .expect("connect + handshake")
+    }
+
+    /// Mint + connect as a space in a caller-selected namespace.
+    pub async fn connect_as_in_namespace(
+        &self,
+        space_id: [u8; 16],
+        namespace: &str,
+    ) -> BrainClient {
+        let token = self.mint_in_namespace(space_id, namespace).await;
         BrainClient::connect(self.data, Auth::Token(token.into_bytes()))
             .await
             .expect("connect + handshake")
@@ -184,7 +203,28 @@ pub fn skip(what: &str) {
         );
     }
     eprintln!(
-        "SKIP {what}: integration server not configured \
+        "SKIP (NOT RUN) {what}: integration server not configured \
          (set BRAIN_SDK_IT_DATA; see scripts/it-server.sh)"
     );
+}
+
+/// Return whether a plaintext-key test has explicitly opted into a colocated
+/// network namespace, or skip/fail with the reason it cannot safely run.
+pub fn loopback_opted_in(what: &str) -> bool {
+    if std::env::var("BRAIN_SDK_IT_LOOPBACK").as_deref() == Ok("1") {
+        return true;
+    }
+
+    if std::env::var("BRAIN_SDK_IT_REQUIRED").as_deref() == Ok("1") {
+        panic!(
+            "{what}: BRAIN_SDK_IT_LOOPBACK=1 is required because the test sends a \
+             plaintext provider key; run it from the server's network namespace"
+        );
+    }
+
+    eprintln!(
+        "SKIP (NOT RUN) {what}: plaintext provider-key registration requires \
+         BRAIN_SDK_IT_LOOPBACK=1 and the runner to share the server's network namespace"
+    );
+    false
 }

@@ -34,6 +34,7 @@ from brain_db_sdk.client import (
     Auth,
     ClientConfig,
     ConnectionInfo,
+    _tls_context,
     decode_pong,
 )
 from brain_db_sdk.errors import ProtocolError
@@ -257,6 +258,8 @@ class AsyncBrainClient:
             auth,
             connect_timeout=config.connect_timeout,
             request_timeout=config.request_timeout,
+            ssl_context=_tls_context(config),
+            server_name=config.tls_server_name or host,
         )
         # AUTH_OK decodes ``permissions`` as a raw map; lift it to the typed
         # form so callers get attribute access.
@@ -867,9 +870,11 @@ class AsyncBrainClient:
     ) -> LlmCredentialGetResponse:
         """What this namespace has installed (LLM_CREDENTIAL_GET).
 
-        Answers with the provider, the model and a display fingerprint, never
-        with anything a key can be rebuilt from. ``credential`` is ``None``
-        until the namespace registers one.
+        Answers with the provider, the model and the ``…`` plus the last four
+        characters of the provider key. The full key is not returned, but this
+        suffix is a small amount of key material and must be treated as
+        sensitive rather than as an opaque identifier. ``credential`` is
+        ``None`` until the namespace registers one.
         """
         return await self._unary(
             Opcode.LLM_CREDENTIAL_GET_REQ,

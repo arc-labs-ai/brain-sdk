@@ -168,6 +168,7 @@ import {
   type ExtractorListResponseFrame,
   type ForgetRequest,
   type ForgetResponse,
+  type GetCapabilitiesRequest,
   type GetCapabilitiesResponse,
   type GraphEdge,
   type GraphFetchRequest,
@@ -381,6 +382,8 @@ export interface ClientConfig {
   /** How to authenticate after WELCOME. Mandatory: a connection with no
    * credential cannot exist. */
   auth: Auth;
+  /** Enable TLS with system trust verification; `ca` adds a trusted PEM root. */
+  tls?: { ca?: string | undefined; servername?: string | undefined } | undefined;
   clientId?: string;
   supportedVersions?: number[];
   capabilities?: HelloCapabilities;
@@ -400,6 +403,7 @@ interface ResolvedConfig {
   supportedVersions: number[];
   capabilities: HelloCapabilities;
   auth: Auth;
+  tls: ClientConfig["tls"];
   connectTimeoutMs: number | undefined;
   requestTimeoutMs: number | undefined;
   derivedWriteTimeoutMs: number | undefined;
@@ -415,6 +419,7 @@ function withDefaults(config: ClientConfig): ResolvedConfig {
       serverPush: false,
     },
     auth: config.auth,
+    tls: config.tls,
     connectTimeoutMs: config.connectTimeoutMs ?? 10_000,
     requestTimeoutMs: config.requestTimeoutMs ?? 30_000,
     derivedWriteTimeoutMs: config.derivedWriteTimeoutMs ?? DEFAULT_DERIVED_WRITE_TIMEOUT_MS,
@@ -471,6 +476,7 @@ export class BrainClient {
     const { conn, outcome } = await MuxConnection.connect(host, port, hello, auth, {
       connectTimeoutMs: cfg.connectTimeoutMs,
       requestTimeoutMs: cfg.requestTimeoutMs,
+      tls: cfg.tls,
     });
     const { welcome, authOk } = outcome;
     const connection: ConnectionInfo = {
@@ -970,20 +976,19 @@ export class BrainClient {
    * Introspect the connected shard's live capabilities (GET_CAPABILITIES):
    * whether the reranker is loaded, which extractor tiers are enabled, the
    * active user schema namespaces, and the embedding dimensionality.
+   * Passing `actAs` makes the server filter `schemaNamespaces` to that
+   * tenant's effective namespace, which a shared-pool caller needs when acting
+   * for a tenant.
    */
-  async capabilities(): Promise<GetCapabilitiesResponse> {
-    const frame = await this.conn.requestOne(Opcode.GetCapabilitiesReq, encodeGetCapabilities({}));
+  async capabilities(request: GetCapabilitiesRequest = {}): Promise<GetCapabilitiesResponse> {
+    const frame = await this.conn.requestOne(
+      Opcode.GetCapabilitiesReq,
+      encodeGetCapabilities(request),
+    );
     this.expect(frame.opcode, Opcode.GetCapabilitiesResp, "GET_CAPABILITIES_RESP");
     return decodeGetCapabilitiesResponse(frame.payload);
   }
 
-  /**
-   * List the always-on extractors registered on the connected shard
-   * (EXTRACTOR_LIST). Read-only introspection: extraction is always-on, so
-   * there is no enable/disable and the request takes no arguments. Each row
-   * carries the extractor's id, namespace, name, tier kind, schema version, and
-   * creation timestamp.
-   */
   /**
    * List the entity types the caller's scope resolves (ENTITY_TYPE_LIST): the
    * built-ins, the tenant's declared types, and any the extractor coined —
@@ -998,6 +1003,13 @@ export class BrainClient {
     return decodeEntityTypeListResponse(frame.payload);
   }
 
+  /**
+   * List the always-on extractors registered on the connected shard
+   * (EXTRACTOR_LIST). Read-only introspection: extraction is always-on, so
+   * there is no enable/disable; the request carries only the optional `actAs`
+   * identity field for scoping. Each row carries the extractor's id, namespace,
+   * name, tier kind, schema version, and creation timestamp.
+   */
   async extractorList(request: ExtractorListRequest = {}): Promise<ExtractorListResponseFrame> {
     const frame = await this.conn.requestOne(Opcode.ExtractorListReq, encodeExtractorList(request));
     this.expect(frame.opcode, Opcode.ExtractorListResp, "EXTRACTOR_LIST_RESP");
@@ -1122,8 +1134,9 @@ export class BrainClient {
    *
    * The only request in the protocol that carries a plaintext provider key.
    * The server refuses it unless the connection is TLS, mTLS or loopback. The
-   * key is sealed on arrival and never returned: the response carries a
-   * display fingerprint instead.
+   * key is sealed on arrival and never returned: the response carries its
+   * last-four display suffix instead. That suffix is a small amount of key
+   * material and must be treated as sensitive, not as an opaque identifier.
    */
   async putLlmCredential(request: LlmCredentialPutRequest): Promise<LlmCredentialPutResponse> {
     const frame = await this.conn.requestOne(
@@ -1137,9 +1150,9 @@ export class BrainClient {
   /**
    * What this namespace has installed (LLM_CREDENTIAL_GET).
    *
-   * Answers with the provider, the model and a display fingerprint, never with
-   * anything a key can be rebuilt from. `credential` is `null` until the
-   * namespace registers one.
+   * Answers with the provider, the model and the key's last-four display
+   * suffix. The suffix is a small amount of sensitive key material, not an
+   * opaque identifier. `credential` is `null` until the namespace registers one.
    */
   async getLlmCredential(request: LlmCredentialGetRequest): Promise<LlmCredentialGetResponse> {
     const frame = await this.conn.requestOne(

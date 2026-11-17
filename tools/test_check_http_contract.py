@@ -382,6 +382,7 @@ def build_tree(
     rust_client: str = RUST_CLIENT,
     py_client: str = PY_CLIENT,
     ts_client: str = TS_CLIENT,
+    source: str = "commit: test-commit+uncommitted (working tree)\ndate: 2026-11-16\n",
 ) -> Path:
     files = {
         "contract/http-routes.json": json.dumps(contract or CONTRACT, indent=2),
@@ -391,6 +392,7 @@ def build_tree(
         "typescript/src/http/client.ts": ts_client,
         "python/src/brain_db_sdk/http/types.py": PY_TYPES,
         "python/src/brain_db_sdk/http/client.py": py_client,
+        "contract/SOURCE.txt": source,
     }
     for rel, body in files.items():
         path = directory / rel
@@ -399,10 +401,51 @@ def build_tree(
     return directory
 
 
-def run_gate(root: Path) -> tuple[int, str]:
+def build_drift_free_tree(directory: Path) -> Path:
+    """Build the clean baseline needed to isolate provenance behavior."""
+    contract = json.loads(json.dumps(CONTRACT))
+    contract["dtos"]["RecallBody"]["fields"] = [
+        f for f in contract["dtos"]["RecallBody"]["fields"] if f["name"] != "scope"
+    ]
+    rust = (
+        RUST_TYPES.replace("    pub include_trace: Option<bool>,\n", "")
+        .replace("    pub latency_ms: u64,\n", "")
+        .replace("    pub count: String,", "    pub count: u32,")
+    )
+    typescript = (
+        TS_TYPES.replace("  includeTrace?: boolean;\n", "")
+        .replace("  latencyMs: number;\n", "")
+        .replace("  count: string;", "  count: number;")
+    )
+    python = (
+        PY_TYPES.replace("    latency_ms: int = 0\n", "")
+        .replace("    count: str\n", "    count: int\n")
+    )
+    client = (
+        PY_CLIENT.replace("        include_trace: Optional[bool] = None,\n", "")
+        .replace(
+            '            {"query": query, "max_results": max_results, "include_trace": include_trace}\n',
+            '            {"query": query, "max_results": max_results}\n',
+        )
+    )
+    root = build_tree(
+        directory,
+        contract=contract,
+        rust_client=RUST_CLIENT,
+        py_client=client,
+        ts_client=TS_CLIENT,
+    )
+    (root / "rust/src/http/types.rs").write_text(rust)
+    (root / "typescript/src/http/types.ts").write_text(typescript)
+    (root / "python/src/brain_db_sdk/http/types.py").write_text(python)
+    return root
+
+
+def run_gate(root: Path, strict: bool = False) -> tuple[int, str]:
+    strict_arg = ["--strict-provenance"] if strict else []
     proc = subprocess.run(
         [sys.executable, str(Path(__file__).resolve().parent / "check_http_contract.py"),
-         "--root", str(root)],
+         "--root", str(root), *strict_arg],
         capture_output=True,
         text=True,
     )
@@ -729,6 +772,18 @@ class TestPieces(unittest.TestCase):
         parsed = gate.rust_types(gate.strip_comments(RUST_TYPES))
         self.assertNotIn("local_only", parsed["RecallInput"])
         self.assertEqual("type", next(k for k in parsed["ListWidgetsQuery"] if k != "limit"))
+
+    def test_uncommitted_baseline_is_reported_and_strict_mode_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_drift_free_tree(Path(tmp))
+            code, out = run_gate(root)
+            self.assertEqual(0, code, out)
+            self.assertIn("UNCOMMITTED / DIRTY source tree", out)
+            self.assertIn("uncommitted baseline", out)
+
+            strict_code, strict_out = run_gate(root, strict=True)
+            self.assertEqual(2, strict_code, strict_out)
+            self.assertIn("requires a committed baseline", strict_out)
 
     def test_typescript_comments_do_not_swallow_interface_members(self):
         # A doc comment reading `>= 1` once took the parser's depth negative and
