@@ -262,9 +262,7 @@ def test_read_side_types_round_trip() -> None:
 
     # Schema get/list/validate.
     _round_trip(SchemaGetRequest("people", 0), SchemaGetRequest)
-    _round_trip(
-        SchemaGetResponse("people", 2, "entity Person {}", [1, 2], 10, 1), SchemaGetResponse
-    )
+    _round_trip(SchemaGetResponse("people", 2, "entity Person {}", 10, 1), SchemaGetResponse)
     _round_trip(SchemaListRequest("people", 0, []), SchemaListRequest)
     _round_trip(
         SchemaListResponseFrame("people", [SchemaListItem(1, 5, 2, True)], 1, [], True),
@@ -456,7 +454,7 @@ def _serve_read_side(sock: socket.socket) -> None:
         sock,
         Opcode.SCHEMA_GET_RESP,
         f.stream_id,
-        encode_payload(SchemaGetResponse("people", 2, "entity Person {}", [], 10, 1)),
+        encode_payload(SchemaGetResponse("people", 2, "entity Person {}", 10, 1)),
     )
 
     # SCHEMA_VALIDATE (unary).

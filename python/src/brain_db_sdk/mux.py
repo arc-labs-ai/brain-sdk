@@ -19,8 +19,10 @@ from __future__ import annotations
 import contextlib
 import queue
 import socket
+import ssl
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from typing import TypeVar, Union
 
@@ -46,6 +48,14 @@ from .wire.types import (
 )
 
 HANDSHAKE_STREAM_ID = 0
+
+
+# How long a push-stream wait blocks before looping round. A subscription has no
+# deadline, but a `queue.Queue.get()` with no timeout cannot be interrupted, so
+# a script sitting in `for event in sub:` would swallow Ctrl-C. Waking once a
+# second and going straight back to waiting costs nothing and keeps the
+# interpreter's signal handling alive.
+_PUSH_WAIT_POLL_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -92,8 +102,13 @@ class MuxConnection:
         self._next_stream_id = 1
         self._id_lock = threading.Lock()
         self._closed_error: Exception | None = None
+        self._last_received = time.monotonic()
+        self._idle_watchdog_seconds: float | None = None
+        self._watchdog_stop = threading.Event()
         self._reader = threading.Thread(target=self._reader_loop, daemon=True)
+        self._watchdog = threading.Thread(target=self._watchdog_loop, daemon=True)
         self._reader.start()
+        self._watchdog.start()
 
     @classmethod
     def connect(
@@ -104,6 +119,8 @@ class MuxConnection:
         auth: AuthPayload,
         connect_timeout: float | None = 10.0,
         request_timeout: float | None = 30.0,
+        ssl_context: ssl.SSLContext | None = None,
+        server_name: str | None = None,
     ) -> tuple[MuxConnection, HandshakeOutcome]:
         """Connect to ``host:port``, run the handshake, and return the live
         connection plus the negotiated outcome.
@@ -114,6 +131,8 @@ class MuxConnection:
         connections and reader threads.
         """
         sock = socket.create_connection((host, port), timeout=connect_timeout)
+        if ssl_context is not None:
+            sock = ssl_context.wrap_socket(sock, server_hostname=server_name or host)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sock.settimeout(None)  # the reader thread blocks; per-request waits use the queue
         conn = cls(sock, request_timeout=request_timeout)
@@ -132,6 +151,10 @@ class MuxConnection:
             self._write(Opcode.HELLO, HANDSHAKE_STREAM_ID, encode_payload(hello))
             welcome_frame = self._expect(q, Opcode.WELCOME)
             welcome = decode_payload(WelcomePayload, welcome_frame.payload)
+            idle_timeout = welcome.server_features.idle_timeout_seconds
+            if idle_timeout > 0:
+                self._last_received = time.monotonic()
+                self._idle_watchdog_seconds = 2 * idle_timeout
             if welcome.chosen_version not in offered:
                 raise VersionMismatch(welcome.chosen_version, offered)
 
@@ -251,6 +274,14 @@ class MuxConnection:
 
     # ---- internals ----
 
+    def _watchdog_loop(self) -> None:
+        while not self._watchdog_stop.wait(0.1):
+            interval = self._idle_watchdog_seconds
+            if interval is not None and time.monotonic() - self._last_received >= interval:
+                self._fail_all(ConnectionClosed("connection idle timeout"))
+                self._sock.close()
+                return
+
     def _reader_loop(self) -> None:
         buf = bytearray()
         while True:
@@ -259,6 +290,7 @@ class MuxConnection:
             except Exception as exc:  # noqa: BLE001 — transport/codec failure ends the loop
                 self._fail_all(exc)
                 return
+            self._last_received = time.monotonic()
             if frame.opcode == int(Opcode.SERVER_PING):
                 # Idle-timer heartbeat: answer with CLIENT_PONG on stream 0 so
                 # the server doesn't reap an otherwise-idle connection. The
@@ -307,6 +339,7 @@ class MuxConnection:
             for q in self._routes.values():
                 q.put(_Closed(error))
             self._routes.clear()
+        self._watchdog_stop.set()
 
     def _next(self, q: _RouteQueue, timeout: float | None = None) -> Frame:
         # ``None`` means "the deadline this connection was configured with",
@@ -323,6 +356,28 @@ class MuxConnection:
         if isinstance(item, _Closed):
             raise item.error
         return item
+
+    def _next_pushed(self, q: _RouteQueue) -> Frame:
+        """Block until the next frame routed to ``q`` arrives.
+
+        No deadline: a change feed is quiet by design and may publish nothing
+        for hours, so silence is not a fault — unlike a request, where silence
+        past ``request_timeout`` means the server is not answering. Liveness
+        rides on the server's ``SERVER_PING``. The connection watchdog closes
+        a connection that receives no frame for twice the advertised idle
+        interval, so a silent dead peer wakes this wait as a transport failure.
+
+        Connection death still wakes this: the reader thread puts a ``_Closed``
+        sentinel on every live route before clearing the table.
+        """
+        while True:
+            try:
+                item = q.get(timeout=_PUSH_WAIT_POLL_SECONDS)
+            except queue.Empty:
+                continue
+            if isinstance(item, _Closed):
+                raise item.error
+            return item
 
     def _expect(self, q: _RouteQueue, expected: Opcode) -> Frame:
         frame = self._next(q)
@@ -367,9 +422,9 @@ class Subscription:
     teardown — the server then EOS-closes the event stream, which :meth:`next`
     observes as end-of-stream.
 
-    Dropping a subscription without unsubscribing leaks no route once it is
-    closed: :meth:`close` (and the context-manager exit) deregisters the route.
-    Prefer :meth:`unsubscribe` before closing so the server stops pushing.
+    A handle that goes out of scope without being closed still drops its route;
+    what it cannot do is tell the server to stop, so prefer
+    :meth:`unsubscribe` first.
     """
 
     def __init__(self, conn: MuxConnection, stream_id: int, q: _RouteQueue) -> None:
@@ -379,39 +434,61 @@ class Subscription:
         # Set once an EOS frame has been observed: the next next() returns None
         # without touching the (already-removed) route.
         self._ended = False
+        # LSN of the most recent event handed to the caller: the cursor to
+        # resume a severed feed from, as `SubscribeRequest.from_lsn`.
+        self._last_lsn: int | None = None
+        # A handle that simply goes out of scope is the common accident. On a
+        # connection meant to stay up for days, each leaked route keeps the
+        # reader appending frames into a queue nobody drains, so losing the
+        # handle must drop the route even when the caller never calls `close`.
+        self._finalizer = weakref.finalize(self, conn._deregister, stream_id)  # noqa: SLF001
 
     @property
     def stream_id(self) -> int:
         """The stream id the server pushes events on."""
         return self._stream_id
 
+    @property
+    def last_lsn(self) -> int | None:
+        """LSN of the last event this subscription delivered, or ``None`` before
+        the first one. Pass it as ``SubscribeRequest.from_lsn`` to resume a feed
+        that was cut mid-stream without re-reading what the caller already
+        saw."""
+        return self._last_lsn
+
     def next(self) -> SubscriptionEvent | None:
         """Return the next subscription event, or ``None`` once the stream has
-        ended (the server EOS-closed it, or the connection dropped).
+        completed or the handle has been closed locally.
 
-        An EOS-flagged frame carrying an event yields that event; the following
-        call returns ``None``. An EOS frame with an empty payload ends the
-        stream immediately.
+        Each pushed ``SUBSCRIBE_EVENT`` yields one event. A server ``ERROR``
+        raises :class:`ServerError`; a connection drop before the stream closes
+        raises :class:`ConnectionClosed`, because a severed feed is a failure,
+        not an ending. An EOS-flagged frame carrying an event yields that event;
+        the following call returns ``None``. An EOS frame with an empty payload
+        ends the stream immediately.
         """
         if self._ended:
             return None
         try:
-            frame = self._conn._next(self._q)  # noqa: SLF001 — same module
+            frame = self._conn._next_pushed(self._q)  # noqa: SLF001 — same module
         except ConnectionClosed:
-            self._ended = True
-            self._conn._deregister(self._stream_id)  # noqa: SLF001
-            return None
+            self._end()
+            raise
         if frame.opcode == Opcode.ERROR:
-            self._ended = True
-            self._conn._deregister(self._stream_id)  # noqa: SLF001
+            self._end()
             raise ServerError.from_response(decode_payload(ErrorResponse, frame.payload))
         if frame.flags & FLAG_EOS:
             # Last frame on the stream; mark ended and drop the route.
-            self._ended = True
-            self._conn._deregister(self._stream_id)  # noqa: SLF001
+            self._end()
             if not frame.payload:
                 return None
-        return decode_payload(SubscriptionEvent, frame.payload)
+        event = decode_payload(SubscriptionEvent, frame.payload)
+        self._last_lsn = event.lsn
+        return event
+
+    def _end(self) -> None:
+        self._ended = True
+        self._finalizer()
 
     def __iter__(self) -> Subscription:
         return self
@@ -439,8 +516,7 @@ class Subscription:
         """Deregister the subscription's route so a forgotten handle doesn't
         leak a route-table entry. Does not send UNSUBSCRIBE — call
         :meth:`unsubscribe` first for a clean shutdown."""
-        self._ended = True
-        self._conn._deregister(self._stream_id)  # noqa: SLF001
+        self._end()
 
     def __enter__(self: _SelfSub) -> _SelfSub:
         return self

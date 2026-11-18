@@ -21,7 +21,7 @@ fn budget() -> PlanBudget {
     PlanBudget {
         max_steps: MAX_STEPS,
         max_wall_time_ms: 5_000,
-        max_branches_explored: 256,
+        max_branches_explored: 32,
     }
 }
 
@@ -118,7 +118,7 @@ async fn plan_rejects_budget_over_max_traversal_depth() {
         budget: PlanBudget {
             max_steps: 11,
             max_wall_time_ms: 5_000,
-            max_branches_explored: 256,
+            max_branches_explored: 32,
         },
         strategy_hint: Some(PlanStrategy::Auto),
         session_filter: None,

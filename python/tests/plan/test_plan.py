@@ -22,7 +22,7 @@ MAX_STEPS = 8
 
 
 def _budget() -> PlanBudget:
-    return PlanBudget(max_steps=MAX_STEPS, max_wall_time_ms=5_000, max_branches_explored=256)
+    return PlanBudget(max_steps=MAX_STEPS, max_wall_time_ms=5_000, max_branches_explored=32)
 
 
 def _assert_contiguous(steps) -> None:

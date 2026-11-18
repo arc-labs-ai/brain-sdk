@@ -21,6 +21,44 @@ import * as httpEntry from "../../src/http/index.js";
 import * as entry from "../../src/index.js";
 
 describe("the package entry", () => {
+  it("declares only entry points emitted by the ESM build", () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as {
+      main?: unknown;
+      type?: unknown;
+      types?: unknown;
+      exports?: Record<string, unknown>;
+    };
+    // The manifest's entry points are a promise to consumers; without a build,
+    // tie every declared path back to the source that the ESM compiler emits.
+    expect(manifest.main).toBeUndefined();
+    expect(manifest.type).toBe("module");
+    expect(manifest.types).toBe("./dist/index.d.ts");
+
+    const declaredPaths: string[] = [manifest.types as string];
+    const collect = (value: unknown): void => {
+      if (typeof value === "string") {
+        if (value.startsWith("./dist/")) declaredPaths.push(value);
+        return;
+      }
+      if (value && typeof value === "object") {
+        for (const child of Object.values(value)) collect(child);
+      }
+    };
+    collect(manifest.exports);
+    expect(manifest.exports).toHaveProperty("./package.json");
+    expect(JSON.stringify(manifest.exports)).not.toContain('"require"');
+
+    for (const declared of declaredPaths) {
+      const source = declared
+        .replace(/^\.\/dist\//, "../../src/")
+        .replace(/\.d\.ts$/, ".ts")
+        .replace(/\.js$/, ".ts");
+      expect(() => readFileSync(new URL(source, import.meta.url), "utf8")).not.toThrow();
+    }
+  });
+
   // Spelled out rather than snapshotted: a snapshot of a public surface
   // records whatever happened, and updating it is one keypress. A list is a
   // decision, and removing a line from it is a reviewable act.

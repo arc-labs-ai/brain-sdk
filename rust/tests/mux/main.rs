@@ -101,6 +101,124 @@ async fn serve_two_concurrent(mut sock: TcpStream) {
     assert_eq!(bye.opcode, Opcode::Bye as u16);
 }
 
+/// Complete the handshake, accept one request, and keep the connection open
+/// without producing any further frames. This models a peer that has vanished
+/// without closing its socket, so the client must rely on the advertised
+/// liveness promise rather than TCP teardown.
+async fn serve_silently_after_handshake(mut sock: TcpStream, idle_timeout_seconds: u32) {
+    let mut buf = Vec::new();
+
+    let hello_frame = read_frame(&mut sock, &mut buf).await.expect("hello");
+    let hello: HelloPayload = from_cbor_bytes(&hello_frame.payload).expect("decode hello");
+    let welcome = WelcomePayload {
+        server_id: "mock-brain".to_string(),
+        chosen_version: 1,
+        connection_id: [0xAB; 16],
+        capabilities: hello.capabilities,
+        server_features: ServerFeatures {
+            max_payload_size: 1 << 20,
+            max_concurrent_streams: 256,
+            idle_timeout_seconds,
+            auth_methods: vec![],
+        },
+    };
+    write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
+
+    let _auth = read_frame(&mut sock, &mut buf).await.expect("auth");
+    let auth_ok = AuthOkPayload {
+        space_id: SERVER_AGENT,
+        bound_shard_id: 0,
+        permissions: SpacePermissions {
+            can_act_as: false,
+            can_encode: true,
+            can_recall: true,
+            can_plan: true,
+            can_reason: true,
+            can_forget: true,
+            can_admin: false,
+        },
+        namespace: String::new(),
+        server_time_unix_nanos: 1,
+    };
+    write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
+
+    // Let the client issue real work, then remain silent while holding the
+    // socket open; this is the failure mode the watchdog protects callers from.
+    let _request = read_frame(&mut sock, &mut buf).await.expect("request");
+    std::future::pending::<()>().await;
+}
+
+async fn handshake_with_idle_timeout(addr: std::net::SocketAddr) -> MuxConnection<TcpStream> {
+    let stream = TcpStream::connect(addr).await.expect("connect");
+    let hello = HelloPayload {
+        client_id: "idle-watchdog-test".to_string(),
+        supported_versions: vec![1],
+        capabilities: HelloCapabilities {
+            streaming: true,
+            compression_zstd: false,
+            server_push: false,
+        },
+        client_connection_token: None,
+    };
+    let auth = AuthPayload {
+        method: brain_db_sdk::wire::types::AuthMethod::Token,
+        credentials: brain_db_sdk::wire::types::AuthCredentials::Token(b"test-token".to_vec()),
+    };
+    MuxConnection::handshake(stream, hello, auth, None)
+        .await
+        .expect("handshake")
+        .0
+}
+
+#[tokio::test]
+async fn idle_watchdog_fails_waiters_when_the_peer_stops_sending() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let server = tokio::spawn(async move {
+        let (sock, _peer) = listener.accept().await.expect("accept");
+        serve_silently_after_handshake(sock, 1).await;
+    });
+
+    let conn = handshake_with_idle_timeout(addr).await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        conn.request_one(Opcode::EncodeReq, to_cbor_bytes(&encode_request(1))),
+    )
+    .await
+    .expect("idle watchdog must finish before the test timeout");
+    let err = result.expect_err("a silent peer must not leave the request pending");
+    assert!(
+        matches!(err, brain_db_sdk::BrainError::Protocol(ref message)
+            if message.contains("no frame arrived within the idle timeout")),
+        "expected the idle-timeout close reason, got: {err}"
+    );
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn zero_idle_timeout_leaves_a_quiet_connection_alive() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let server = tokio::spawn(async move {
+        let (sock, _peer) = listener.accept().await.expect("accept");
+        serve_silently_after_handshake(sock, 0).await;
+    });
+
+    let conn = handshake_with_idle_timeout(addr).await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        conn.request_one(Opcode::EncodeReq, to_cbor_bytes(&encode_request(2))),
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "advertising zero must leave the quiet request waiting rather than killing it"
+    );
+
+    server.abort();
+}
+
 fn encode_response(req: &EncodeRequest, space_id: [u8; 16]) -> EncodeResponse {
     EncodeResponse {
         memory_id: u128::from(req.session_id),
@@ -304,13 +422,19 @@ async fn serve_subscription(mut sock: TcpStream) {
     )
     .await;
 
-    // Final EOS SUBSCRIBE_EVENT on stream N: an empty-payload terminator that
-    // closes the subscription stream. The client observes this as end-of-stream.
     let terminator = Frame::new(
         Opcode::SubscribeEvent.as_u16(),
         FLAG_EOS,
         sub_stream,
         Vec::new(),
+    );
+    // Final EOS SUBSCRIBE_EVENT on the subscription stream: Brain's terminator
+    // carries no event, and the client reads it as end-of-stream. A payload on
+    // this frame decodes as one more subscription event, so every consumer
+    // would see a phantom memory after the feed ended.
+    assert!(
+        terminator.payload.is_empty(),
+        "the subscription terminator carries no event"
     );
     write_frame(&mut sock, &terminator)
         .await
@@ -318,6 +442,55 @@ async fn serve_subscription(mut sock: TcpStream) {
 
     let bye = read_frame(&mut sock, &mut buf).await.expect("bye");
     assert_eq!(bye.opcode, Opcode::Bye as u16);
+}
+
+async fn serve_subscription_then_drop(mut sock: TcpStream) {
+    let mut buf = Vec::new();
+
+    let hello_frame = read_frame(&mut sock, &mut buf).await.expect("hello");
+    let hello: HelloPayload = from_cbor_bytes(&hello_frame.payload).expect("decode hello");
+    let welcome = WelcomePayload {
+        server_id: "mock-brain".to_string(),
+        chosen_version: 1,
+        connection_id: [0xAB; 16],
+        capabilities: hello.capabilities,
+        server_features: ServerFeatures {
+            max_payload_size: 1 << 20,
+            max_concurrent_streams: 256,
+            idle_timeout_seconds: 300,
+            auth_methods: vec![],
+        },
+    };
+    write_one(&mut sock, Opcode::Welcome, 0, &welcome).await;
+
+    let auth_frame = read_frame(&mut sock, &mut buf).await.expect("auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let auth_ok = AuthOkPayload {
+        space_id: SERVER_AGENT,
+        bound_shard_id: 0,
+        permissions: SpacePermissions {
+            can_act_as: false,
+            can_encode: true,
+            can_recall: true,
+            can_plan: true,
+            can_reason: true,
+            can_forget: true,
+            can_admin: false,
+        },
+        namespace: String::new(),
+        server_time_unix_nanos: 1,
+    };
+    write_one(&mut sock, Opcode::AuthOk, 0, &auth_ok).await;
+
+    let frame = read_frame(&mut sock, &mut buf).await.expect("subscribe");
+    assert_eq!(frame.opcode, Opcode::SubscribeReq as u16);
+    let event = Frame::new(
+        Opcode::SubscribeEvent.as_u16(),
+        0,
+        frame.stream_id,
+        to_cbor_bytes(&sample_event(1)),
+    );
+    write_frame(&mut sock, &event).await.expect("write event");
 }
 
 #[test]
@@ -407,6 +580,11 @@ async fn subscription_drains_events_unsubscribes_and_leaks_no_route() {
     assert_eq!(e1.lsn, 1);
     let e2 = sub.next().await.expect("event 2").expect("event 2 ok");
     assert_eq!(e2.lsn, 2);
+    assert_eq!(
+        sub.last_lsn(),
+        Some(2),
+        "the handle carries the resume cursor"
+    );
 
     // Clean teardown: UNSUBSCRIBE on a fresh stream; server EOS-closes the
     // subscription stream in response.
@@ -423,6 +601,71 @@ async fn subscription_drains_events_unsubscribes_and_leaks_no_route() {
     assert_eq!(conn.route_count(), 0, "no leaked routes after teardown");
 
     conn.send_bye().await.expect("bye");
+    server.await.expect("server task");
+}
+
+// ===========================================================================
+// A broken feed must report failure, not completion: treating a severed feed
+// as finished makes the consumer stop reading while the server is still
+// producing events, and nothing else reports that the feed was lost.
+// ===========================================================================
+
+#[tokio::test]
+async fn a_feed_cut_mid_stream_is_an_error_not_an_ending() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let server = tokio::spawn(async move {
+        let (sock, _peer) = listener.accept().await.expect("accept");
+        serve_subscription_then_drop(sock).await;
+    });
+
+    let stream = TcpStream::connect(addr).await.expect("connect");
+    let hello = HelloPayload {
+        client_id: "sub-drop-test".to_string(),
+        supported_versions: vec![1],
+        capabilities: HelloCapabilities {
+            streaming: true,
+            compression_zstd: false,
+            server_push: true,
+        },
+        client_connection_token: None,
+    };
+    let auth = AuthPayload {
+        method: brain_db_sdk::wire::types::AuthMethod::Token,
+        credentials: brain_db_sdk::wire::types::AuthCredentials::Token(b"test-token".to_vec()),
+    };
+    let (conn, _outcome) = MuxConnection::handshake(stream, hello, auth, None)
+        .await
+        .expect("handshake");
+    let mut sub = conn
+        .subscribe(&SubscribeRequest {
+            filter: SubscriptionFilter {
+                session_filter: None,
+                kinds: None,
+                similar_to: None,
+                spaces: None,
+                memory_ids: None,
+            },
+            include_history: false,
+            from_lsn: None,
+            max_inflight: 8,
+            act_as: None,
+        })
+        .await
+        .expect("subscribe");
+
+    let event = sub.next().await.expect("event").expect("event ok");
+    assert_eq!(event.lsn, 1);
+    assert!(
+        matches!(sub.next().await, Some(Err(_))),
+        "a severed feed is an error"
+    );
+    assert_eq!(
+        sub.last_lsn(),
+        Some(1),
+        "the handle carries the resume cursor"
+    );
+
     server.await.expect("server task");
 }
 

@@ -92,7 +92,8 @@ def test_create_get_supersede_tombstone(it):
         tombstoned = client.tombstone_relation(
             RelationTombstoneRequest(
                 relation_id=superseded.new_relation_id,
-                reason="merged duplicate",
+                reason=2,
+                reason_message="merged duplicate",
                 request_id=new_id(),
             )
         )

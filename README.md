@@ -7,7 +7,7 @@ Brain stores what your application learns and hands it back when something is re
 ```bash
 cargo add brain-db-sdk        # Rust  — MSRV 1.75, needs a tokio runtime
 pip install brain-db-sdk      # Python — 3.10+
-npm install @brain-db/sdk     # TypeScript — Node 18+, ESM only
+npm install @brain-db/sdk     # TypeScript — Node 24+, ESM only
 ```
 
 | Dir | Registry | Package | Import |
