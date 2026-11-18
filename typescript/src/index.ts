@@ -45,6 +45,8 @@ export {
   isActAsDenied,
   isLlmCredentialMissing,
   isLlmCredentialUnavailable,
+  isShardStorageFaulted,
+  invalidField,
 } from "./errors.js";
 
 // HTTP tier — the hosted-edge client (talks to `brain-edge` / the Arc gateway).

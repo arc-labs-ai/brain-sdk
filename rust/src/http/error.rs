@@ -25,9 +25,10 @@ pub struct BrainHttpError {
     /// Human-readable message.
     pub message: String,
     /// Per-field problems on a validation failure, when the server reports
-    /// them. Empty for every other failure, and for a server that answers with
-    /// the edge's `{ error: { code, message } }` envelope.
+    /// them. Empty for every other failure.
     pub field_errors: Vec<FieldError>,
+    /// Engine-specific code from the edge envelope, when present.
+    pub engine_code: Option<String>,
 }
 
 impl BrainHttpError {
@@ -40,6 +41,7 @@ impl BrainHttpError {
             code: "config".into(),
             message: message.into(),
             field_errors: Vec::new(),
+            engine_code: None,
         }
     }
 
@@ -50,16 +52,19 @@ impl BrainHttpError {
             code: "transport".into(),
             message: message.into(),
             field_errors: Vec::new(),
+            engine_code: None,
         }
     }
 
     /// Read an error body in either shape a Brain HTTP server sends:
     /// brain-edge's `{ "error": { code, message } }`, or the cloud gateway's
     /// RFC 9457 `application/problem+json` (`{ code, title, detail, errors[] }`).
-    /// Falls back to the raw body when it is neither.
+    /// A summary that names nothing is replaced by the fields; a real message
+    /// is kept.
     pub(crate) fn from_body(status: u16, body: &str) -> Self {
         let (mut code, mut message) = ("http_error".to_string(), format!("HTTP {status}"));
         let mut field_errors = Vec::new();
+        let mut engine_code = None;
         match serde_json::from_str::<serde_json::Value>(body) {
             Ok(v) => {
                 if let Some(err) = v.get("error").filter(|e| e.is_object()) {
@@ -69,6 +74,11 @@ impl BrainHttpError {
                     if let Some(m) = err.get("message").and_then(|m| m.as_str()) {
                         message = m.to_string();
                     }
+                    engine_code = err
+                        .get("engine_code")
+                        .and_then(|c| c.as_str())
+                        .map(str::to_string);
+                    field_errors = parse_field_errors(err.get("errors"));
                 } else if let Some(c) = v.get("code").and_then(|c| c.as_str()) {
                     code = c.to_string();
                     if let Some(m) = v
@@ -99,6 +109,7 @@ impl BrainHttpError {
             code,
             message,
             field_errors,
+            engine_code,
         }
     }
 }
@@ -142,6 +153,18 @@ mod tests {
             (404, "not_found", "no")
         );
         assert_eq!(e.field_errors, [] as [FieldError; 0]);
+        assert_eq!(e.engine_code, None);
+    }
+
+    #[test]
+    fn edge_field_errors_and_engine_code_keep_the_engine_message() {
+        let e = BrainHttpError::from_body(
+            400,
+            r#"{"error":{"code":"bad_request","engine_code":"invalid_argument","message":"text must not be empty","errors":[{"field":"text","code":"invalid_argument","message":"text must not be empty"}]}}"#,
+        );
+        assert_eq!(e.field_errors[0].field, "text");
+        assert_eq!(e.engine_code.as_deref(), Some("invalid_argument"));
+        assert_eq!(e.message, "text must not be empty");
     }
 
     #[test]

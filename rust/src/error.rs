@@ -95,6 +95,20 @@ impl BrainError {
     /// transport drop or a resource-exhaustion / unavailable server verdict
     /// is retryable; a malformed-input or auth verdict is not. Consumed by
     /// [`crate::retry::with_retry`].
+    ///
+    /// # This is an allowlist on purpose
+    ///
+    /// Only `ResourceExhausted` and `Unavailable` are retryable; **every other
+    /// category, including one this build has never heard of, is not**. Do not
+    /// rewrite this as a denylist of non-retryable categories. The server adds
+    /// categories over time, and a denylist would make each new one retryable
+    /// by default — the worst possible default, because a category that is new
+    /// *and* terminal would then be retried forever.
+    ///
+    /// [`ErrorCategoryWire::OperatorIntervention`] is exactly that case: it
+    /// means a latched fault that only operator action clears, and it is
+    /// correctly non-retryable here without needing its own arm. See
+    /// [`Self::is_shard_storage_faulted`].
     #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
@@ -144,6 +158,61 @@ impl BrainError {
     #[must_use]
     pub fn is_llm_credential_unavailable(&self) -> bool {
         self.has_code(ErrorCodeWire::LlmCredentialUnavailable)
+    }
+
+    /// Whether the shard's write-ahead log has latched into a terminal
+    /// faulted state ([`ErrorCodeWire::ShardStorageFaulted`], `0x00A0`,
+    /// category [`ErrorCategoryWire::OperatorIntervention`]).
+    ///
+    /// **Terminal, and not transient.** The shard keeps answering this way
+    /// until its process is restarted, so retrying cannot make progress — only
+    /// operator action clears it. [`Self::is_retryable`] already returns
+    /// `false` for it.
+    ///
+    /// Deliberately distinct from `ShardUnavailable` / `Restarting` /
+    /// `Maintenance`, which sit in the `Unavailable` category and *do* clear on
+    /// their own. Surface this one to a human as an outage needing attention
+    /// rather than as a blip, and do not fold it into a generic "server busy"
+    /// path.
+    #[must_use]
+    pub fn is_shard_storage_faulted(&self) -> bool {
+        self.has_code(ErrorCodeWire::ShardStorageFaulted)
+    }
+
+    /// For a validation refusal, the name of the request field the server
+    /// rejected — `Some("text")`, `Some("vector")`, and so on — or `None` when
+    /// this is not an `InvalidArgument` or the server named no field.
+    ///
+    /// # Why this exists
+    ///
+    /// `InvalidArgument` (`0x0040`) is now the *only* code for a field-level
+    /// refusal. Nine narrower codes used to carry that information in the code
+    /// itself and were removed; the conditions they named now arrive as
+    /// `InvalidArgument` with the field in
+    /// [`crate::wire::types::ErrorDetails`]:
+    ///
+    /// | condition | field |
+    /// |---|---|
+    /// | `text` empty or over the size cap | "text" |
+    /// | a client tried to set a memory `kind` | "kind" |
+    /// | vector wrong dimension, non-finite, or wrong L2 norm | "vector" |
+    /// | `model_fingerprint` mismatch | "model_fingerprint" |
+    /// | plan or reason budget out of range | that budget's field name |
+    ///
+    /// So code that read `if code == TextTooLarge` becomes
+    /// `if err.invalid_field() == Some("text")`. Treat the set of field names
+    /// as open: match the ones you handle and fall back to the `message` for
+    /// the rest, rather than assuming the table above is exhaustive forever.
+    #[must_use]
+    pub fn invalid_field(&self) -> Option<&str> {
+        match self {
+            BrainError::Server {
+                code: ErrorCodeWire::InvalidArgument,
+                response,
+                ..
+            } => response.details.as_ref()?.field.as_deref(),
+            _ => None,
+        }
     }
 
     /// Whether this is a server ERROR carrying exactly `code`.

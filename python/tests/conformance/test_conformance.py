@@ -59,6 +59,7 @@ PAYLOAD_TYPES = {
     "resp_memory_list": t.MemoryListResponseFrame,
     "req_memory_inspect": t.MemoryInspectRequest,
     "resp_memory_inspect": t.MemoryInspectResponse,
+    "resp_memory_inspect_truncated": t.MemoryInspectResponse,
     "req_graph_fetch": t.GraphFetchRequest,
     "resp_graph_fetch": t.GraphFetchResponseFrame,
     "resp_forget": t.ForgetResponse,
@@ -79,6 +80,7 @@ PAYLOAD_TYPES = {
     "req_schema_validate_act_as": t.SchemaValidateRequest,
     "resp_auth_ok_act_as": t.AuthOkPayload,
     "resp_error_act_as_denied": t.ErrorResponse,
+    "resp_error_operator_intervention": t.ErrorResponse,
     # Typed-graph ops.
     "req_entity_create": t.EntityCreateRequest,
     "resp_entity_create": t.EntityCreateResponse,

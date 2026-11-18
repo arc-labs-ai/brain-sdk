@@ -34,15 +34,19 @@ class BrainHttpError(Exception):
         code: str,
         message: str,
         field_errors: Sequence[FieldError] = (),
+        engine_code: Optional[str] = None,
     ) -> None:
         super().__init__(f"[{status} {code}] {message}")
         self.status = status
         self.code = code
         self.message = message
-        #: Per-field problems on a validation failure, when the server reports
-        #: them. Empty otherwise — including against an edge, which answers with
-        #: the ``{"error": {code, message}}`` envelope and no field detail.
+        #: Per-field problems when the server reports them. Both the edge's
+        #: ``{"error": {…}}`` envelope and the gateway's problem+json populate
+        #: this field; it is empty when the failure is not field-level.
         self.field_errors: tuple[FieldError, ...] = tuple(field_errors)
+        #: The engine's own code slug beside the HTTP-level ``code``, present
+        #: only when the server sent one.
+        self.engine_code = engine_code
         # A server `Retry-After` hint in SECONDS, when the response carried one
         # and it was in the integer form. Declared here rather than attached
         # dynamically at the raise site: the retry scheduler read it back with

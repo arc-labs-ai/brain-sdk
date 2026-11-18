@@ -846,16 +846,33 @@ def test_problem_json_without_field_errors_uses_detail_then_title(edge) -> None:
     assert excinfo.value.message == "Conflict"
 
 
-def test_the_edge_envelope_carries_no_field_errors(edge) -> None:
-    """The edge emits `{error: {code, message}}`; both shapes must parse."""
+def test_the_edge_envelope_carries_field_errors_and_engine_code(edge) -> None:
     client, rec = edge
     rec.responses = [
-        (400, {"error": {"code": "bad_request", "message": "cursor: invalid hex"}}, {})
+        (
+            400,
+            {
+                "error": {
+                    "code": "bad_request",
+                    "engine_code": "invalid_argument",
+                    "message": "text is invalid",
+                    "errors": [
+                        {
+                            "field": "text",
+                            "code": "invalid_argument",
+                            "message": "text is invalid",
+                        }
+                    ],
+                }
+            },
+            {},
+        )
     ]
     with pytest.raises(BrainHttpError) as excinfo:
         client.whoami()
-    assert excinfo.value.message == "cursor: invalid hex"
-    assert excinfo.value.field_errors == ()
+    assert excinfo.value.message == "text is invalid"
+    assert excinfo.value.field_errors[0].field == "text"
+    assert excinfo.value.engine_code == "invalid_argument"
 
 
 def test_transport_failure_is_a_brain_error_not_a_raw_socket_error(edge) -> None:
@@ -1002,12 +1019,7 @@ def test_recall_trace_is_none_when_the_server_omits_it(edge) -> None:
 
 
 def test_a_rate_limit_is_retried_on_an_idempotent_verb(edge) -> None:
-    """429 is a "slow down", not a refusal.
-
-    The server sends `Retry-After` and the policy already honoured it in
-    `backoff()` — but 429 was excluded from `is_retryable_status`, so the hint
-    was parsed and then thrown away. TypeScript retried the same response.
-    """
+    """A hinted 429 is retried because the server says waiting can clear it."""
     client, rec = edge
     rec.responses = [
         (429, {"error": {"code": "rate_limited", "message": "slow down"}}, {"retry-after": "0"}),
@@ -1015,6 +1027,17 @@ def test_a_rate_limit_is_retried_on_an_idempotent_verb(edge) -> None:
     ]
     assert client.whoami().namespace == "ns"
     assert len(rec.requests) == 2, "the 429 should have been retried once"
+
+
+def test_a_rate_limit_without_a_hint_is_not_retried(edge) -> None:
+    client, rec = edge
+    rec.responses = [
+        (429, {"error": {"code": "quota.exceeded", "message": "quota"}}, {}),
+    ]
+    with pytest.raises(BrainHttpError) as excinfo:
+        client.whoami()
+    assert len(rec.requests) == 1
+    assert excinfo.value.status == 429
 
 
 def test_a_rate_limit_is_not_retried_on_a_state_creating_verb(edge) -> None:
@@ -1066,3 +1089,21 @@ def test_a_client_error_is_never_retried(edge) -> None:
     with pytest.raises(BrainHttpError):
         client.whoami()
     assert len(rec.requests) == 1
+
+
+def test_http_retry_sleep_jitters_without_a_server_hint() -> None:
+    policy = HttpRetryPolicy()
+    delay = policy.backoff(1, None)
+    samples = {policy.sleep_delay(1, None) for _ in range(200)}
+    # A deterministic backoff synchronises every client that one 503 knocked
+    # down, making them retry in the same burst.
+    assert len(samples) > 1
+    assert all(0.0 <= sample <= delay for sample in samples)
+
+
+def test_http_retry_sleep_honors_a_server_hint_as_an_exact_floor() -> None:
+    policy = HttpRetryPolicy()
+    hint = 0.5
+    # When the server hint is the scheduled delay, no client can wake before
+    # that floor even though the usual schedule is randomized.
+    assert {policy.sleep_delay(1, hint) for _ in range(200)} == {hint}

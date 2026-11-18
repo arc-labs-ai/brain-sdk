@@ -21,7 +21,22 @@
 import { describe, it, expect } from "vitest";
 
 import { crc32c } from "../../src/wire/frame.js";
+import {
+  decodeError,
+  decodeMemoryInspectResponse,
+  encodeError,
+  encodeMemoryInspectResponse,
+} from "../../src/wire/types.js";
 import { codecs, corpusIndex, readBin, reencode } from "../common/_corpus.js";
+
+codecs.resp_memory_inspect_truncated = {
+  decode: decodeMemoryInspectResponse,
+  encode: (value: never) => encodeMemoryInspectResponse(value),
+};
+codecs.resp_error_operator_intervention = {
+  decode: decodeError,
+  encode: (value: never) => encodeError(value),
+};
 
 function toHex(b: Uint8Array): string {
   return Buffer.from(b).toString("hex");

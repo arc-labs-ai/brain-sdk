@@ -190,7 +190,19 @@ fn shared_wire_types_agree_with_brain_protocol() {
     // failure instead of the server's actual error — and the other two SDKs
     // never had that problem. The server has no reason to declare a variant
     // that only a client uses.
-    const SDK_ONLY: &[(&str, &str)] = &[("ErrorCodeWire", "Unknown")];
+    //
+    // `ErrorCategoryWire::Unknown` is the same catch-all, for the same
+    // reason, and was missing for far longer. The category derived a bare
+    // `Deserialize_repr`, so a category outside the server's dense range
+    // failed the WHOLE ERROR payload — message, code and retry hint with it —
+    // and the caller was told "malformed response" instead of what actually
+    // broke. The server added `OperatorIntervention = 9` and will add more;
+    // a client must be able to receive a category it does not know without
+    // losing the frame.
+    const SDK_ONLY: &[(&str, &str)] = &[
+        ("ErrorCodeWire", "Unknown"),
+        ("ErrorCategoryWire", "Unknown"),
+    ];
 
     let Some(server) = server_types() else {
         eprintln!(

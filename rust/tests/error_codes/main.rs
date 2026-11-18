@@ -172,6 +172,11 @@ fn a_predicate_ignores_the_category_and_answers_on_the_code_alone() {
         ErrorCategoryWire::ResourceExhausted,
         ErrorCategoryWire::Internal,
         ErrorCategoryWire::Unavailable,
+        ErrorCategoryWire::OperatorIntervention,
+        // The SDK-only catch-all. A newer server's category decodes to this,
+        // and a predicate keyed on the code must still answer correctly when
+        // the category is one this build cannot name.
+        ErrorCategoryWire::Unknown,
     ];
     for category in every_category {
         assert!(

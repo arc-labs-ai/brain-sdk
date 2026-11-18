@@ -466,7 +466,6 @@ describe("SCHEMA read-side round-trip", () => {
       namespace: "people",
       schemaVersion: 3,
       schemaDocument: "entity Person {}",
-      sourceBlob: new Uint8Array([1, 2]),
       uploadedAtUnixNanos: 77n,
       validatorVersion: 1,
     });

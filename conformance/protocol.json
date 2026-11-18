@@ -272,6 +272,10 @@
     {
      "discriminant": 1,
      "name": "Incoming"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -334,6 +338,10 @@
     {
      "discriminant": 3,
      "name": "Timeout"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -368,6 +376,9 @@
     },
     {
      "name": "Unavailable"
+    },
+    {
+     "name": "OperatorIntervention"
     }
    ]
   },
@@ -411,6 +422,10 @@
     {
      "discriminant": 8,
      "name": "Unavailable"
+    },
+    {
+     "discriminant": 9,
+     "name": "OperatorIntervention"
     }
    ]
   },
@@ -444,13 +459,7 @@
      "name": "ReservedFieldNonZero"
     },
     {
-     "name": "BadFlagCombination"
-    },
-    {
      "name": "MalformedPayload"
-    },
-    {
-     "name": "MalformedVector"
     },
     {
      "name": "VersionNotSupported"
@@ -486,34 +495,7 @@
      "name": "InvalidArgument"
     },
     {
-     "name": "MissingRequiredField"
-    },
-    {
-     "name": "TextTooLarge"
-    },
-    {
-     "name": "TextEmpty"
-    },
-    {
      "name": "BadSessionId"
-    },
-    {
-     "name": "BadMemoryKind"
-    },
-    {
-     "name": "BadEdgeKind"
-    },
-    {
-     "name": "BadStrategyHint"
-    },
-    {
-     "name": "TopKOutOfRange"
-    },
-    {
-     "name": "BudgetTooLarge"
-    },
-    {
-     "name": "BadModelFingerprint"
     },
     {
      "name": "PredicateNotInSchema"
@@ -573,9 +555,6 @@
      "name": "StreamLimitExceeded"
     },
     {
-     "name": "ConnectionLimitExceeded"
-    },
-    {
      "name": "TransactionLimitExceeded"
     },
     {
@@ -618,7 +597,10 @@
      "name": "LlmCredentialUnavailable"
     },
     {
-     "name": "SchemaInvalid"
+     "name": "ShardStorageFaulted"
+    },
+    {
+     "name": "UnrecoverableInternal"
     },
     {
      "name": "SchemaMigrationRequired"
@@ -699,16 +681,8 @@
      "name": "ReservedFieldNonZero"
     },
     {
-     "discriminant": 9,
-     "name": "BadFlagCombination"
-    },
-    {
      "discriminant": 10,
      "name": "MalformedPayload"
-    },
-    {
-     "discriminant": 11,
-     "name": "MalformedVector"
     },
     {
      "discriminant": 32,
@@ -755,44 +729,8 @@
      "name": "InvalidArgument"
     },
     {
-     "discriminant": 65,
-     "name": "MissingRequiredField"
-    },
-    {
-     "discriminant": 66,
-     "name": "TextTooLarge"
-    },
-    {
-     "discriminant": 67,
-     "name": "TextEmpty"
-    },
-    {
      "discriminant": 68,
      "name": "BadSessionId"
-    },
-    {
-     "discriminant": 69,
-     "name": "BadMemoryKind"
-    },
-    {
-     "discriminant": 70,
-     "name": "BadEdgeKind"
-    },
-    {
-     "discriminant": 71,
-     "name": "BadStrategyHint"
-    },
-    {
-     "discriminant": 72,
-     "name": "TopKOutOfRange"
-    },
-    {
-     "discriminant": 73,
-     "name": "BudgetTooLarge"
-    },
-    {
-     "discriminant": 74,
-     "name": "BadModelFingerprint"
     },
     {
      "discriminant": 75,
@@ -871,10 +809,6 @@
      "name": "StreamLimitExceeded"
     },
     {
-     "discriminant": 117,
-     "name": "ConnectionLimitExceeded"
-    },
-    {
      "discriminant": 118,
      "name": "TransactionLimitExceeded"
     },
@@ -931,8 +865,12 @@
      "name": "LlmCredentialUnavailable"
     },
     {
-     "discriminant": 288,
-     "name": "SchemaInvalid"
+     "discriminant": 160,
+     "name": "ShardStorageFaulted"
+    },
+    {
+     "discriminant": 161,
+     "name": "UnrecoverableInternal"
     },
     {
      "discriminant": 289,
@@ -1076,6 +1014,10 @@
     {
      "discriminant": 33,
      "name": "EdgeSuperseded"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -1280,6 +1222,10 @@
     {
      "discriminant": 11,
      "name": "PartOf"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -1358,6 +1304,10 @@
     {
      "discriminant": 2,
      "name": "Memory"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -2320,6 +2270,10 @@
     {
      "discriminant": 3,
      "name": "Cancelled"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -2358,6 +2312,10 @@
     {
      "discriminant": 1,
      "name": "Backward"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -2432,10 +2390,6 @@
      "payload": "String"
     },
     {
-     "name": "BadFlagCombination",
-     "payload": "String"
-    },
-    {
      "name": "MalformedPayload",
      "payload": "String"
     }
@@ -2461,6 +2415,10 @@
     {
      "discriminant": 3,
      "name": "Relation"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -2484,6 +2442,10 @@
     {
      "discriminant": 3,
      "name": "Cancelled"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -2507,6 +2469,10 @@
     {
      "discriminant": 3,
      "name": "Relation"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -2543,6 +2509,10 @@
     {
      "discriminant": 3,
      "name": "Failure"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -2903,6 +2873,10 @@
     {
      "discriminant": 4,
      "name": "NotFound"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -3249,6 +3223,10 @@
     {
      "discriminant": 2,
      "name": "Graph"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -3389,6 +3367,10 @@
     {
      "discriminant": 2,
      "name": "Failed"
+    },
+    {
+     "discriminant": 255,
+     "name": "Unknown"
     }
    ]
   },
@@ -6385,12 +6367,12 @@
     {
      "name": "code",
      "serde": {},
-     "type": "ErrorCodeWire"
+     "type": "u16"
     },
     {
      "name": "category",
      "serde": {},
-     "type": "ErrorCategoryWire"
+     "type": "u8"
     },
     {
      "name": "message",
@@ -7439,6 +7421,20 @@
       "default": true
      },
      "type": "Vec<MemoryEdgeWire>"
+    },
+    {
+     "name": "edge_total_count",
+     "serde": {
+      "default": true
+     },
+     "type": "Option<u32>"
+    },
+    {
+     "name": "edges_truncated",
+     "serde": {
+      "default": true
+     },
+     "type": "bool"
     }
    ],
    "serde": {}
@@ -9809,11 +9805,6 @@
      "name": "schema_document",
      "serde": {},
      "type": "String"
-    },
-    {
-     "name": "source_blob",
-     "serde": {},
-     "type": "Vec<u8>"
     },
     {
      "name": "uploaded_at_unix_nanos",

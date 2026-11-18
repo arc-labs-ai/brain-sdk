@@ -71,7 +71,9 @@ from .errors import (
     LlmCredentialUnavailable,
     ProtocolError,
     ServerError,
+    ShardStorageFaulted,
     VersionMismatch,
+    invalid_field,
     is_retryable,
 )
 from .http import BrainHttpClient, BrainHttpError
@@ -126,5 +128,7 @@ __all__ = [
     "ActAsDenied",
     "LlmCredentialMissing",
     "LlmCredentialUnavailable",
+    "ShardStorageFaulted",
+    "invalid_field",
     "is_retryable",
 ]
