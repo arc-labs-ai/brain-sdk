@@ -9,13 +9,68 @@
 //! drains exactly the frame's bytes once one decodes — leaving any trailing
 //! bytes (the start of the next frame) in the buffer.
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+
+use tokio::net::TcpStream;
+use tokio_rustls::client::TlsStream;
 
 use crate::error::{BrainError, Result};
 use crate::wire::frame::{Frame, FrameError};
 
 /// Bytes pulled from the stream per read syscall when the buffer is short.
 const READ_CHUNK: usize = 16 * 1024;
+
+/// A plain or TLS stream carrying the Brain wire protocol.
+#[derive(Debug)]
+pub enum BrainStream {
+    /// The plain TCP stream used when TLS is not configured.
+    Plain(TcpStream),
+    /// The TLS 1.3 stream used when TLS is configured.
+    Tls(Box<TlsStream<TcpStream>>),
+}
+
+impl AsyncRead for BrainStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(stream) => Pin::new(stream).poll_read(cx, buf),
+            Self::Tls(stream) => Pin::new(stream).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for BrainStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(stream) => Pin::new(stream).poll_write(cx, buf),
+            Self::Tls(stream) => Pin::new(stream).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(stream) => Pin::new(stream).poll_flush(cx),
+            Self::Tls(stream) => Pin::new(stream).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Tls(stream) => Pin::new(stream).poll_shutdown(cx),
+        }
+    }
+}
 
 /// Serialize `frame` and write all its bytes to `stream`.
 ///
