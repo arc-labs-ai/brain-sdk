@@ -20,7 +20,6 @@ from brain_db_sdk.wire.types import (
     VerifyOutcome,
 )
 
-
 FAKE_KEY = "sk-fake-DO-NOT-USE"
 PROVIDER = "openai"
 MODEL = "gpt-4o-mini"

@@ -27,55 +27,55 @@ describe.skipIf(T === null || !itLoopbackEnabled())(
       const { client } = await connectFresh(t, namespace);
 
       try {
-      const absent = await client.getLlmCredential({ actAs: null });
-      assertRedacted(absent);
-      expect(absent.credential).toBeNull();
+        const absent = await client.getLlmCredential({ actAs: null });
+        assertRedacted(absent);
+        expect(absent.credential).toBeNull();
 
-      const put = await client.putLlmCredential({
-        provider: "openai",
-        model: "gpt-4o-mini",
-        apiKey: FAKE_KEY,
-        requestId: newId(),
-        actAs: null,
-      });
-      assertRedacted(put);
-      expect(put.provider).toBe("openai");
-      expect(put.model).toBe("gpt-4o-mini");
-      expect(put.fingerprint).toBe(`…${FAKE_KEY.slice(-4)}`);
-      expect(put.fingerprint).not.toBe(FAKE_KEY);
-      expect(put.fingerprint.length).toBeLessThan(FAKE_KEY.length);
+        const put = await client.putLlmCredential({
+          provider: "openai",
+          model: "gpt-4o-mini",
+          apiKey: FAKE_KEY,
+          requestId: newId(),
+          actAs: null,
+        });
+        assertRedacted(put);
+        expect(put.provider).toBe("openai");
+        expect(put.model).toBe("gpt-4o-mini");
+        expect(put.fingerprint).toBe(`…${FAKE_KEY.slice(-4)}`);
+        expect(put.fingerprint).not.toBe(FAKE_KEY);
+        expect(put.fingerprint.length).toBeLessThan(FAKE_KEY.length);
 
-      const installed = await client.getLlmCredential({ actAs: null });
-      assertRedacted(installed);
-      expect(installed.credential).not.toBeNull();
-      expect(installed.credential).toMatchObject({
-        provider: "openai",
-        model: "gpt-4o-mini",
-        fingerprint: put.fingerprint,
-      });
-      expect(installed.credential?.fingerprint).toBe(`…${FAKE_KEY.slice(-4)}`);
-      expect(installed.credential?.fingerprint).not.toBe(FAKE_KEY);
-      expect(installed.credential?.fingerprint.length).toBeLessThan(FAKE_KEY.length);
+        const installed = await client.getLlmCredential({ actAs: null });
+        assertRedacted(installed);
+        expect(installed.credential).not.toBeNull();
+        expect(installed.credential).toMatchObject({
+          provider: "openai",
+          model: "gpt-4o-mini",
+          fingerprint: put.fingerprint,
+        });
+        expect(installed.credential?.fingerprint).toBe(`…${FAKE_KEY.slice(-4)}`);
+        expect(installed.credential?.fingerprint).not.toBe(FAKE_KEY);
+        expect(installed.credential?.fingerprint.length).toBeLessThan(FAKE_KEY.length);
 
-      const verified = await client.verifyLlmCredential({
-        requestId: newId(),
-        actAs: null,
-      });
-      assertRedacted(verified);
-      expect(verified).toHaveProperty("outcome");
-      expect(verified.outcome).not.toBe("ok");
+        const verified = await client.verifyLlmCredential({
+          requestId: newId(),
+          actAs: null,
+        });
+        assertRedacted(verified);
+        expect(verified).toHaveProperty("outcome");
+        expect(verified.outcome).not.toBe("ok");
 
-      const deleted = await client.deleteLlmCredential({ requestId: newId(), actAs: null });
-      assertRedacted(deleted);
-      expect(deleted.existed).toBe(true);
+        const deleted = await client.deleteLlmCredential({ requestId: newId(), actAs: null });
+        assertRedacted(deleted);
+        expect(deleted.existed).toBe(true);
 
-      const deletedAgain = await client.deleteLlmCredential({ requestId: newId(), actAs: null });
-      assertRedacted(deletedAgain);
-      expect(deletedAgain.existed).toBe(false);
+        const deletedAgain = await client.deleteLlmCredential({ requestId: newId(), actAs: null });
+        assertRedacted(deletedAgain);
+        expect(deletedAgain.existed).toBe(false);
 
-      const absentAgain = await client.getLlmCredential({ actAs: null });
-      assertRedacted(absentAgain);
-      expect(absentAgain.credential).toBeNull();
+        const absentAgain = await client.getLlmCredential({ actAs: null });
+        assertRedacted(absentAgain);
+        expect(absentAgain.credential).toBeNull();
       } finally {
         await client.close();
       }
