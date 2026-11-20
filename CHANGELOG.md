@@ -24,6 +24,22 @@ Pending release. The version is not settled yet — see
 * a caller that matched any of the thirteen removed codes should match `ErrorCodeWire::InvalidArgument` instead; the server reports those conditions under it
 * a match over `ErrorCategoryWire` needs arms for `OperatorIntervention` and `Unknown`; treat both as not retryable, which is already what `BrainError::is_retryable` does
 
+## [0.4.5](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.4...v0.4.5) (2026-11-20)
+
+
+### Fixes
+
+* **release:** require the release token rather than falling back silently ([083799c](https://github.com/arc-labs-ai/brain-sdk/commit/083799c20a9f36bb412ff8aa52a0e864c4d2e5e7))
+* **release:** require the release token rather than falling back silently ([be0cb68](https://github.com/arc-labs-ai/brain-sdk/commit/be0cb6838240ad3a37a15f8f89bb7b4db707aa0d))
+* **wire:** stop an unknown error category destroying the whole ERROR frame ([009f736](https://github.com/arc-labs-ai/brain-sdk/commit/009f736290226f1b9576236ade7201635824b721))
+
+
+### Features
+
+* **rust:** carry the wire protocol over TLS as well as plain TCP ([164db74](https://github.com/arc-labs-ai/brain-sdk/commit/164db7428591888d4a9e95791b8013834d9f8a01))
+* **sdk:** align the wire surface with brain, and fix BYOK docs and coverage ([ce20639](https://github.com/arc-labs-ai/brain-sdk/commit/ce206399773e3d9fb82faf64c4f9fc6def23ef7b))
+* **subscribe:** long-lived subscriptions over the mux, in all three SDKs ([6759ab8](https://github.com/arc-labs-ai/brain-sdk/commit/6759ab8140d4f8154b89c0834112a757ddc3b1a0))
+
 ## [0.4.4](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.3...v0.4.4) (2026-11-13)
 
 
