@@ -232,6 +232,12 @@ async fn serve(mut sock: TcpStream) {
             // No LINK-asserted edges in this fixture; the field is
             // still carried so the golden pins its presence.
             edges: Vec::new(),
+            // A complete view of an empty set: nothing was cut, so the
+            // count equals `edges.len()` and the flag is false. These two
+            // are what let a caller tell "no edges" apart from "edges, but
+            // more than this verb will return" — `edges` alone cannot.
+            edge_total_count: Some(0),
+            edges_truncated: false,
         },
     )
     .await;

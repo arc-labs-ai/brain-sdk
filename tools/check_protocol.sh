@@ -19,6 +19,7 @@
 # needed; none subsumes another.
 #
 #   ./tools/check_protocol.sh              # the gate (what CI runs)
+#   ./tools/check_protocol.sh --strict-provenance
 #   ./tools/check_protocol.sh --refresh [brain-checkout]
 #                                          # re-vendor the server manifest
 #
@@ -133,10 +134,31 @@ PY
   echo "Re-run ./tools/check_protocol.sh to confirm the SDKs agree."
 }
 
+strict_provenance=0
+if [ "${1:-}" = "--strict-provenance" ]; then
+  strict_provenance=1
+  shift
+fi
 if [ "${1:-}" = "--refresh" ]; then
   shift
   refresh "${1:-}"
   exit 0
+fi
+
+provenance="$(python3 tools/baseline_provenance.py "$SOURCE")"
+echo "── Vendored protocol baseline"
+echo "   provenance: $provenance"
+if [[ "$provenance" == *"UNCOMMITTED / DIRTY"* ]]; then
+  echo "   !!! This gate compares SDKs with an uncommitted baseline, not a released server."
+fi
+if [ "$strict_provenance" -eq 1 ]; then
+  case "$provenance" in
+    "committed source tree ("*) ;;
+    *)
+      echo "error: --strict-provenance requires a committed baseline." >&2
+      exit 2
+      ;;
+  esac
 fi
 
 [ -f "$MANIFEST" ] || die "$MANIFEST is missing. Vendor it:

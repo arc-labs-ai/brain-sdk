@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+Pending release. The version is not settled yet — see
+`.release-please-manifest.json`.
+
+
+### ⚠ BREAKING CHANGES
+
+* **wire:** drop thirteen `ErrorCodeWire` variants the server no longer defines or emits: `BadFlagCombination` (0x0009), `MalformedVector` (0x000B), `MissingRequiredField` (0x0041), `TextTooLarge` (0x0042), `TextEmpty` (0x0043), `BadMemoryKind` (0x0045), `BadEdgeKind` (0x0046), `BadStrategyHint` (0x0047), `TopKOutOfRange` (0x0048), `BudgetTooLarge` (0x0049), `BadModelFingerprint` (0x004A), `ConnectionLimitExceeded` (0x0075), `SchemaInvalid` (0x0120)
+* **wire:** add `ErrorCodeWire::ShardStorageFaulted` (0x00A0), for a shard whose write-ahead log has latched into a terminal faulted state
+* **wire:** add `ErrorCategoryWire::OperatorIntervention` (9) and `ErrorCategoryWire::Unknown` (0xFF)
+* **rust:** neither `ErrorCodeWire` nor `ErrorCategoryWire` is `#[non_exhaustive]`, so a `match` over either must be updated — an arm naming a removed code no longer compiles, and an exhaustive match must cover the added variants
+
+
+### Fixes
+
+* **wire:** an unrecognised error category no longer destroys the whole error frame. `ErrorCategoryWire` now decodes through a custom `Deserialize` that maps any unknown discriminant to `Unknown`. Through 0.4.4 it derived `Deserialize_repr` over categories 0..=8 only, so an ERROR frame carrying category 9 (`OperatorIntervention`) failed to decode and the entire payload — message, code and retry hint — was lost as a malformed response, exactly when the operator needed to read it
+
+
+### Migration
+
+* a caller that matched any of the thirteen removed codes should match `ErrorCodeWire::InvalidArgument` instead; the server reports those conditions under it
+* a match over `ErrorCategoryWire` needs arms for `OperatorIntervention` and `Unknown`; treat both as not retryable, which is already what `BrainError::is_retryable` does
+
 ## [0.4.4](https://github.com/arc-labs-ai/brain-sdk/compare/v0.4.3...v0.4.4) (2026-11-13)
 
 

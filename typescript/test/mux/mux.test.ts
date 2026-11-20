@@ -10,7 +10,7 @@ import * as net from "node:net";
 
 import { MuxConnection } from "../../src/mux.js";
 import { BrainClient, newId } from "../../src/client.js";
-import { BrainTimeout } from "../../src/errors.js";
+import { BrainTimeout, TransportError } from "../../src/errors.js";
 import { EncodeBuilder, RecallBuilder } from "../../src/verbs.js";
 import { SERVER_AGENT_ID, TEST_AUTH } from "../common/_auth.js";
 import { FrameChannel } from "../../src/transport.js";
@@ -31,11 +31,17 @@ import {
   decodeEncode,
   decodeEncodeResponse,
   decodeHello,
+  decodeUnsubscribe,
   encodeAuthOk,
   encodeEncode,
   encodeEncodeResponse,
   encodeServerPing,
+  encodeSubscriptionEvent,
+  encodeUnsubscribeResponse,
   encodeWelcome,
+  EventType,
+  type SubscribeRequest,
+  type SubscriptionEvent,
 } from "../../src/wire/types.js";
 
 function startServer(
@@ -309,6 +315,60 @@ describe("mux keepalive", () => {
   });
 });
 
+describe("the idle watchdog", () => {
+  it("fails a pending request when the server goes silent past two idle intervals", async () => {
+    const { server, port } = await startServer((sock) => serveHandshakeOnly(sock, 1));
+    try {
+      const hello: HelloPayload = {
+        clientId: "idle-watchdog-test",
+        supportedVersions: [1],
+        capabilities: { streaming: true, compressionZstd: false, serverPush: false },
+        clientConnectionToken: null,
+      };
+      const { conn } = await MuxConnection.connect("127.0.0.1", port, hello, MUX_AUTH);
+      const started = Date.now();
+
+      const failure = await conn.requestOne(Opcode.EncodeReq, encodeEncode(encodeRequest(1n))).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(TransportError);
+      // TypeScript exposes the idle-specific reason in TransportError.message;
+      // this distinguishes a watchdog expiry from an ordinary socket failure.
+      expect(failure).toMatchObject({ message: "connection idle for 2000ms" });
+      expect(Date.now() - started).toBeLessThan(10_000);
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+
+  it("does not kill a quiet connection when the server advertises zero", async () => {
+    const { server, port } = await startServer((sock) => serveHandshakeOnly(sock, 0));
+    try {
+      const hello: HelloPayload = {
+        clientId: "idle-watchdog-disabled-test",
+        supportedVersions: [1],
+        capabilities: { streaming: true, compressionZstd: false, serverPush: false },
+        clientConnectionToken: null,
+      };
+      const { conn } = await MuxConnection.connect("127.0.0.1", port, hello, MUX_AUTH);
+      const pending = conn.requestOne(Opcode.EncodeReq, encodeEncode(encodeRequest(2n)));
+      const result = await Promise.race([
+        pending.then(
+          () => "settled",
+          () => "failed",
+        ),
+        new Promise<"quiet">((resolve) => setTimeout(() => resolve("quiet"), 1_500)),
+      ]);
+      expect(result).toBe("quiet");
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The negotiated payload limit.
 //
@@ -330,7 +390,7 @@ const ADVERTISED_MAX = 1 << 20;
  * nothing after AUTH_OK: an oversize request must be refused before it reaches
  * the socket, so this server must never see one.
  */
-async function serveHandshakeOnly(sock: net.Socket): Promise<void> {
+async function serveHandshakeOnly(sock: net.Socket, idleTimeoutSeconds = 300): Promise<void> {
   const chan = new FrameChannel(sock);
   const helloFrame = await chan.read();
   const hello = decodeHello(helloFrame.payload);
@@ -346,7 +406,7 @@ async function serveHandshakeOnly(sock: net.Socket): Promise<void> {
       serverFeatures: {
         maxPayloadSize: ADVERTISED_MAX,
         maxConcurrentStreams: 256,
-        idleTimeoutSeconds: 300,
+        idleTimeoutSeconds,
         authMethods: [],
       },
     }),
@@ -382,6 +442,306 @@ async function serveHandshakeOnly(sock: net.Socket): Promise<void> {
     }
   }
 }
+
+function subscriptionRequest(): SubscribeRequest {
+  return {
+    filter: { sessionFilter: null, kinds: null, similarTo: null, spaces: null, memoryIds: null },
+    includeHistory: false,
+    fromLsn: null,
+    maxInflight: 16,
+  };
+}
+
+function subscriptionEvent(lsn: bigint, text = `event ${lsn}`): SubscriptionEvent {
+  return {
+    eventType: EventType.Encoded,
+    memoryId: lsn,
+    sessionId: 1n,
+    text,
+    kind: MemoryKindWire.Semantic,
+    salience: 0.5,
+    timestampUnixNanos: lsn,
+    lsn,
+    graphPayload: null,
+    edgePayload: null,
+    stageKind: null,
+    stageOutcome: null,
+    stagePayload: null,
+  };
+}
+
+/** The wire credential the mock servers accept; a subscription test cares about
+ * stream lifetime, not about how the connection was authenticated. */
+const MUX_AUTH: AuthPayload = {
+  method: AuthMethod.Token,
+  credentials: { kind: "Token", token: new TextEncoder().encode("opaque-token") },
+};
+
+/** A HELLO that advertises server push, which a subscription requires. */
+function subscriptionHello(clientId: string): HelloPayload {
+  return {
+    clientId,
+    supportedVersions: [1],
+    capabilities: { streaming: true, compressionZstd: false, serverPush: true },
+    clientConnectionToken: null,
+  };
+}
+
+async function serveSubscription(
+  sock: net.Socket,
+  action: (chan: FrameChannel, subscription: Frame) => Promise<void>,
+): Promise<void> {
+  const chan = new FrameChannel(sock);
+  const helloFrame = await chan.read();
+  const hello = decodeHello(helloFrame.payload);
+  await chan.write({
+    opcode: Opcode.Welcome,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeWelcome({
+      serverId: "mock-brain",
+      chosenVersion: 1,
+      connectionId: new Uint8Array(16).fill(0xab),
+      capabilities: hello.capabilities,
+      serverFeatures: {
+        maxPayloadSize: 1 << 20,
+        maxConcurrentStreams: 256,
+        idleTimeoutSeconds: 300,
+        authMethods: [],
+      },
+    }),
+  });
+  const authFrame = await chan.read();
+  decodeAuth(authFrame.payload);
+  await chan.write({
+    opcode: Opcode.AuthOk,
+    flags: FLAG_EOS,
+    streamId: 0,
+    payload: encodeAuthOk({
+      spaceId: SERVER_AGENT_ID,
+      boundShardId: 0,
+      permissions: {
+        canEncode: true,
+        canRecall: true,
+        canPlan: true,
+        canReason: true,
+        canForget: true,
+        canAdmin: false,
+        canActAs: false,
+      },
+      namespace: "",
+      serverTimeUnixNanos: 1n,
+    }),
+  });
+  const subscription = await chan.read();
+  expect(subscription.opcode).toBe(Opcode.SubscribeReq);
+  await action(chan, subscription);
+}
+
+async function writeSubscriptionEvent(
+  chan: FrameChannel,
+  streamId: number,
+  event: SubscriptionEvent,
+  flags = 0,
+): Promise<void> {
+  await chan.write({
+    opcode: Opcode.SubscribeEvent,
+    flags,
+    streamId,
+    payload: encodeSubscriptionEvent(event),
+  });
+}
+
+async function writeSubscriptionEnd(chan: FrameChannel, streamId: number): Promise<void> {
+  await chan.write({
+    opcode: Opcode.SubscribeEvent,
+    flags: FLAG_EOS,
+    streamId,
+    payload: new Uint8Array(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Subscriptions are long-lived server-push streams: their claims are about
+// lifetime rather than content. `python/tests/aio_subscription/test_aio_subscription.py`,
+// `python/tests/mux/test_mux.py` and `rust/tests/mux/main.rs` assert the same
+// properties, which keeps the three SDKs aligned.
+// ---------------------------------------------------------------------------
+
+describe("subscriptions", () => {
+  it("delivers events in order and ends for await at EOS", async () => {
+    const { server, port } = await startServer((sock) =>
+      serveSubscription(sock, async (chan, sub) => {
+        for (const lsn of [1n, 2n, 3n])
+          await writeSubscriptionEvent(chan, sub.streamId, subscriptionEvent(lsn));
+        await writeSubscriptionEnd(chan, sub.streamId);
+      }),
+    );
+    try {
+      const { conn } = await MuxConnection.connect(
+        "127.0.0.1",
+        port,
+        subscriptionHello("subscription-test"),
+        MUX_AUTH,
+      );
+      const sub = await conn.subscribe(subscriptionRequest());
+      const seen: bigint[] = [];
+      for await (const event of sub) seen.push(event.lsn);
+      expect(seen).toEqual([1n, 2n, 3n]);
+      expect(await sub.nextEvent()).toBeNull();
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+
+  it("lets a quiet feed outlive the request deadline", async () => {
+    const { server, port } = await startServer((sock) =>
+      serveSubscription(sock, async (chan, sub) => {
+        // A feed is quiet by design, so the request deadline has no business on this path.
+        await new Promise((resolve) => setTimeout(resolve, FLAT_MS * 4));
+        await writeSubscriptionEvent(chan, sub.streamId, subscriptionEvent(1n));
+        await writeSubscriptionEnd(chan, sub.streamId);
+      }),
+    );
+    try {
+      const { conn } = await MuxConnection.connect(
+        "127.0.0.1",
+        port,
+        subscriptionHello("quiet-subscription-test"),
+        MUX_AUTH,
+        { requestTimeoutMs: FLAT_MS },
+      );
+      const sub = await conn.subscribe(subscriptionRequest());
+      await expect(sub.nextEvent()).resolves.toMatchObject({ lsn: 1n });
+      await expect(sub.nextEvent()).resolves.toBeNull();
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+
+  it("throws when a feed is cut mid-stream and preserves its resume cursor", async () => {
+    const { server, port } = await startServer((sock) =>
+      serveSubscription(sock, async (chan, sub) => {
+        await writeSubscriptionEvent(chan, sub.streamId, subscriptionEvent(1n));
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        sock.end();
+      }),
+    );
+    try {
+      const { conn } = await MuxConnection.connect(
+        "127.0.0.1",
+        port,
+        subscriptionHello("cut-subscription-test"),
+        MUX_AUTH,
+      );
+      const sub = await conn.subscribe(subscriptionRequest());
+      await expect(sub.nextEvent()).resolves.toMatchObject({ lsn: 1n });
+      // A consumer that reads a broken feed as finished stops consuming a feed
+      // the server is still producing, and nothing anywhere reports that loss.
+      await expect(sub.nextEvent()).rejects.toMatchObject({ name: "ConnectionClosed" });
+      expect(sub.lastLsn).toBe(1n);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("cleans the route after unsubscribe on its own stream", async () => {
+    const { server, port } = await startServer((sock) =>
+      serveSubscription(sock, async (chan, sub) => {
+        await writeSubscriptionEvent(chan, sub.streamId, subscriptionEvent(1n));
+        const unsub = await chan.read();
+        expect(unsub.opcode).toBe(Opcode.UnsubscribeReq);
+        expect(unsub.streamId).not.toBe(sub.streamId);
+        expect(decodeUnsubscribe(unsub.payload).targetStreamId).toBe(sub.streamId);
+        await chan.write({
+          opcode: Opcode.UnsubscribeResp,
+          flags: FLAG_EOS,
+          streamId: unsub.streamId,
+          payload: encodeUnsubscribeResponse({ targetStreamId: sub.streamId, finalLsn: 1n }),
+        });
+        await writeSubscriptionEnd(chan, sub.streamId);
+      }),
+    );
+    try {
+      const { conn } = await MuxConnection.connect(
+        "127.0.0.1",
+        port,
+        subscriptionHello("unsubscribe-test"),
+        MUX_AUTH,
+      );
+      const sub = await conn.subscribe(subscriptionRequest());
+      await expect(sub.nextEvent()).resolves.toMatchObject({ lsn: 1n });
+      await sub.unsubscribe();
+      await expect(sub.nextEvent()).resolves.toBeNull();
+      expect(conn.routeCount()).toBe(0);
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+
+  it("settles two concurrent waits in FIFO order", async () => {
+    const { server, port } = await startServer((sock) =>
+      serveSubscription(sock, async (chan, sub) => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        await writeSubscriptionEvent(chan, sub.streamId, subscriptionEvent(1n));
+        await writeSubscriptionEvent(chan, sub.streamId, subscriptionEvent(2n));
+      }),
+    );
+    try {
+      const { conn } = await MuxConnection.connect(
+        "127.0.0.1",
+        port,
+        subscriptionHello("concurrent-subscription-test"),
+        MUX_AUTH,
+      );
+      const sub = await conn.subscribe(subscriptionRequest());
+      // A single waiter slot drops the second frame silently, the worst possible failure for a change feed.
+      const [first, second] = await Promise.all([sub.nextEvent(), sub.nextEvent()]);
+      expect(first?.lsn).toBe(1n);
+      expect(second?.lsn).toBe(2n);
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+
+  it("drops the route on an async scope exit", async () => {
+    const { server, port } = await startServer((sock) =>
+      serveSubscription(sock, async (chan, sub) => {
+        const unsub = await chan.read();
+        expect(unsub.opcode).toBe(Opcode.UnsubscribeReq);
+        expect(decodeUnsubscribe(unsub.payload).targetStreamId).toBe(sub.streamId);
+        await chan.write({
+          opcode: Opcode.UnsubscribeResp,
+          flags: FLAG_EOS,
+          streamId: unsub.streamId,
+          payload: encodeUnsubscribeResponse({ targetStreamId: sub.streamId, finalLsn: 0n }),
+        });
+        await writeSubscriptionEnd(chan, sub.streamId);
+      }),
+    );
+    try {
+      const { conn } = await MuxConnection.connect(
+        "127.0.0.1",
+        port,
+        subscriptionHello("scope-subscription-test"),
+        MUX_AUTH,
+      );
+      {
+        // biome-ignore lint/correctness/noUnusedVariables: binding exists for its disposal at the end of the block, which the following route-count assertion verifies.
+        await using sub = await conn.subscribe(subscriptionRequest());
+        expect(conn.routeCount()).toBe(1);
+      }
+      expect(conn.routeCount()).toBe(0);
+      conn.close();
+    } finally {
+      server.close();
+    }
+  });
+});
 
 describe("the negotiated payload limit", () => {
   it("refuses a payload over the advertised maximum locally", async () => {

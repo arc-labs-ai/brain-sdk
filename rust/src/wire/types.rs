@@ -18,6 +18,41 @@
 
 use serde::{Deserialize, Serialize};
 
+// ===========================================================================
+// Server-side request limits.
+//
+// This SDK does not enforce these — it encodes what the caller gives it and
+// lets the server be the single authority, so a stale client cannot refuse a
+// request the server would have accepted. They are published because a caller
+// that wants to truncate or page *before* paying for a round-trip needs the
+// number, and because these caps are new constraints rather than relaxations,
+// so a request an older server accepted can now be refused.
+// ===========================================================================
+
+/// Maximum byte length of a session `title` (`SESSION_CREATE`).
+///
+/// **This cap is new.** The server previously enforced no session-title limit
+/// at all — a title was bounded only by the payload maximum — so a title over
+/// 256 bytes that an older server accepted is now refused with
+/// `InvalidArgument` rather than truncated. Measured in **bytes of UTF-8, not
+/// characters** — use `title.len()`, not `title.chars().count()`.
+pub const SESSION_TITLE_MAX_BYTES: usize = 256;
+
+/// Maximum number of entries in a `session_filter`.
+///
+/// Applies to `RECALL`, `SUBSCRIBE`, `QUERY` and `MATERIALIZE_PROCEDURAL`.
+/// **`QUERY` and `MATERIALIZE_PROCEDURAL` were previously unbounded**; over
+/// the cap is now `InvalidArgument` on all four. Split the filter and merge
+/// the results if a caller genuinely has more sessions than this.
+pub const SESSION_FILTER_MAX_ENTRIES: usize = 1024;
+
+/// Maximum number of memory↔memory edges `MEMORY_INSPECT` returns **per
+/// direction**.
+///
+/// See [`MemoryInspectResponse::edges_are_complete`]: the response reports the
+/// true total separately, so a capped view is detectable rather than silent.
+pub const MEMORY_INSPECT_EDGES_PER_DIRECTION_MAX: usize = 256;
+
 /// 16-byte UUID-shaped identifier (space id, request id, txn id, …).
 pub type WireUuid = [u8; 16];
 /// `SessionId` on the wire — a `u64`.
@@ -102,18 +137,47 @@ pub enum AuthMethod {
 
 /// Credentials carried in an AUTH frame. Externally-tagged enum (CBOR
 /// map keyed by the variant name), matching the server.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum AuthCredentials {
     Token(Vec<u8>),
     Mtls(MtlsClaim),
 }
 
+/// Redacting `Debug`, written by hand rather than derived.
+///
+/// The token bytes are a live bearer credential, and this type rides inside
+/// `AuthPayload` — the frame whose decode failures are the most tempting thing
+/// in the protocol to log verbatim.
+impl core::fmt::Debug for AuthCredentials {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            AuthCredentials::Token(_) => f.debug_tuple("Token").field(&"[redacted]").finish(),
+            AuthCredentials::Mtls(claim) => f.debug_tuple("Mtls").field(claim).finish(),
+        }
+    }
+}
+
 /// mTLS claim accompanying an mTLS auth.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MtlsClaim {
     #[serde(with = "serde_bytes")]
     pub cert_fingerprint: [u8; 32],
     pub asserted_subject: String,
+}
+
+/// Redacting `Debug`, written by hand rather than derived.
+///
+/// The client asserts this fingerprint rather than proving it, so the value
+/// authenticates on its own and is credential material here whatever it is
+/// elsewhere. The asserted subject stays visible: it is the part an operator
+/// needs in order to tell two claims apart.
+impl core::fmt::Debug for MtlsClaim {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MtlsClaim")
+            .field("cert_fingerprint", &"[redacted]")
+            .field("asserted_subject", &self.asserted_subject)
+            .finish()
+    }
 }
 
 /// The permission bitfield, mirroring the server's own table.
@@ -230,7 +294,7 @@ pub struct ServerFeatures {
 }
 
 /// HELLO (`0x0001`) — first client frame after connect.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct HelloPayload {
     pub client_id: String,
     pub supported_versions: Vec<u8>,
@@ -238,6 +302,27 @@ pub struct HelloPayload {
     /// Reserved for connection resumption; `None` encodes as CBOR null.
     #[serde(with = "serde_bytes")]
     pub client_connection_token: Option<[u8; 32]>,
+}
+
+/// Redacting `Debug`, written by hand rather than derived.
+///
+/// Whoever holds the resumption token can claim the connection it belongs to,
+/// and HELLO is the frame most often traced while bringing a transport up. The
+/// redaction goes in before the field ever carries a value, because the trace
+/// that would leak it is written by someone debugging the transport, not the
+/// credential.
+impl core::fmt::Debug for HelloPayload {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HelloPayload")
+            .field("client_id", &self.client_id)
+            .field("supported_versions", &self.supported_versions)
+            .field("capabilities", &self.capabilities)
+            .field(
+                "client_connection_token",
+                &self.client_connection_token.map(|_| "[redacted]"),
+            )
+            .finish()
+    }
 }
 
 /// WELCOME (`0x0081`) — server reply to HELLO.
@@ -489,15 +574,35 @@ pub struct EncodeTraceStage {
 }
 
 /// Terminal status of an `EncodeTrace` phase.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum EncodeTraceStageStatus {
     Ok = 0,
     Skipped = 1,
     Failed = 2,
     Timeout = 3,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl EncodeTraceStageStatus {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Ok,
+            1 => Self::Skipped,
+            2 => Self::Failed,
+            3 => Self::Timeout,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EncodeTraceStageStatus {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// What an ENCODE produced, resolved after the async stages drained.
@@ -669,7 +774,63 @@ pub struct MemoryInspectResponse {
     /// `#[serde(default)]` so a server that does not send the field decodes
     /// as "no edges" instead of failing the whole response.
     #[serde(default)]
+    /// **Bounded.** The server returns at most 256 edges *per direction*, so
+    /// this vector is not necessarily the whole set. Check
+    /// [`Self::edges_are_complete`] before treating it as an enumeration;
+    /// [`Self::edge_total_count`] is the real total.
     pub edges: Vec<MemoryEdgeWire>,
+    /// How many memory↔memory edges are anchored at this memory, both
+    /// directions, counted **before** the per-direction cap is applied.
+    ///
+    /// When a total is reported, `edges.len()` is smaller than this when the
+    /// view was cut. Prefer this over `edges.len()` for anything the user sees
+    /// as a count.
+    ///
+    /// `#[serde(default)]` for the same forward-compatibility reason as
+    /// `edges`. The server sends `null` when it did not count a total, so
+    /// `None` means the server did not say, which differs from a total of zero.
+    #[serde(default)]
+    pub edge_total_count: Option<u32>,
+    /// True when `edges` carries only part of the set, because at least one
+    /// direction holds more edges than this verb returns.
+    ///
+    /// A caller that needs the complete enumeration reads it from
+    /// `GRAPH_FETCH`, which paginates; `MEMORY_INSPECT` is a single-shot
+    /// diagnostic and answers with a bounded view plus the count it did not
+    /// show. **Code that treated `edges` as complete is silently wrong unless
+    /// it reads this flag.**
+    #[serde(default)]
+    pub edges_truncated: bool,
+}
+
+impl MemoryInspectResponse {
+    /// Whether [`Self::edges`] is the complete set of edges anchored at this
+    /// memory, rather than a capped view.
+    ///
+    /// Returns `false` when the server set `edges_truncated`, and also when
+    /// `edge_total_count` exceeds the number of edges actually returned —
+    /// which covers the case of a server new enough to send a count but not
+    /// the flag. When the server did not report a total, this falls back to
+    /// `edges_truncated` rather than inventing a truncation.
+    ///
+    /// Use `GRAPH_FETCH` when this is `false` and the full set is needed.
+    #[must_use]
+    pub fn edges_are_complete(&self) -> bool {
+        !self.edges_truncated
+            && self
+                .edge_total_count
+                .map_or(true, |total| u64::from(total) <= self.edges.len() as u64)
+    }
+
+    /// How many edges the server counted but did not return, or `0` when the
+    /// server did not report a total or the view is complete. Useful for a
+    /// "… and N more" affordance.
+    #[must_use]
+    pub fn edges_omitted(&self) -> u64 {
+        self.edge_total_count.map_or(0, |total| {
+            u64::from(total).saturating_sub(self.edges.len() as u64)
+        })
+    }
 }
 
 /// One memory↔memory edge from `MEMORY_INSPECT`.
@@ -689,13 +850,31 @@ pub struct MemoryEdgeWire {
 }
 
 /// Which way an edge points relative to the memory being inspected.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum EdgeDirectionWire {
     Outgoing = 0,
     Incoming = 1,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl EdgeDirectionWire {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Outgoing,
+            1 => Self::Incoming,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EdgeDirectionWire {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 // ===========================================================================
@@ -733,8 +912,21 @@ pub enum RecallScopeWire {
 pub struct RecallRequest {
     pub cue_text: String,
     pub subject_name: String,
+    /// How many results to return. `0` is the documented sentinel for "use
+    /// the server's default", not a request for nothing.
+    ///
+    /// **An over-cap value is clamped, never refused.** The server's cap is a
+    /// safety bound, so a large number produces a short result set and no
+    /// error. Do not expect a validation failure here, and do not treat
+    /// `results.len() < max_results` as an error: it is the normal answer
+    /// both when the cap applied and when there simply were fewer matches.
+    /// A dedicated `TopKOutOfRange` code used to exist for this and has been
+    /// removed, because the refusal it named does not happen.
     pub max_results: u32,
     pub confidence_threshold: f32,
+    /// Sessions to scope the recall to. `None` or empty = no restriction.
+    /// Capped at [`SESSION_FILTER_MAX_ENTRIES`]; over that is
+    /// `InvalidArgument`.
     pub session_filter: Option<Vec<WireSessionId>>,
     pub age_bound_unix_nanos: Option<u64>,
     pub as_of_record_time_unix_nanos: Option<u64>,
@@ -823,27 +1015,67 @@ pub struct RecallTraceCandidate {
 /// The kind of typed-graph item a retriever lane surfaced. The graph lane emits
 /// entities and relations (not memories), so a candidate is not always a memory
 /// — `kind` tells the client how to interpret `RecallTraceCandidate::item_id`.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum RecallCandidateKind {
     Memory = 0,
     Statement = 1,
     Entity = 2,
     Relation = 3,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl RecallCandidateKind {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Memory,
+            1 => Self::Statement,
+            2 => Self::Entity,
+            3 => Self::Relation,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RecallCandidateKind {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// Terminal status of a retriever lane in a RECALL trace.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum RecallTraceRetrieverStatus {
     Success = 0,
     Skipped = 1,
     Timeout = 2,
     Failure = 3,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl RecallTraceRetrieverStatus {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Success,
+            1 => Self::Skipped,
+            2 => Self::Timeout,
+            3 => Self::Failure,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RecallTraceRetrieverStatus {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// Kind of a [`RecallTraceDroppedId`], disambiguating which id-space the
@@ -853,15 +1085,35 @@ pub enum RecallTraceRetrieverStatus {
 /// steps, supersession, as-of, and limit can drop `Statement` and
 /// `Relation` items, not just `Memory` ones, so a plain (untagged)
 /// `WireMemoryId` can't represent what those three steps removed.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum RankedItemKindWire {
     Memory = 0,
     Statement = 1,
     Entity = 2,
     Relation = 3,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl RankedItemKindWire {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Memory,
+            1 => Self::Statement,
+            2 => Self::Entity,
+            3 => Self::Relation,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RankedItemKindWire {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// One id a filter-chain step dropped, tagged with which id-space it came
@@ -974,14 +1226,33 @@ pub struct MemoryResult {
 }
 
 /// Retriever family that surfaced a memory. Integer discriminant.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum RetrieverNameWire {
     Semantic = 0,
     Lexical = 1,
     Graph = 2,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl RetrieverNameWire {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Semantic,
+            1 => Self::Lexical,
+            2 => Self::Graph,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RetrieverNameWire {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// Outgoing edge view on a recalled memory.
@@ -1178,14 +1449,18 @@ pub enum MemoryListTimeAxisWire {
 /// MEMORY_LIST (`0x0027`) — a paginated enumeration of the caller's
 /// `(namespace, space)` memories. This is not RECALL: no query, no ranking.
 /// It walks the tenant timeline in a stable order and returns a page plus an
-/// opaque keyset cursor. Empty/zero fields mean "no filter". v1 supports
-/// `sort = Created` (Asc/Desc); other sorts, the text filter, and the
-/// occurred axis are rejected with InvalidRequest.
+/// opaque keyset cursor. Empty `kinds` and `text_contains` mean no filter, and
+/// a zero time bound means no bound. Salience bounds are always inclusive, so
+/// an unbounded salience window is `0.0..=1.0`, not `0.0..=0.0`. `limit = 0`
+/// is rejected rather than treated as unlimited. `time_axis` is a selector
+/// (`0` means `Created`, while `Occurred` is currently rejected), not an
+/// unset filter. v1 supports `sort = Created` (Asc/Desc); other sorts and a
+/// non-empty text filter are rejected with InvalidRequest.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemoryListRequest {
     pub sort: MemoryListSortWire,
     pub dir: MemoryListDirWire,
-    /// Page size, validated server-side to `1..=100`.
+    /// Page size, validated server-side to `1..=100`; `0` is rejected.
     pub limit: u32,
     /// Empty on first page; opaque continuation token otherwise.
     pub cursor: Vec<u8>,
@@ -1200,9 +1475,10 @@ pub struct MemoryListRequest {
     pub from_unix_nanos: u64,
     /// Inclusive upper time bound in unix-nanos; `0` = no upper bound.
     pub to_unix_nanos: u64,
-    /// Inclusive salience floor in `[0, 1]`.
+    /// Inclusive salience floor in `[0, 1]`; this is always a bound.
     pub salience_min: f32,
-    /// Inclusive salience ceiling in `[0, 1]`.
+    /// Inclusive salience ceiling in `[0, 1]`; this is always a bound, so use
+    /// `1.0` for an unbounded upper end.
     pub salience_max: f32,
     /// Substring/token filter over memory text; empty = no filter.
     /// Only the empty value is served in v1: a non-empty filter is refused
@@ -1390,15 +1666,35 @@ pub struct PlanRequest {
 }
 
 /// Plan terminal status, set on the final frame only. Integer discriminant.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum PlanStatus {
     GoalReached = 0,
     BudgetExhausted = 1,
     NoPathFound = 2,
     Cancelled = 3,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl PlanStatus {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::GoalReached,
+            1 => Self::BudgetExhausted,
+            2 => Self::NoPathFound,
+            3 => Self::Cancelled,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PlanStatus {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// Transition kind between plan steps. Externally-tagged enum, matching the
@@ -1456,15 +1752,33 @@ pub struct PlanTrace {
 
 /// Which direction of the bidirectional BFS a `PlanTraceNode` was visited
 /// from. Integer discriminant on the wire.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum PlanTraceDirection {
     /// Visited by the forward search, rooted at `start`.
     Forward = 0,
     /// Visited by the backward search, rooted at `goal`.
     Backward = 1,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl PlanTraceDirection {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Forward,
+            1 => Self::Backward,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PlanTraceDirection {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// One node the bidirectional BFS visited, from either direction.
@@ -1535,15 +1849,35 @@ pub struct ReasonRequest {
 }
 
 /// Reason terminal status, set on the final frame only. Integer discriminant.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum ReasonStatus {
     Complete = 0,
     BudgetExhausted = 1,
     DepthLimitReached = 2,
     Cancelled = 3,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl ReasonStatus {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Complete,
+            1 => Self::BudgetExhausted,
+            2 => Self::DepthLimitReached,
+            3 => Self::Cancelled,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ReasonStatus {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// Inference kind. Externally-tagged enum, matching the server (`Other`
@@ -1701,9 +2035,27 @@ pub struct ReasonTraceCentroid {
 // ===========================================================================
 
 /// Error category — the retry axis. Integer discriminant on the wire.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+///
+/// ## Forward compatibility
+///
+/// Decoding is **total**, for the same reason [`ErrorCodeWire`]'s is: a
+/// category this build does not know maps to
+/// [`ErrorCategoryWire::Unknown`] rather than failing the frame.
+///
+/// This matters more here than it does for the code, not less. The category is
+/// a single field, but a decode failure loses the **entire ERROR payload** —
+/// message, code, `retry_after_ms` and all — so the caller is told "malformed
+/// response" instead of being told what actually went wrong. The server adds
+/// categories over time (`OperatorIntervention` was added after this SDK first
+/// shipped), and a client that cannot survive one it has never seen turns a
+/// readable server error into a parse failure at exactly the moment the
+/// operator needs the message.
+///
+/// A caller that wants to react to a category it does not recognise should
+/// treat `Unknown` as **not retryable**:
+/// [`crate::error::BrainError::is_retryable`] is an allowlist over
+/// `ResourceExhausted | Unavailable`, so that is already the behaviour.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum ErrorCategoryWire {
     Protocol = 0,
@@ -1715,6 +2067,55 @@ pub enum ErrorCategoryWire {
     ResourceExhausted = 6,
     Internal = 7,
     Unavailable = 8,
+    /// The shard needs a human. A failure in this category is **not
+    /// retryable and not transient**: the condition latched and only operator
+    /// action (in practice a process restart) clears it.
+    ///
+    /// This is deliberately its own category rather than `Unavailable`.
+    /// `Unavailable` invites a retry loop, and retrying here cannot ever
+    /// succeed — it just bills the caller and hides the outage. Note that
+    /// [`crate::error::BrainError::is_retryable`] is an *allowlist* over
+    /// `ResourceExhausted | Unavailable`, so this category is non-retryable
+    /// by construction, not by a rule that has to be remembered.
+    OperatorIntervention = 9,
+    /// A category this build does not recognise. See the type docs: decoding
+    /// is total so a newer server cannot make an ERROR frame unreadable.
+    ///
+    /// Not a value the server ever sends — it is this SDK's stand-in for one
+    /// it does not know, so `Unknown` must never be matched as if it carried
+    /// meaning beyond "newer than me". Fall back to
+    /// [`ErrorResponse::message`] and [`ErrorResponse::code`], and do not
+    /// retry.
+    Unknown = 0xFF,
+}
+
+impl ErrorCategoryWire {
+    /// Map a raw wire value to a known category, or [`Self::Unknown`].
+    ///
+    /// Exhaustive over every category this build knows; anything else is
+    /// `Unknown`, which is what makes decoding total.
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Protocol,
+            1 => Self::Authentication,
+            2 => Self::Authorization,
+            3 => Self::Validation,
+            4 => Self::NotFound,
+            5 => Self::Conflict,
+            6 => Self::ResourceExhausted,
+            7 => Self::Internal,
+            8 => Self::Unavailable,
+            9 => Self::OperatorIntervention,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ErrorCategoryWire {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// Wire error code (`u16`). Carried in an ERROR frame; the integer value
@@ -1748,9 +2149,7 @@ pub enum ErrorCodeWire {
     BadFrame = 0x0006,
     OversizePayload = 0x0007,
     ReservedFieldNonZero = 0x0008,
-    BadFlagCombination = 0x0009,
     MalformedPayload = 0x000A,
-    MalformedVector = 0x000B,
     // Connection / handshake.
     VersionNotSupported = 0x0020,
     NoSuchAuthMethod = 0x0021,
@@ -1764,17 +2163,28 @@ pub enum ErrorCodeWire {
     WrongShard = 0x0032,
     ActAsDenied = 0x0033,
     // Validation.
+    /// A request field was rejected. The **only** validation code for
+    /// field-level refusals: which field, and why, is carried in
+    /// [`ErrorResponse::details`] rather than in the code.
+    ///
+    /// Nine narrower validation codes (`0x0041`–`0x004A`) used to exist and
+    /// were removed; the conditions they named now all arrive here with
+    /// [`ErrorDetails::field`] set. Branch on
+    /// `(InvalidArgument, details.field.as_deref())`, never on a code:
+    ///
+    /// | condition | `details.field` |
+    /// |---|---|
+    /// | `text` empty or over the size cap | `"text"` |
+    /// | a client tried to set a memory `kind` | `"kind"` |
+    /// | vector wrong dimension, non-finite, or wrong L2 norm | `"vector"` |
+    /// | `model_fingerprint` mismatch | `"model_fingerprint"` |
+    /// | plan or reason budget out of range | the budget field's name |
+    ///
+    /// Note that an over-cap RECALL `max_results` is **not** in that table:
+    /// the server clamps it instead of refusing, so it produces no error at
+    /// all. See [`RecallRequest::max_results`].
     InvalidArgument = 0x0040,
-    MissingRequiredField = 0x0041,
-    TextTooLarge = 0x0042,
-    TextEmpty = 0x0043,
     BadSessionId = 0x0044,
-    BadMemoryKind = 0x0045,
-    BadEdgeKind = 0x0046,
-    BadStrategyHint = 0x0047,
-    TopKOutOfRange = 0x0048,
-    BudgetTooLarge = 0x0049,
-    BadModelFingerprint = 0x004A,
     PredicateNotInSchema = 0x004B,
     RelationTypeNotInSchema = 0x004C,
     // Not found.
@@ -1799,7 +2209,10 @@ pub enum ErrorCodeWire {
     OutOfMemory = 0x0072,
     RateLimited = 0x0073,
     StreamLimitExceeded = 0x0074,
-    ConnectionLimitExceeded = 0x0075,
+    // `ConnectionLimitExceeded` (0x0075) was removed. It could never be
+    // delivered: a connection over the server's accept cap is dropped at
+    // accept, before TLS and before the handshake, so there is no stream to
+    // carry an error frame. A client sees the socket close, not a code.
     TransactionLimitExceeded = 0x0076,
     TransactionTooLarge = 0x0077,
     // Internal.
@@ -1818,8 +2231,26 @@ pub enum ErrorCodeWire {
     /// The namespace's LLM credential could not be resolved right now —
     /// broker unreachable, timed out, or transiently failing. **Retryable.**
     LlmCredentialUnavailable = 0x0095,
+    // Operator intervention.
+    /// The shard's write-ahead log latched into a terminal faulted state.
+    ///
+    /// Category [`ErrorCategoryWire::OperatorIntervention`], and
+    /// **deliberately not retryable**: the shard will keep answering this way
+    /// until the process is restarted, so a retry loop cannot make progress.
+    /// Surface it to a human as an outage needing operator action — do not
+    /// fold it in with [`Self::ShardUnavailable`] or [`Self::Restarting`],
+    /// which do clear on their own.
+    ShardStorageFaulted = 0x00A0,
+    /// An internal failure the shard cannot recover from. Like
+    /// [`Self::ShardStorageFaulted`], this needs operator action and must not
+    /// be retried.
+    UnrecoverableInternal = 0x00A1,
     // Typed-graph.
-    SchemaInvalid = 0x0120,
+    // `SchemaInvalid` (0x0120) was removed. A schema that fails validation is
+    // not reported as an error code: the response body carries a structured
+    // per-problem list instead (`validation_errors`, a
+    // [`SchemaValidationErrorWire`] each, with code, message and source
+    // span), which a single code could not express.
     SchemaMigrationRequired = 0x0121,
     EntityNotFound = 0x0130,
     EntityTypeMismatch = 0x0131,
@@ -1854,9 +2285,7 @@ impl ErrorCodeWire {
             0x0006 => Self::BadFrame,
             0x0007 => Self::OversizePayload,
             0x0008 => Self::ReservedFieldNonZero,
-            0x0009 => Self::BadFlagCombination,
             0x000A => Self::MalformedPayload,
-            0x000B => Self::MalformedVector,
             0x0020 => Self::VersionNotSupported,
             0x0021 => Self::NoSuchAuthMethod,
             0x0022 => Self::Unauthenticated,
@@ -1868,16 +2297,7 @@ impl ErrorCodeWire {
             0x0032 => Self::WrongShard,
             0x0033 => Self::ActAsDenied,
             0x0040 => Self::InvalidArgument,
-            0x0041 => Self::MissingRequiredField,
-            0x0042 => Self::TextTooLarge,
-            0x0043 => Self::TextEmpty,
             0x0044 => Self::BadSessionId,
-            0x0045 => Self::BadMemoryKind,
-            0x0046 => Self::BadEdgeKind,
-            0x0047 => Self::BadStrategyHint,
-            0x0048 => Self::TopKOutOfRange,
-            0x0049 => Self::BudgetTooLarge,
-            0x004A => Self::BadModelFingerprint,
             0x004B => Self::PredicateNotInSchema,
             0x004C => Self::RelationTypeNotInSchema,
             0x0050 => Self::MemoryNotFound,
@@ -1896,7 +2316,6 @@ impl ErrorCodeWire {
             0x0072 => Self::OutOfMemory,
             0x0073 => Self::RateLimited,
             0x0074 => Self::StreamLimitExceeded,
-            0x0075 => Self::ConnectionLimitExceeded,
             0x0076 => Self::TransactionLimitExceeded,
             0x0077 => Self::TransactionTooLarge,
             0x0080 => Self::Internal,
@@ -1910,7 +2329,6 @@ impl ErrorCodeWire {
             0x0092 => Self::Restarting,
             0x0093 => Self::Maintenance,
             0x0094 => Self::RetrieverDegraded,
-            0x0120 => Self::SchemaInvalid,
             0x0121 => Self::SchemaMigrationRequired,
             0x0130 => Self::EntityNotFound,
             0x0131 => Self::EntityTypeMismatch,
@@ -1926,6 +2344,8 @@ impl ErrorCodeWire {
             0x0172 => Self::ExtractionFailed,
             0x0066 => Self::LlmCredentialMissing,
             0x0095 => Self::LlmCredentialUnavailable,
+            0x00A0 => Self::ShardStorageFaulted,
+            0x00A1 => Self::UnrecoverableInternal,
             _ => Self::Unknown,
         }
     }
@@ -2656,6 +3076,9 @@ pub struct QueryRequest {
     /// Sessions to scope the query to. `None` or empty = no restriction
     /// (every session in the caller's space). Mirrors
     /// [`RecallRequest::session_filter`].
+    ///
+    /// **Newly capped** at [`SESSION_FILTER_MAX_ENTRIES`]. This was unbounded
+    /// on `QUERY`; a longer filter is now refused with `InvalidArgument`.
     pub session_filter: Option<Vec<WireSessionId>>,
     pub time_filter: Option<TimeRangeWire>,
     pub as_of_record_time_unix_nanos: Option<u64>,
@@ -2674,6 +3097,12 @@ pub struct QueryRequest {
 pub struct MaterializeProceduralRequest {
     #[serde(with = "serde_bytes")]
     pub space_id: WireUuid,
+    /// Sessions to scope the materialization to. `None` or empty = no
+    /// restriction.
+    ///
+    /// **Newly capped** at [`SESSION_FILTER_MAX_ENTRIES`]. This was unbounded
+    /// on `MATERIALIZE_PROCEDURAL`; a longer filter is now refused with
+    /// `InvalidArgument`.
     pub session_filter: Option<Vec<WireSessionId>>,
     pub top_k: u32,
     pub min_confidence: f32,
@@ -2802,6 +3231,12 @@ pub struct SessionView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionCreateRequest {
     pub session_id: WireSessionId,
+    /// Optional human label for the session.
+    ///
+    /// Capped at [`SESSION_TITLE_MAX_BYTES`] (256) — **down from 1024**. A
+    /// title between 257 and 1024 bytes that an older server accepted is now
+    /// refused with `InvalidArgument` and `details.field == "title"`. The cap
+    /// counts UTF-8 bytes, not characters.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title: Option<String>,
     #[serde(with = "serde_bytes")]
@@ -2937,9 +3372,7 @@ pub struct TxnAbortResponse {
 /// server's `EventType`). The four cognitive variants populate the
 /// `SubscriptionEvent` cognitive fields; the typed-graph variants zero-fill
 /// them and carry their body in `graph_payload`.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum EventType {
     // Cognitive events.
@@ -2968,17 +3401,75 @@ pub enum EventType {
     EdgeAdded = 31,
     EdgeRemoved = 32,
     EdgeSuperseded = 33,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl EventType {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Encoded,
+            1 => Self::Forgotten,
+            2 => Self::Reclaimed,
+            3 => Self::KindChanged,
+            16 => Self::EntityCreated,
+            17 => Self::EntityUpdated,
+            18 => Self::EntityRenamed,
+            19 => Self::EntityMerged,
+            20 => Self::EntityUnmerged,
+            21 => Self::EntityTombstoned,
+            22 => Self::StatementCreated,
+            23 => Self::StatementSuperseded,
+            24 => Self::StatementTombstoned,
+            25 => Self::RelationCreated,
+            26 => Self::RelationSuperseded,
+            27 => Self::StageCompleted,
+            29 => Self::SchemaUpdated,
+            30 => Self::RelationTombstoned,
+            31 => Self::EdgeAdded,
+            32 => Self::EdgeRemoved,
+            33 => Self::EdgeSuperseded,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EventType {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// Verdict of a completed background stage. Integer discriminant.
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum StageOutcome {
     Ok = 0,
     Empty = 1,
     Failed = 2,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl StageOutcome {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => Self::Ok,
+            1 => Self::Empty,
+            2 => Self::Failed,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for StageOutcome {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// Audit verdict for an extractor stage. Integer discriminant.
@@ -3083,15 +3574,19 @@ pub struct SimilarityFilter {
     pub threshold: f32,
 }
 
-/// Selects which events a subscription receives. All fields `None`/empty
-/// means "everything routed to this shard".
+/// Selects which events a subscription receives. Every field except `spaces`
+/// may be left `None`/empty to mean "no constraint".
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SubscriptionFilter {
     pub session_filter: Option<Vec<WireSessionId>>,
     pub kinds: Option<Vec<MemoryKindWire>>,
     pub similar_to: Option<SimilarityFilter>,
-    /// Subset of space ids whose events the subscriber wants. `None` or
-    /// empty = all spaces on the shard.
+    /// The space whose events the subscriber wants, named by its resolved id.
+    /// The server accepts only the caller's effective space (the `act_as`
+    /// target when the subscription carries one) and refuses `None`, an empty
+    /// list, or any other id: a shard is multi-tenant, so an unfiltered feed
+    /// would carry other tenants' events. Resolve the id with
+    /// [`crate::client::derive_space_id`].
     #[serde(with = "crate::wire::cbor::opt_vec_byte_array16")]
     pub spaces: Option<Vec<WireUuid>>,
     /// Subset of memory ids whose events the subscriber wants. `None` or
@@ -3477,18 +3972,22 @@ pub struct EntityGetResponse {
     pub resolved_from: Vec<WireUuid>,
 }
 
-/// ENTITY_LIST (`0x0137`). Empty/zero fields mean "no filter".
+/// ENTITY_LIST (`0x0137`). An empty `name_prefix` means no name filter, and
+/// `mention_count_min = 0` means no lower bound. `entity_type_id` is a
+/// required selector, not an unset filter: `0` is invalid. `limit = 0` is
+/// rejected rather than treated as unlimited.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityListRequest {
     /// The entity type id to enumerate. Required: listing every type at
     /// once is not offered in v1.0, and `0` is refused as an invalid request.
     pub entity_type_id: u32,
-    /// Empty = no filter.
+    /// Empty = no name filter.
     pub name_prefix: String,
+    /// Minimum mention count; `0` = no lower bound.
     pub mention_count_min: u32,
     pub include_tombstoned: bool,
     pub include_merged: bool,
-    /// 1..=1000.
+    /// Page size, validated server-side to `1..=1000`; `0` is rejected.
     pub limit: u32,
     /// Empty on first page; opaque continuation token otherwise.
     pub cursor: Vec<u8>,
@@ -3544,15 +4043,35 @@ pub struct EntityResolveRequest {
 
 /// Resolution outcome. Integer discriminant on the wire (`1`-based, mirroring
 /// the server's `ResolutionOutcomeWire`).
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde_repr::Serialize_repr)]
 #[repr(u8)]
 pub enum ResolutionOutcomeWire {
     Resolved = 1,
     Created = 2,
     Ambiguous = 3,
     NotFound = 4,
+    /// A value this build does not recognise; the server never sends this
+    /// sentinel. Callers must not read meaning into it beyond "newer than this build".
+    Unknown = 255,
+}
+
+impl ResolutionOutcomeWire {
+    #[must_use]
+    pub fn from_raw(raw: u8) -> Self {
+        match raw {
+            1 => Self::Resolved,
+            2 => Self::Created,
+            3 => Self::Ambiguous,
+            4 => Self::NotFound,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ResolutionOutcomeWire {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_raw(u8::deserialize(d)?))
+    }
 }
 
 /// ENTITY_RESOLVE_RESP (`0x01B6`).
@@ -3639,20 +4158,26 @@ pub struct StatementGetResponse {
     pub returned_via_supersession: bool,
 }
 
-/// STATEMENT_LIST (`0x0146`). Empty/zero fields mean "no filter".
-/// `kind == 0` = no kind filter; otherwise `1 = Fact / 2 = Preference /
-/// 3 = Event`.
+/// STATEMENT_LIST (`0x0146`). `kind == 0` means no kind filter, `min_confidence
+/// = 0` means no lower bound, and either zero time bound means no bound.
+/// `limit = 0` is rejected rather than treated as unlimited. Other fields are
+/// selectors, filters, or toggles according to their individual values.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatementListRequest {
     #[serde(with = "serde_bytes")]
     pub subject: WireUuid,
     pub predicate: String,
+    /// `0` = no kind filter; otherwise `1 = Fact / 2 = Preference / 3 = Event`.
     pub kind: u8,
+    /// Minimum confidence; `0` = no lower bound.
     pub min_confidence: f32,
+    /// `0` = no lower bound.
     pub time_range_start_unix_nanos: u64,
+    /// `0` = no upper bound.
     pub time_range_end_unix_nanos: u64,
     pub only_current: bool,
     pub include_tombstoned: bool,
+    /// Page size; `0` is rejected rather than treated as unlimited.
     pub limit: u32,
     pub cursor: Vec<u8>,
     /// Effective identity this list runs as. `None` (omitted on the wire) means
@@ -3781,10 +4306,15 @@ pub struct SchemaGetRequest {
 pub struct SchemaGetResponse {
     pub namespace: String,
     pub schema_version: u32,
-    /// Verbatim DSL text if uploaded as such; empty for programmatic uploads.
+    /// The merged schema for this version, rendered back to DSL from the
+    /// stored AST so the output is re-uploadable, falling back to the stored
+    /// upload text when the AST cannot be rendered.
+    ///
+    /// This is now the *only* carrier of the schema in this response. A
+    /// `source_blob` field used to sit beside it holding
+    /// `serde_json::to_vec(&Schema)` of the same parsed AST — the same schema
+    /// twice, in two formats. The server removed it; read `schema_document`.
     pub schema_document: String,
-    /// `serde_json::to_vec(&Schema)` of the parsed AST.
-    pub source_blob: Vec<u8>,
     pub uploaded_at_unix_nanos: u64,
     pub validator_version: u32,
 }
@@ -4190,22 +4720,28 @@ impl<'de> Deserialize<'de> for VerifyOutcome {
     }
 }
 
-/// What a read reports about an installed credential. Carries no key material.
+/// What a read reports about an installed credential.
+///
+/// The `fingerprint` is a display suffix made from the provider key's last four
+/// characters, not a hash or opaque identifier. It is therefore a small amount
+/// of key material and must be treated as sensitive in logs and dashboards.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmCredentialView {
     /// `"openai"` or `"anthropic"`.
     pub provider: String,
     /// The model extraction and HyPE run on.
     pub model: String,
-    /// Display-safe tail of the key (e.g. `…4f2a`). Never reconstructable.
+    /// The key's last four characters with a leading `…` (for example, `…4f2a`).
+    /// This is a small, sensitive piece of key material, not an opaque ID.
     pub fingerprint: String,
     pub created_at_unix_nanos: u64,
-    /// `true` when a space-scoped read resolved the namespace's key rather
-    /// than one of its own. Always `false` while space scope is refused.
+    /// Always `false`: a credential belongs to a namespace and there is no
+    /// narrower scope for a read to resolve from.
     pub inherited: bool,
 }
 
-/// LLM_CREDENTIAL_PUT (`0x0076`). Registers or replaces the key at `scope`.
+/// LLM_CREDENTIAL_PUT (`0x0076`). Registers or replaces the authenticated
+/// namespace's key.
 ///
 /// The only wire shape that carries a plaintext provider key. The server
 /// refuses it unless the connection is TLS, mTLS or loopback, seals it on
@@ -4244,9 +4780,11 @@ impl core::fmt::Debug for LlmCredentialPutRequest {
 pub struct LlmCredentialPutResponse {
     pub provider: String,
     pub model: String,
+    /// The provider key's last four characters with a leading `…`; this is
+    /// sensitive key material rather than an opaque identifier.
     pub fingerprint: String,
     pub created_at_unix_nanos: u64,
-    /// `true` when this displaced a key already registered at the same scope,
+    /// `true` when this displaced a key already registered for this namespace,
     /// so a caller can tell a first registration from a rotation.
     pub replaced: bool,
 }
@@ -4266,10 +4804,7 @@ pub struct LlmCredentialGetResponse {
     pub credential: Option<LlmCredentialView>,
 }
 
-/// LLM_CREDENTIAL_DELETE (`0x0078`). Removes the key at exactly `scope`.
-///
-/// Exact rather than resolved: a space revoking its own key must not be able
-/// to remove the tenant's by accident.
+/// LLM_CREDENTIAL_DELETE (`0x0078`). Removes the authenticated namespace's key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmCredentialDeleteRequest {
     #[serde(with = "serde_bytes")]
@@ -4281,7 +4816,7 @@ pub struct LlmCredentialDeleteRequest {
 /// LLM_CREDENTIAL_DELETE_RESP (`0x00F8`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmCredentialDeleteResponse {
-    /// `false` when that scope had no key of its own. Reported rather than
+    /// `false` when the namespace had no key installed. Reported rather than
     /// always succeeding, because a caller revoking during an incident needs
     /// to tell "revoked" from "there was nothing there".
     pub existed: bool,
@@ -4341,4 +4876,49 @@ pub struct EntityTypeListItem {
 pub struct EntityTypeListResponseFrame {
     pub items: Vec<EntityTypeListItem>,
     pub total: u32,
+}
+
+#[cfg(test)]
+mod credential_redaction_tests {
+    use super::{AuthCredentials, HelloCapabilities, HelloPayload, MtlsClaim};
+
+    #[test]
+    fn debug_hides_the_auth_token() {
+        let token = b"live-token-DO-NOT-LOG".to_vec();
+        let leaked = format!("{token:?}");
+        let shown = format!("{:?}", AuthCredentials::Token(token));
+        assert!(!shown.contains(&leaked), "{shown}");
+        assert!(shown.contains("Token"), "{shown}");
+        assert!(shown.contains("[redacted]"), "{shown}");
+    }
+
+    #[test]
+    fn debug_hides_the_cert_fingerprint_and_keeps_the_subject() {
+        let claim = MtlsClaim {
+            cert_fingerprint: [0xAB; 32],
+            asserted_subject: "svc/ingest".to_string(),
+        };
+        let leaked = format!("{:?}", claim.cert_fingerprint);
+        let shown = format!("{:?}", AuthCredentials::Mtls(claim));
+        assert!(!shown.contains(&leaked), "{shown}");
+        assert!(shown.contains("svc/ingest"), "{shown}");
+    }
+
+    #[test]
+    fn debug_hides_the_resumption_token_and_keeps_the_client_id() {
+        let hello = HelloPayload {
+            client_id: "ingest-worker".to_string(),
+            supported_versions: vec![1],
+            capabilities: HelloCapabilities {
+                streaming: true,
+                compression_zstd: false,
+                server_push: false,
+            },
+            client_connection_token: Some([0xCD; 32]),
+        };
+        let leaked = format!("{:?}", [0xCD_u8; 32]);
+        let shown = format!("{hello:?}");
+        assert!(!shown.contains(&leaked), "{shown}");
+        assert!(shown.contains("ingest-worker"), "{shown}");
+    }
 }

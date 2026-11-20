@@ -33,7 +33,7 @@ const T = itTarget();
 const BUDGET: PlanBudget = {
   maxSteps: 8,
   maxWallTimeMs: 5_000,
-  maxBranchesExplored: 256,
+  maxBranchesExplored: 32,
 };
 
 const MAX_INFERENCES = 32;

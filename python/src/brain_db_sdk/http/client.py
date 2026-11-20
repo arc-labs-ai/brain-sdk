@@ -1265,7 +1265,12 @@ class BrainHttpClient:
         )
 
     def get_llm_credential(self) -> LlmCredential:
-        """What is installed for this tenant. Carries no key material."""
+        """What is installed for this tenant.
+
+        The fingerprint is the provider key's last four characters, verbatim,
+        so it is a small amount of real key material and must be treated as
+        sensitive rather than as an opaque identifier.
+        """
         return LlmCredential.from_dict(self._request("GET", "/v1/llm-credential", idempotent=True))
 
     def delete_llm_credential(self) -> LlmCredentialDeleted:
@@ -1278,7 +1283,7 @@ class BrainHttpClient:
             self._request("DELETE", "/v1/llm-credential", idempotent=True)
         )
 
-    def test_llm_credential(self, provider: str, model: str, api_key: str) -> LlmCredentialCheck:
+    def test_llm_credential(self, provider: str, api_key: str) -> LlmCredentialCheck:
         """Check a key WITHOUT storing it.
 
         Nothing is written and nothing existing is touched, so this is safe
@@ -1288,7 +1293,7 @@ class BrainHttpClient:
             self._request(
                 "POST",
                 "/v1/llm-credential/test",
-                {"provider": provider, "model": model, "api_key": api_key},
+                {"provider": provider, "api_key": api_key},
                 idempotent=True,
             )
         )
@@ -1498,14 +1503,15 @@ class BrainHttpClient:
         query: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
         """Send the request, retrying idempotent verbs per the policy on ``503``
-        and transport/timeout failures. Non-idempotent verbs run exactly once."""
+        and transport/timeout failures with a jittered sleep. Non-idempotent
+        verbs run exactly once."""
         attempt = 1
         while True:
             try:
                 return self._request_once(method, path, body, query)
             except BrainHttpError as err:
                 if idempotent and self._retry.should_retry(attempt, err):
-                    delay = self._retry.backoff(attempt, err.retry_after)
+                    delay = self._retry.sleep_delay(attempt, err.retry_after)
                     time.sleep(delay)
                     attempt += 1
                     continue
@@ -1555,6 +1561,7 @@ class BrainHttpClient:
     def _error_from(e: urllib.error.HTTPError) -> BrainHttpError:
         code, message = "http_error", f"HTTP {e.code}"
         field_errors: list[FieldError] = []
+        engine_code: str | None = None
         try:
             payload = json.loads(e.read().decode())
             err = payload.get("error") if isinstance(payload, dict) else None
@@ -1562,6 +1569,9 @@ class BrainHttpClient:
                 # brain-edge's envelope.
                 code = err.get("code", code)
                 message = err.get("message", message)
+                raw_engine_code = err.get("engine_code")
+                engine_code = raw_engine_code if isinstance(raw_engine_code, str) else None
+                field_errors = _field_errors(err.get("errors"))
             elif isinstance(payload, dict) and isinstance(payload.get("code"), str):
                 # The cloud gateway's RFC 9457 `application/problem+json`.
                 code = payload["code"]
@@ -1577,7 +1587,7 @@ class BrainHttpClient:
                     message = "; ".join(f"{f.field}: {f.message}" for f in field_errors)
         except Exception:  # noqa: BLE001 - best-effort error body parse
             pass
-        out = BrainHttpError(e.code, code, message, field_errors)
+        out = BrainHttpError(e.code, code, message, field_errors, engine_code)
         # Attach a server Retry-After hint (integer seconds) for the retry
         # scheduler. Not part of the public {status, code, message} shape.
         out.retry_after = _parse_retry_after(e)

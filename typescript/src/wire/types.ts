@@ -77,6 +77,11 @@ function asNum(value: unknown): number {
   throw new CborError("expected a number");
 }
 
+function asWireEnum(value: unknown, members: Record<string, string | number>): number {
+  const n = asNum(value);
+  return Object.values(members).includes(n) ? n : 0xff;
+}
+
 function asBig(value: unknown): bigint {
   if (typeof value === "bigint") return value;
   if (typeof value === "number") return BigInt(value);
@@ -150,6 +155,7 @@ export enum RetrieverNameWire {
   Semantic = 0,
   Lexical = 1,
   Graph = 2,
+  Unknown = 255,
 }
 
 /** Resolution outcome discriminant (integer on the wire, 1-based). */
@@ -158,6 +164,7 @@ export enum ResolutionOutcomeWire {
   Created = 2,
   Ambiguous = 3,
   NotFound = 4,
+  Unknown = 255,
 }
 
 /** Retriever identity tag carried on a QUERY per-retriever contribution or outcome (semantic, lexical, graph). */
@@ -176,7 +183,14 @@ export enum ResolutionOutcomeWire {
  */
 export type RetrieverWire = "Semantic" | "Lexical" | "Graph";
 
-/** Coarse class of a server ERROR frame; drives whether the client may retry. */
+/**
+ * Coarse class of a server ERROR frame; drives whether the client may retry.
+ *
+ * Decoding is total: `decodeError` reads the category as a plain number and
+ * this annotation is erased at runtime, so a category this build does not know
+ * cannot make an ERROR frame unreadable. Compare against these members, but do
+ * not assume the set is closed — the server adds categories over time.
+ */
 export enum ErrorCategoryWire {
   Protocol = 0,
   Authentication = 1,
@@ -187,6 +201,23 @@ export enum ErrorCategoryWire {
   ResourceExhausted = 6,
   Internal = 7,
   Unavailable = 8,
+  /**
+   * The shard needs a human: the condition latched and only operator action
+   * (in practice a process restart) clears it.
+   *
+   * Deliberately NOT `Unavailable`, which invites a retry loop that cannot
+   * ever succeed. {@link isRetryable} is an allowlist over
+   * `ResourceExhausted | Unavailable`, so this is non-retryable by
+   * construction rather than by a rule someone has to remember.
+   */
+  OperatorIntervention = 9,
+  /**
+   * SDK-only stand-in for a category this build does not know, mirroring the
+   * Rust SDK's `ErrorCategoryWire::Unknown`. The server never sends it; treat
+   * it as "newer than me", fall back to the message and code, and do not
+   * retry.
+   */
+  Unknown = 0xff,
 }
 
 /**
@@ -197,6 +228,20 @@ export enum ErrorCategoryWire {
  * sends a request carrying an `act_as` selector.
  */
 export enum WireErrorCode {
+  /**
+   * A request field was rejected — the **only** code for a field-level
+   * refusal. Which field, and why, is carried in {@link ErrorDetails.field}
+   * rather than in the code.
+   *
+   * Nine narrower validation codes (`0x0041`–`0x004A`) used to exist and were
+   * removed; the conditions they named now all arrive here with
+   * `details.field` set: `"text"` for an empty or oversize text, `"kind"` for
+   * a client-supplied memory kind, `"vector"` for a wrong dimension,
+   * non-finite value or wrong L2 norm, `"model_fingerprint"` for a mismatch,
+   * and the budget's own field name for an out-of-range plan or reason budget.
+   * Branch on the pair, never on a dedicated code.
+   */
+  InvalidArgument = 0x0040,
   PermissionDenied = 0x0030,
   AdminPermissionRequired = 0x0031,
   WrongShard = 0x0032,
@@ -214,6 +259,18 @@ export enum WireErrorCode {
    * collapsing them would make a broker blip look like an unconfigured tenant.
    */
   LlmCredentialUnavailable = 0x0095,
+  /**
+   * The shard's write-ahead log latched into a terminal faulted state.
+   * Category `OperatorIntervention`.
+   *
+   * **Terminal, and not transient.** The shard keeps answering this way until
+   * its process is restarted, so retrying cannot make progress — only
+   * operator action clears it. Deliberately distinct from the
+   * `Unavailable`-category shard errors, which do clear on their own: surface
+   * this one as an outage needing attention, not as a blip.
+   */
+  ShardStorageFaulted = 0x00a0,
+  UnrecoverableInternal = 0x00a1,
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +384,9 @@ export function decodeWelcome(bytes: Uint8Array): WelcomePayload {
     serverFeatures: {
       maxPayloadSize: asNum(field(sf, "max_payload_size")),
       maxConcurrentStreams: asNum(field(sf, "max_concurrent_streams")),
-      idleTimeoutSeconds: asNum(field(sf, "idle_timeout_seconds")),
+      idleTimeoutSeconds: sf.has("idle_timeout_seconds")
+        ? asNum(field(sf, "idle_timeout_seconds"))
+        : 0,
       authMethods: asArray(field(sf, "auth_methods")).map((v) => asNum(v)),
     },
   };
@@ -1395,6 +1454,7 @@ export enum EncodeTraceStageStatus {
   Skipped = 1,
   Failed = 2,
   Timeout = 3,
+  Unknown = 255,
 }
 
 /** One phase in an `EncodeTrace` timeline. */
@@ -1551,7 +1611,7 @@ function decodeEncodeTrace(value: unknown): EncodeTrace {
       const s = asMap(v);
       const stage: EncodeTraceStage = {
         name: asStr(field(s, "name")),
-        status: asNum(field(s, "status")),
+        status: asWireEnum(field(s, "status"), EncodeTraceStageStatus) as EncodeTraceStageStatus,
         latencyUs: asBig(field(s, "latency_us")),
         detail: asStr(field(s, "detail")),
       };
@@ -1878,14 +1938,61 @@ export interface MemoryInspectResponse {
    * knowledge graph — an edge asserted later with LINK never appears there.
    * Empty when the server does not send the field, so an older server decodes
    * as "no edges" rather than throwing.
+   *
+   * **Bounded.** The server returns at most 256 edges *per direction*, so this
+   * array is not necessarily the whole set. Check
+   * {@link memoryInspectEdgesAreComplete} before treating it as an
+   * enumeration.
    */
   edges: MemoryEdge[];
+  /**
+   * How many edges are anchored at this memory, both directions, counted
+   * **before** the per-direction cap is applied.
+   *
+   * `edges.length` is smaller than this when the view was cut, so prefer this
+   * for anything a user sees as a count. A server that does not provide a
+   * count decodes as `null` or `undefined`, which is why
+   * {@link memoryInspectEdgesAreComplete} consults the flag and the length
+   * rather than trusting this alone.
+   */
+  edgeTotalCount?: number | null | undefined;
+  /**
+   * True when `edges` carries only part of the set, because at least one
+   * direction holds more edges than this verb returns.
+   *
+   * A caller that needs the complete enumeration reads it from GRAPH_FETCH,
+   * which paginates; MEMORY_INSPECT is a single-shot diagnostic and answers
+   * with a bounded view plus the count it did not show.
+   */
+  edgesTruncated: boolean;
+}
+
+/**
+ * Whether a MEMORY_INSPECT response's `edges` is the full set rather than a
+ * capped view.
+ *
+ * False when the server set `edgesTruncated`, and also when `edgeTotalCount`
+ * exceeds the number of edges actually returned. When no total is provided,
+ * the truncation flag is authoritative. Use GRAPH_FETCH when this is `false`
+ * and the full set is needed.
+ */
+export function memoryInspectEdgesAreComplete(r: MemoryInspectResponse): boolean {
+  return !r.edgesTruncated && (r.edgeTotalCount == null || r.edgeTotalCount <= r.edges.length);
+}
+
+/**
+ * How many edges the server counted but did not return, or `0` when the view
+ * is complete. Useful for an "… and N more" affordance.
+ */
+export function memoryInspectEdgesOmitted(r: MemoryInspectResponse): number {
+  return r.edgeTotalCount == null ? 0 : Math.max(0, r.edgeTotalCount - r.edges.length);
 }
 
 /** Which way an edge points relative to the memory being inspected. */
 export enum EdgeDirectionWire {
   Outgoing = 0,
   Incoming = 1,
+  Unknown = 255,
 }
 
 /**
@@ -1926,6 +2033,8 @@ export function encodeMemoryInspectResponse(p: MemoryInspectResponse): Uint8Arra
             ]),
         ),
       ],
+      ["edge_total_count", p.edgeTotalCount ?? null],
+      ["edges_truncated", p.edgesTruncated],
     ]),
   );
 }
@@ -1939,6 +2048,10 @@ export function decodeMemoryInspectResponse(bytes: Uint8Array): MemoryInspectRes
     artifact: decodeStageArtifact(field(m, "artifact")),
     // Absent rather than empty on a server that predates the field.
     edges: m.has("edges") ? asArray(m.get("edges")).map(decodeMemoryEdge) : [],
+    // Likewise absent on a server that predates the cap. Zero and false mean
+    // "assume complete", which is what the old behaviour already was.
+    edgeTotalCount: m.has("edge_total_count") ? asOpt(m.get("edge_total_count"), asNum) : undefined,
+    edgesTruncated: m.has("edges_truncated") ? Boolean(m.get("edges_truncated")) : false,
   };
 }
 
@@ -1947,7 +2060,7 @@ function decodeMemoryEdge(value: unknown): MemoryEdge {
   const annotation = m.get("annotation");
   return {
     kind: asNum(field(m, "kind")) as EdgeKindWire,
-    direction: asNum(field(m, "direction")) as EdgeDirectionWire,
+    direction: asWireEnum(field(m, "direction"), EdgeDirectionWire) as EdgeDirectionWire,
     peer: asBig(field(m, "peer")),
     weight: asNum(field(m, "weight")),
     createdAtUnixNanos: asBig(field(m, "created_at_unix_nanos")),
@@ -2351,6 +2464,7 @@ export enum RecallTraceRetrieverStatus {
   Skipped = 1,
   Timeout = 2,
   Failure = 3,
+  Unknown = 255,
 }
 
 /** What one retriever lane did during a traced RECALL. */
@@ -2374,7 +2488,7 @@ export interface RecallTraceCandidate {
    * depending on `kind`. */
   itemId: bigint;
   /** How to interpret `itemId`. */
-  kind: RankedItemKindWire;
+  kind: RecallCandidateKind;
   /** A human-readable label — memory text, entity name, or a rendered
    * statement/relation. Full-detail mode only; truncated server-side. */
   text: string;
@@ -2391,6 +2505,16 @@ export enum RankedItemKindWire {
   Statement = 1,
   Entity = 2,
   Relation = 3,
+  Unknown = 255,
+}
+
+/** Kind of item surfaced as a raw RECALL candidate. Integer discriminant. */
+export enum RecallCandidateKind {
+  Memory = 0,
+  Statement = 1,
+  Entity = 2,
+  Relation = 3,
+  Unknown = 255,
 }
 
 /** One id a filter-chain step dropped, tagged with which id-space it came
@@ -2484,7 +2608,7 @@ function decodeRecallTraceCandidate(value: unknown): RecallTraceCandidate {
   const c = asMap(value);
   return {
     itemId: asBig(field(c, "item_id")),
-    kind: asNum(field(c, "kind")),
+    kind: asWireEnum(field(c, "kind"), RecallCandidateKind) as RecallCandidateKind,
     text: asStr(field(c, "text")),
     score: asNum(field(c, "score")),
   };
@@ -2500,7 +2624,7 @@ function encodeRecallTraceDroppedId(d: RecallTraceDroppedId): Map<string, unknow
 function decodeRecallTraceDroppedId(value: unknown): RecallTraceDroppedId {
   const d = asMap(value);
   return {
-    kind: asNum(field(d, "kind")),
+    kind: asWireEnum(field(d, "kind"), RankedItemKindWire) as RankedItemKindWire,
     id: asBig(field(d, "id")),
   };
 }
@@ -2585,8 +2709,11 @@ function decodeRecallTrace(value: unknown): RecallTrace {
     retrievers: asArray(field(m, "retrievers")).map((v) => {
       const r = asMap(v);
       return {
-        name: asNum(field(r, "name")),
-        status: asNum(field(r, "status")),
+        name: asWireEnum(field(r, "name"), RetrieverNameWire) as RetrieverNameWire,
+        status: asWireEnum(
+          field(r, "status"),
+          RecallTraceRetrieverStatus,
+        ) as RecallTraceRetrieverStatus,
         statusDetail: asStr(field(r, "status_detail")),
         latencyMs: asNum(field(r, "latency_ms")),
         candidateCount: asNum(field(r, "candidate_count")),
@@ -2633,7 +2760,10 @@ function decodeRecallTrace(value: unknown): RecallTrace {
             rrfScore: asNum(field(i, "rrf_score")),
             laneScores: asArray(field(i, "lane_scores")).map((lsv) => {
               const ls = asArray(lsv);
-              return [asNum(ls[0]), asNum(ls[1])] as [RetrieverNameWire, number];
+              return [asWireEnum(ls[0], RetrieverNameWire) as RetrieverNameWire, asNum(ls[1])] as [
+                RetrieverNameWire,
+                number,
+              ];
             }),
           };
         }),
@@ -2759,7 +2889,7 @@ export function decodeError(bytes: Uint8Array): ErrorResponse {
   const m = asMap(fromCbor(bytes));
   return {
     code: asNum(field(m, "code")),
-    category: asNum(field(m, "category")),
+    category: asWireEnum(field(m, "category"), ErrorCategoryWire) as ErrorCategoryWire,
     message: asStr(field(m, "message")),
     details: asOpt(field(m, "details"), (v) => {
       const d = asMap(v);
@@ -4024,12 +4154,18 @@ export enum MemoryListTimeAxis {
  * MEMORY_LIST (`0x0027`): a paginated keyset enumeration of the caller's
  * `(namespace, space)` memories. Not RECALL — no query, no ranking. It walks
  * the tenant timeline in a stable order and returns a page plus an opaque
- * keyset cursor. Empty/zero fields mean "no filter".
+ * keyset cursor. v1 supports only `sort = Created` with either direction;
+ * other sort axes are reserved wire values and are rejected. Empty `kinds`
+ * and `textContains` mean no filter, and a zero
+ * time bound means no bound. Salience bounds are always inclusive, so an
+ * unbounded salience window is `0.0..=1.0`, not `0.0..=0.0`. `limit = 0` is
+ * rejected rather than treated as unlimited. `timeAxis` is a selector (`0`
+ * means `Created`; `Occurred` is currently rejected), not an unset filter.
  */
 export interface MemoryListRequest {
   sort: MemoryListSort;
   dir: MemoryListDir;
-  /** Page size, validated server-side to `1..=100`. */
+  /** Page size, validated server-side to `1..=100`; `0` is rejected. */
   limit: number;
   /** Empty on first page; opaque continuation token otherwise. */
   cursor: Uint8Array;
@@ -4044,9 +4180,9 @@ export interface MemoryListRequest {
   fromUnixNanos: bigint;
   /** Inclusive upper time bound in unix-nanos; `0` = no upper bound. */
   toUnixNanos: bigint;
-  /** Inclusive salience floor in `[0, 1]`. */
+  /** Inclusive salience floor in `[0, 1]`; this is always a bound. */
   salienceMin: number;
-  /** Inclusive salience ceiling in `[0, 1]`. */
+  /** Inclusive salience ceiling in `[0, 1]`; use `1.0` for no upper bound. */
   salienceMax: number;
   /**
    * Substring/token filter over memory text; empty = no filter.
@@ -4498,6 +4634,7 @@ export enum PlanStatus {
   BudgetExhausted = 1,
   NoPathFound = 2,
   Cancelled = 3,
+  Unknown = 255,
 }
 
 /** Transition kind between plan steps. Externally tagged; `Other` carries text. */
@@ -4584,7 +4721,7 @@ export function decodePlanResponse(bytes: Uint8Array): PlanResponseFrame {
   const out: PlanResponseFrame = {
     steps: asArray(field(m, "steps")).map(decodePlanStep),
     isFinal: asBool(field(m, "is_final")),
-    planStatus: asOpt(field(m, "plan_status"), (v) => asNum(v)),
+    planStatus: asOpt(field(m, "plan_status"), (v) => asWireEnum(v, PlanStatus) as PlanStatus),
   };
   if (m.has("trace")) out.trace = decodePlanTrace(field(m, "trace"));
   return out;
@@ -4600,6 +4737,7 @@ export enum PlanTraceDirection {
   Forward = 0,
   /** Visited by the backward search, rooted at `goal`. */
   Backward = 1,
+  Unknown = 255,
 }
 
 /** One node the bidirectional BFS visited, from either direction. */
@@ -4653,7 +4791,7 @@ function decodePlanTraceNode(value: unknown): PlanTraceNode {
   return {
     memoryId: asBig(field(m, "memory_id")),
     text: asStr(field(m, "text")),
-    direction: asNum(field(m, "direction")),
+    direction: asWireEnum(field(m, "direction"), PlanTraceDirection) as PlanTraceDirection,
     depth: asNum(field(m, "depth")),
     parentEdge: asOpt(field(m, "parent_edge"), asBig),
     alignmentScore: asOpt(field(m, "alignment_score"), asNum),
@@ -4779,6 +4917,7 @@ export enum ReasonStatus {
   BudgetExhausted = 1,
   DepthLimitReached = 2,
   Cancelled = 3,
+  Unknown = 255,
 }
 
 /** Inference kind. Externally tagged; `Other` carries text. */
@@ -4863,7 +5002,10 @@ export function decodeReasonResponse(bytes: Uint8Array): ReasonResponseFrame {
   const out: ReasonResponseFrame = {
     inferences: asArray(field(m, "inferences")).map(decodeInferenceStep),
     isFinal: asBool(field(m, "is_final")),
-    reasonStatus: asOpt(field(m, "reason_status"), (v) => asNum(v)),
+    reasonStatus: asOpt(
+      field(m, "reason_status"),
+      (v) => asWireEnum(v, ReasonStatus) as ReasonStatus,
+    ),
   };
   if (m.has("trace")) out.trace = decodeReasonTrace(field(m, "trace"));
   return out;
@@ -5573,19 +5715,24 @@ export function decodeEntityGetResponse(bytes: Uint8Array): EntityGetResponse {
   };
 }
 
-/** ENTITY_LIST (`0x0137`): page through entities with a type filter and a cursor. */
+/** ENTITY_LIST (`0x0137`): page through entities with optional name-prefix and
+ * mention-count filters and a cursor. An empty `namePrefix` and
+ * `mentionCountMin = 0` mean no filter. `entityTypeId` is a required
+ * selector: `0` is invalid, not unset. `limit = 0` is rejected rather than
+ * treated as unlimited. */
 export interface EntityListRequest {
   /**
    * The entity type id to enumerate. Required: listing every type at once
    * is not offered in v1.0, and `0` is refused as an invalid request.
    */
   entityTypeId: number;
-  /** Empty = no filter. */
+  /** Empty = no name filter. */
   namePrefix: string;
+  /** Minimum mention count; `0` = no lower bound. */
   mentionCountMin: number;
   includeTombstoned: boolean;
   includeMerged: boolean;
-  /** 1..=1000. */
+  /** Page size, validated server-side to `1..=1000`; `0` is rejected. */
   limit: number;
   /** Empty on first page; opaque continuation token otherwise. */
   cursor: Uint8Array;
@@ -5749,7 +5896,7 @@ export function encodeEntityResolveResponse(p: EntityResolveResponse): Uint8Arra
 export function decodeEntityResolveResponse(bytes: Uint8Array): EntityResolveResponse {
   const m = asMap(fromCbor(bytes));
   return {
-    outcome: asNum(field(m, "outcome")),
+    outcome: asWireEnum(field(m, "outcome"), ResolutionOutcomeWire) as ResolutionOutcomeWire,
     tier: asNum(field(m, "tier")),
     confidence: asNum(field(m, "confidence")),
     resolvedEntity: asBytes(field(m, "resolved_entity")),
@@ -5904,17 +6051,24 @@ export function decodeStatementGetResponse(bytes: Uint8Array): StatementGetRespo
   };
 }
 
-/** STATEMENT_LIST (`0x0146`): page through statements by subject/predicate filters with a cursor. */
+/** STATEMENT_LIST (`0x0146`): page through statements by subject/predicate
+ * filters with a cursor. `kind = 0`, `minConfidence = 0`, and zero time
+ * bounds mean no filter or bound where applicable. `limit = 0` is rejected
+ * rather than treated as unlimited. */
 export interface StatementListRequest {
   subject: WireUuid;
   predicate: string;
   /** `0` = no kind filter; `1`=Fact / `2`=Preference / `3`=Event. */
   kind: number;
+  /** Minimum confidence; `0` = no lower bound. */
   minConfidence: number;
+  /** `0` = no lower bound. */
   timeRangeStartUnixNanos: bigint;
+  /** `0` = no upper bound. */
   timeRangeEndUnixNanos: bigint;
   onlyCurrent: boolean;
   includeTombstoned: boolean;
+  /** `0` is rejected rather than treated as unlimited. */
   limit: number;
   cursor: Uint8Array;
   /** Effective identity this list runs as, on behalf of the connection
@@ -6682,12 +6836,19 @@ export function decodeSchemaGet(bytes: Uint8Array): SchemaGetRequest {
   };
 }
 
-/** SCHEMA_GET_RESP (`0x01A1`): the schema document and its version metadata. */
+/**
+ * SCHEMA_GET_RESP (`0x01A1`): the schema document and its version metadata.
+ *
+ * `schemaDocument` is now the only carrier of the schema: the merged schema
+ * rendered back to DSL from the stored AST so the output is re-uploadable,
+ * falling back to the stored upload text when the AST cannot be rendered. A
+ * `sourceBlob` field used to sit beside it holding the same parsed AST as
+ * JSON — the same schema twice, in two formats. The server removed it.
+ */
 export interface SchemaGetResponse {
   namespace: string;
   schemaVersion: number;
   schemaDocument: string;
-  sourceBlob: Uint8Array;
   uploadedAtUnixNanos: bigint;
   validatorVersion: number;
 }
@@ -6699,7 +6860,6 @@ export function encodeSchemaGetResponse(p: SchemaGetResponse): Uint8Array {
       ["namespace", p.namespace],
       ["schema_version", p.schemaVersion],
       ["schema_document", p.schemaDocument],
-      ["source_blob", Array.from(p.sourceBlob)],
       ["uploaded_at_unix_nanos", p.uploadedAtUnixNanos],
       ["validator_version", p.validatorVersion],
     ]),
@@ -6713,7 +6873,6 @@ export function decodeSchemaGetResponse(bytes: Uint8Array): SchemaGetResponse {
     namespace: asStr(field(m, "namespace")),
     schemaVersion: asNum(field(m, "schema_version")),
     schemaDocument: asStr(field(m, "schema_document")),
-    sourceBlob: Uint8Array.from(asArray(field(m, "source_blob")).map(asNum)),
     uploadedAtUnixNanos: asBig(field(m, "uploaded_at_unix_nanos")),
     validatorVersion: asNum(field(m, "validator_version")),
   };
@@ -6931,6 +7090,7 @@ export enum EventType {
   EdgeAdded = 31,
   EdgeRemoved = 32,
   EdgeSuperseded = 33,
+  Unknown = 255,
 }
 
 /** Outcome of a completed write-pipeline stage carried on a StageCompleted event (ok, empty, failed). */
@@ -6938,6 +7098,7 @@ export enum StageOutcome {
   Ok = 0,
   Empty = 1,
   Failed = 2,
+  Unknown = 255,
 }
 
 /** How far an extractor stage's audited writes were applied (succeeded, partial, failed, skipped). */
@@ -7086,12 +7247,12 @@ export interface SimilarityFilter {
   threshold: number;
 }
 
-/** The predicate a SUBSCRIBE applies to the change feed: session, kind, similarity, space, and memory-id scoping. */
+/** The predicate a SUBSCRIBE applies to the change feed: session, kind, similarity and memory-id scoping, plus the required space. */
 export interface SubscriptionFilter {
   sessionFilter: bigint[] | null;
   kinds: MemoryKindWire[] | null;
   similarTo: SimilarityFilter | null;
-  /** Subset of 16-byte space ids whose events the subscriber wants. `null` or empty = all spaces on the shard. */
+  /** The space whose events the subscriber wants, named by its resolved id. The server accepts only the caller's effective space (the `actAs` target when the subscription carries one) and refuses `null`, an empty list, or any other id: a shard is multi-tenant, so an unfiltered feed would carry other tenants' events. Resolve the id with `deriveSpaceId`. */
   spaces: WireUuid[] | null;
   /** Subset of memory ids whose events the subscriber wants. `null` or empty = all memories. Scopes a subscription to a single in-flight write (e.g. to watch its async derivation stages complete). */
   memoryIds: bigint[] | null;
@@ -7625,7 +7786,7 @@ export function encodeSubscriptionEvent(p: SubscriptionEvent): Uint8Array {
 export function decodeSubscriptionEvent(bytes: Uint8Array): SubscriptionEvent {
   const m = asMap(fromCbor(bytes));
   return {
-    eventType: asNum(field(m, "event_type")),
+    eventType: asWireEnum(field(m, "event_type"), EventType) as EventType,
     memoryId: asBig(field(m, "memory_id")),
     sessionId: asBig(field(m, "session_id")),
     text: asStr(field(m, "text")),
@@ -7636,7 +7797,10 @@ export function decodeSubscriptionEvent(bytes: Uint8Array): SubscriptionEvent {
     graphPayload: asOpt(field(m, "graph_payload"), decodeGraphEventPayload),
     edgePayload: asOpt(field(m, "edge_payload"), decodeEdgeEventPayload),
     stageKind: asOpt(field(m, "stage_kind"), (v) => asNum(v)),
-    stageOutcome: asOpt(field(m, "stage_outcome"), (v) => asNum(v)),
+    stageOutcome: asOpt(
+      field(m, "stage_outcome"),
+      (v) => asWireEnum(v, StageOutcome) as StageOutcome,
+    ),
     stagePayload: asOpt(field(m, "stage_payload"), decodeStagePayload),
   };
 }
@@ -8237,15 +8401,17 @@ export type VerifyOutcome =
   | "model_unavailable"
   | "unreachable";
 
-/** What a read reports about an installed credential. Carries no key material. */
+/** What a read reports about an installed credential. The fingerprint is the
+ * last four characters of the provider key, verbatim: it is a small amount of
+ * key material and must be treated as sensitive, not as an opaque identifier. */
 export interface LlmCredentialView {
   provider: string;
   model: string;
-  /** Display-safe tail of the key (e.g. `…4f2a`). Never reconstructable. */
+  /** Last-four display suffix of the key (e.g. `…4f2a`); sensitive key material. */
   fingerprint: string;
   createdAtUnixNanos: bigint;
-  /** `true` when a space-scoped read resolved the namespace's key rather than
-   * one of its own. Always `false` while space scope is refused at the op. */
+  /** Always `false`: a credential belongs to a namespace and there is no
+   * narrower scope for a read to resolve from. */
   inherited: boolean;
 }
 
@@ -8262,11 +8428,9 @@ export interface LlmCredentialPutRequest {
   apiKey: string;
   requestId: WireUuid;
   actAs?: ActAs | null;
-  /** Where the key lands. ALWAYS ON THE WIRE — never skipped. */
 }
 
-/** Encode an LLM_CREDENTIAL_PUT (`0x0076`) request. `scope` is last, after
- * `act_as`. */
+/** Encode an LLM_CREDENTIAL_PUT (`0x0076`) request. */
 export function encodeLlmCredentialPut(p: LlmCredentialPutRequest): Uint8Array {
   const map = requestMapWithActAs(
     [
@@ -8296,9 +8460,10 @@ export function decodeLlmCredentialPut(bytes: Uint8Array): LlmCredentialPutReque
 export interface LlmCredentialPutResponse {
   provider: string;
   model: string;
+  /** Last-four display suffix of the key; sensitive key material, not an opaque identifier. */
   fingerprint: string;
   createdAtUnixNanos: bigint;
-  /** `true` when this displaced a key already registered at the same scope,
+  /** `true` when this displaced a key already registered for this namespace,
    * so a caller can tell a first registration from a rotation. */
   replaced: boolean;
 }
@@ -8329,7 +8494,6 @@ export function decodeLlmCredentialPutResponse(bytes: Uint8Array): LlmCredential
 /** LLM_CREDENTIAL_GET (`0x0077`): what this namespace has installed. */
 export interface LlmCredentialGetRequest {
   actAs?: ActAs | null;
-  /** The vantage point to resolve from. ALWAYS ON THE WIRE. */
 }
 
 /** Encode an LLM_CREDENTIAL_GET (`0x0077`) request. */
@@ -8388,14 +8552,10 @@ export function decodeLlmCredentialGetResponse(bytes: Uint8Array): LlmCredential
   };
 }
 
-/** LLM_CREDENTIAL_DELETE (`0x0078`): revoke the key at exactly `scope`.
- *
- * Exact rather than resolved: a space revoking its own key must not be able to
- * remove the tenant's by accident. */
+/** LLM_CREDENTIAL_DELETE (`0x0078`): revoke the authenticated namespace's key. */
 export interface LlmCredentialDeleteRequest {
   requestId: WireUuid;
   actAs?: ActAs | null;
-  /** Which scope's key to remove. ALWAYS ON THE WIRE. */
 }
 
 /** Encode an LLM_CREDENTIAL_DELETE (`0x0078`) request. */
@@ -8415,7 +8575,7 @@ export function decodeLlmCredentialDelete(bytes: Uint8Array): LlmCredentialDelet
 
 /** LLM_CREDENTIAL_DELETE_RESP (`0x00F8`). */
 export interface LlmCredentialDeleteResponse {
-  /** `false` when that scope had no key of its own. Reported rather than
+  /** `false` when the namespace had no key installed. Reported rather than
    * always succeeding, because a caller revoking during an incident needs to
    * tell "revoked" from "there was nothing there". */
   existed: boolean;
@@ -8439,7 +8599,6 @@ export function decodeLlmCredentialDeleteResponse(bytes: Uint8Array): LlmCredent
 export interface LlmCredentialVerifyRequest {
   requestId: WireUuid;
   actAs?: ActAs | null;
-  /** The vantage point to resolve the key from. ALWAYS ON THE WIRE. */
 }
 
 /** Encode an LLM_CREDENTIAL_VERIFY (`0x0079`) request. */

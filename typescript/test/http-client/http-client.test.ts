@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as http from "node:http";
 
 import { BrainHttpClient, BrainHttpError, type ListEntitiesQuery } from "../../src/http/index.js";
+import { jitteredDelayMs } from "../../src/http/client.js";
 
 const API_KEY = "brain_test-key";
 
@@ -669,11 +670,57 @@ describe("error mapping", () => {
     expect(err.status).toBe(0);
     expect(err.code).toBe("transport");
   });
+
+  it("maps a stalled response body to a timed-out BrainHttpError", async () => {
+    const stalled = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.write('{"memory_id":');
+    });
+    const sockets = new Set<import("node:net").Socket>();
+    stalled.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    await new Promise<void>((resolve) => stalled.listen(0, "127.0.0.1", resolve));
+    const { port } = stalled.address() as import("node:net").AddressInfo;
+    const stalledClient = new BrainHttpClient({
+      apiKey: API_KEY,
+      baseUrl: `http://127.0.0.1:${port}`,
+      timeoutMs: 150,
+      retry: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    try {
+      // The request deadline covers the body, so headers followed by silence
+      // cannot pin a caller forever.
+      const err = await stalledClient.whoami().catch((e) => e);
+      expect(err).toBeInstanceOf(BrainHttpError);
+      expect(err.status).toBe(0);
+      expect(err.code).toBe("transport");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => stalled.close(() => resolve()));
+    }
+  }, 5000);
 });
 
 // --- retry -----------------------------------------------------------------
 
 describe("retry", () => {
+  it("jittered delays spread clients without crossing their bounds", () => {
+    const samples = Array.from({ length: 200 }, () => jitteredDelayMs(100, 0));
+    // A deterministic backoff synchronises every client that one 503 knocked
+    // down, making them retry in the same burst.
+    expect(new Set(samples).size).toBeGreaterThan(1);
+    expect(samples.every((sample) => sample >= 0 && sample <= 100)).toBe(true);
+    expect(jitteredDelayMs(500, 500)).toBe(500);
+    expect(
+      Array.from({ length: 200 }, () => jitteredDelayMs(100, 40)).every(
+        (sample) => sample >= 40 && sample <= 100,
+      ),
+    ).toBe(true);
+  });
+
   it("retries a 503 on an idempotent verb and succeeds", async () => {
     replies = [
       [503, { error: { code: "unavailable", message: "shard restarting" } }],
@@ -759,6 +806,31 @@ describe("cloud gateway wire shapes", () => {
     const err = (await client.recall({ query: "x" }).catch((e) => e)) as BrainHttpError;
     expect([err.code, err.message]).toEqual(["bad_request", "no"]);
     expect(err.fieldErrors).toEqual([]);
+  });
+
+  it("does not retry a 429 without Retry-After", async () => {
+    replies.push([429, { error: { code: "quota.exceeded", message: "quota" } }]);
+    const err = (await client.recall({ query: "x" }).catch((e) => e)) as BrainHttpError;
+    expect(err.status).toBe(429);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("keeps edge field errors and engine code", async () => {
+    replies.push([
+      400,
+      {
+        error: {
+          code: "bad_request",
+          engine_code: "invalid_argument",
+          message: "text is invalid",
+          errors: [{ field: "text", code: "invalid_argument", message: "text is invalid" }],
+        },
+      },
+    ]);
+    const err = (await client.recall({ query: "x" }).catch((e) => e)) as BrainHttpError;
+    expect(err.fieldErrors[0]?.field).toBe("text");
+    expect(err.engineCode).toBe("invalid_argument");
+    expect(err.message).toBe("text is invalid");
   });
 
   /*

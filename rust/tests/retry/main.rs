@@ -264,6 +264,14 @@ fn only_resource_exhausted_and_unavailable_retry_among_server_verdicts() {
         (ErrorCategoryWire::ResourceExhausted, true),
         (ErrorCategoryWire::Internal, false),
         (ErrorCategoryWire::Unavailable, true),
+        // A latched fault that only an operator restart clears, so a retry can
+        // never succeed. Deliberately not `Unavailable`, which would be
+        // retried forever.
+        (ErrorCategoryWire::OperatorIntervention, false),
+        // A category newer than this build. Must default to not retrying: the
+        // allowlist in `is_retryable` makes that automatic, and this row pins
+        // it so a future denylist rewrite fails here.
+        (ErrorCategoryWire::Unknown, false),
     ];
     for (category, want) in expected {
         assert_eq!(

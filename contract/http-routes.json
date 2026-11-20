@@ -1424,6 +1424,16 @@
      "name": "edges",
      "serde": {},
      "shape": "list(MemoryEdgeDto)"
+    },
+    {
+     "name": "edge_total_count",
+     "serde": {},
+     "shape": "int"
+    },
+    {
+     "name": "edges_truncated",
+     "serde": {},
+     "shape": "bool"
     }
    ]
   },
@@ -3302,6 +3312,20 @@
     }
    ]
   },
+  "TestLlmCredentialRequest": {
+   "fields": [
+    {
+     "name": "provider",
+     "serde": {},
+     "shape": "string"
+    },
+    {
+     "name": "api_key",
+     "serde": {},
+     "shape": "string"
+    }
+   ]
+  },
   "TimeRangeDto": {
    "fields": [
     {
@@ -4001,35 +4025,6 @@
  },
  "routes": [
   {
-   "handler": "llm_proxy::anthropic_messages",
-   "method": "POST",
-   "path": "/llm/ns/{namespace}/anthropic/v1/messages",
-   "plane": "broker",
-   "query": null,
-   "request_body": null,
-   "response": null,
-   "streaming": "passthrough"
-  },
-  {
-   "handler": "llm_proxy::openai_chat_completions",
-   "method": "POST",
-   "path": "/llm/ns/{namespace}/openai/v1/chat/completions",
-   "plane": "broker",
-   "query": null,
-   "request_body": null,
-   "response": null,
-   "streaming": "passthrough"
-  },
-  {
-   "handler": "llm_proxy::resolve",
-   "method": "GET",
-   "path": "/llm/ns/{namespace}/resolve",
-   "plane": "broker",
-   "query": null,
-   "request_body": null,
-   "response": "ResolvedLlmDto"
-  },
-  {
    "handler": "identity::capabilities",
    "method": "GET",
    "path": "/v1/capabilities",
@@ -4215,7 +4210,7 @@
    "path": "/v1/llm-credential/test",
    "plane": "credential",
    "query": null,
-   "request_body": "PutLlmCredentialRequest",
+   "request_body": "TestLlmCredentialRequest",
    "response": "LlmCredentialCheckDto"
   },
   {

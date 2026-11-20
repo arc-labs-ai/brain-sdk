@@ -160,6 +160,52 @@ export function isLlmCredentialUnavailable(err: unknown): boolean {
   return err instanceof ServerError && err.code === WireErrorCode.LlmCredentialUnavailable;
 }
 
+/**
+ * Whether the shard's write-ahead log has latched into a terminal faulted
+ * state (`ShardStorageFaulted`, `0x00A0`, category `OperatorIntervention`).
+ *
+ * **Terminal, and not transient.** The shard keeps answering this way until
+ * its process is restarted, so retrying cannot make progress — only operator
+ * action clears it. {@link isRetryable} already returns `false` for it,
+ * because that function is an allowlist over `ResourceExhausted` and
+ * `Unavailable`.
+ *
+ * Deliberately distinct from the `Unavailable`-category shard errors
+ * (`ShardUnavailable` / `Restarting` / `Maintenance`), which *do* clear on
+ * their own. Surface this one to a human as an outage needing attention
+ * rather than as a blip, and do not fold it into a generic "server busy" path.
+ */
+export function isShardStorageFaulted(err: unknown): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
+  return err instanceof ServerError && err.code === WireErrorCode.ShardStorageFaulted;
+}
+
+/**
+ * For a validation refusal, the name of the request field the server rejected
+ * — `"text"`, `"vector"`, and so on — or `null` when this is not an
+ * `InvalidArgument` or the server named no field.
+ *
+ * `InvalidArgument` (`0x0040`) is now the *only* code for a field-level
+ * refusal. Nine narrower codes used to carry that information in the code
+ * itself and were removed; the conditions they named now arrive as
+ * `InvalidArgument` with `ErrorDetails.field`: `"text"` for an empty or
+ * oversize text, `"kind"` for a client-supplied memory kind,
+ * `"vector"` for a wrong dimension, non-finite value or wrong L2 norm,
+ * `"model_fingerprint"` for a mismatch, and the budget's own field name for
+ * an out-of-range plan or reason budget.
+ *
+ * So code that read `if (err.code === WireErrorCode.TextTooLarge)` becomes
+ * `if (invalidField(err) === "text")`. Treat the set of field names as open:
+ * match the ones you handle and fall back to the message for the rest, rather
+ * than assuming that list is exhaustive forever.
+ */
+export function invalidField(err: unknown): string | null {
+  if (!(err instanceof ServerError)) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
+  if (err.code !== WireErrorCode.InvalidArgument) return null;
+  return err.response.details?.field ?? null;
+}
+
 export function isActAsDenied(err: unknown): boolean {
   // `code` is deliberately `number`, not `WireErrorCode`: a newer server may
   // send a code this SDK does not declare, and typing the field as the enum

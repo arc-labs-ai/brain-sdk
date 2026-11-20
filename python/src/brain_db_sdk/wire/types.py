@@ -120,6 +120,7 @@ class RetrieverName:
     SEMANTIC = 0
     LEXICAL = 1
     GRAPH = 2
+    UNKNOWN = 255
 
 
 class Retriever:
@@ -137,7 +138,14 @@ class Retriever:
 
 
 class ErrorCategory:
-    """The coarse class of an ERROR frame, as its on-wire integer discriminant."""
+    """The coarse class of an ERROR frame, as its on-wire integer discriminant.
+
+    ``ErrorResponse.category`` is a plain ``int``, so these are equality
+    constants rather than an enum -- and that is deliberate: an unrecognised
+    category decodes without raising, so a newer server cannot make an ERROR
+    frame unreadable here. Compare against these names, but do not assume the
+    set is closed; the server adds categories over time.
+    """
 
     PROTOCOL = 0
     AUTHENTICATION = 1
@@ -148,6 +156,15 @@ class ErrorCategory:
     RESOURCE_EXHAUSTED = 6
     INTERNAL = 7
     UNAVAILABLE = 8
+    # The shard needs a human: the condition latched and only operator action
+    # (in practice a process restart) clears it. Deliberately NOT
+    # ``UNAVAILABLE``, which invites a retry loop that cannot ever succeed.
+    # ``is_retryable`` is an allowlist over RESOURCE_EXHAUSTED/UNAVAILABLE, so
+    # this is non-retryable by construction.
+    OPERATOR_INTERVENTION = 9
+    # SDK-only stand-in for a category this build does not know, mirroring the
+    # Rust SDK's ``ErrorCategoryWire::Unknown``. The server never sends it.
+    UNKNOWN = 0xFF
 
 
 class ErrorCode:
@@ -174,6 +191,26 @@ class ErrorCode:
     # The namespace's credential could not be resolved right now (broker
     # unreachable or timing out). Retryable.
     LLM_CREDENTIAL_UNAVAILABLE = 0x0095
+
+    # The shard's write-ahead log latched into a terminal faulted state
+    # (category OPERATOR_INTERVENTION). Terminal and NOT transient: the shard
+    # keeps answering this way until its process is restarted, so retrying
+    # cannot make progress. Distinct from SHARD_UNAVAILABLE / RESTARTING /
+    # MAINTENANCE, which do clear on their own -- surface this one as an
+    # outage needing operator attention, not as a blip.
+    SHARD_STORAGE_FAULTED = 0x00A0
+    UNRECOVERABLE_INTERNAL = 0x00A1
+
+    # Validation. The ONLY code for a field-level refusal: which field, and
+    # why, is carried in ``ErrorDetails.field`` rather than in the code. Nine
+    # narrower validation codes (0x0041-0x004A) were removed; the conditions
+    # they named now all arrive here with ``details.field`` set -- "text" for
+    # an empty or oversize text, "kind" for a client-supplied memory kind,
+    # "vector" for a wrong dimension / non-finite / wrong L2 norm,
+    # "model_fingerprint" for a mismatch, and the budget's own field name for
+    # an out-of-range plan or reason budget. Branch on
+    # ``(INVALID_ARGUMENT, details.field)``, never on a dedicated code.
+    INVALID_ARGUMENT = 0x0040
 
 
 # ===========================================================================
@@ -211,6 +248,18 @@ class HelloPayload:
     # Reserved for connection resumption; None encodes as CBOR null.
     client_connection_token: Optional[bytes]
 
+    def __repr__(self) -> str:
+        # Whoever holds the resumption token can claim the connection it
+        # belongs to, and HELLO is the frame most often dumped while bringing
+        # a transport up.
+        token = None if self.client_connection_token is None else "[redacted]"
+        return (
+            f"HelloPayload(client_id={self.client_id!r}, "
+            f"supported_versions={self.supported_versions!r}, "
+            f"capabilities={self.capabilities!r}, "
+            f"client_connection_token={token!r})"
+        )
+
     def to_map(self) -> dict[str, Any]:
         return {
             "client_id": self.client_id,
@@ -235,6 +284,14 @@ class MtlsClaim:
 
     cert_fingerprint: bytes  # 32-byte byte string
     asserted_subject: str
+
+    def __repr__(self) -> str:
+        # The client asserts this fingerprint rather than proving it, so the
+        # value authenticates on its own. ``__str__`` falls back to
+        # ``__repr__``, so this one method covers both renderings.
+        return (
+            f"MtlsClaim(cert_fingerprint='[redacted]', asserted_subject={self.asserted_subject!r})"
+        )
 
     def to_map(self) -> dict[str, Any]:
         return {
@@ -261,6 +318,15 @@ class AuthCredentials:
     # claim. Spelled as a union rather than `object` so a caller reading
     # `auth.credentials.value` gets a type instead of `object`.
     value: Union[list[int], MtlsClaim, None] = None
+
+    def __repr__(self) -> str:
+        # ``repr`` reaches an error tracker on its own: pytest's --showlocals,
+        # Sentry's with_locals and rich tracebacks all print every frame's
+        # locals, so one exception raised while connecting would ship the
+        # token. The Mtls variant prints through ``MtlsClaim``, which redacts
+        # itself.
+        shown = "'[redacted]'" if self.variant == "Token" else repr(self.value)
+        return f"AuthCredentials(variant={self.variant!r}, value={shown})"
 
     @classmethod
     def token(cls, raw: bytes) -> AuthCredentials:
@@ -817,6 +883,7 @@ class EncodeTraceStageStatus:
     SKIPPED = 1
     FAILED = 2
     TIMEOUT = 3
+    UNKNOWN = 255
 
 
 @dataclass
@@ -1240,6 +1307,7 @@ class EdgeDirectionWire:
 
     OUTGOING = 0
     INCOMING = 1
+    UNKNOWN = 255
 
 
 @dataclass(frozen=True)
@@ -1302,7 +1370,46 @@ class MemoryInspectResponse:
     knowledge graph and never contains an edge asserted later with ``LINK``.
     Defaults to empty so a server that does not send the field decodes as
     "no edges" rather than raising.
+
+    **Bounded.** The server returns at most 256 edges *per direction*, so this
+    list is not necessarily the whole set. Check :meth:`edges_are_complete`
+    before treating it as an enumeration.
     """
+    edge_total_count: Optional[int] = None
+    """How many edges are anchored at this memory, both directions, counted
+    **before** the per-direction cap is applied.
+
+    ``len(edges)`` is smaller than this when the view was cut, so prefer this
+    for anything a user sees as a count. ``None`` means the server did not
+    count a total; use :meth:`edges_are_complete` to account for the flag.
+    """
+    edges_truncated: bool = False
+    """True when ``edges`` carries only part of the set, because at least one
+    direction holds more edges than this verb returns.
+
+    A caller that needs the complete enumeration reads it from ``GRAPH_FETCH``,
+    which paginates; ``MEMORY_INSPECT`` is a single-shot diagnostic and answers
+    with a bounded view plus the count it did not show.
+    """
+
+    def edges_are_complete(self) -> bool:
+        """Whether ``edges`` is the full set rather than a capped view.
+
+        False when the server set ``edges_truncated``, and also when
+        ``edge_total_count`` exceeds the number of edges actually returned.
+        When no total was counted, completeness follows the truncation flag.
+        Use ``GRAPH_FETCH`` when this is False and the full set is needed.
+        """
+        return not self.edges_truncated and (
+            self.edge_total_count is None or self.edge_total_count <= len(self.edges)
+        )
+
+    def edges_omitted(self) -> int:
+        """How many edges the server counted but did not return, or 0 when the
+        view is complete. Useful for an "... and N more" affordance."""
+        if self.edge_total_count is None:
+            return 0
+        return max(0, self.edge_total_count - len(self.edges))
 
     def to_map(self) -> dict[str, Any]:
         return {
@@ -1310,6 +1417,8 @@ class MemoryInspectResponse:
             "text": self.text,
             "artifact": self.artifact.to_map(),
             "edges": [e.to_map() for e in self.edges],
+            "edge_total_count": self.edge_total_count,
+            "edges_truncated": self.edges_truncated,
         }
 
     @classmethod
@@ -1319,6 +1428,8 @@ class MemoryInspectResponse:
             m["text"],
             EncodeStageArtifact.from_map(m["artifact"]),
             [MemoryEdge.from_map(e) for e in m.get("edges", [])],
+            m.get("edge_total_count"),
+            m.get("edges_truncated", False),
         )
 
 
@@ -1683,6 +1794,7 @@ class RecallTraceRetrieverStatus:
     SKIPPED = 1
     TIMEOUT = 2
     FAILURE = 3
+    UNKNOWN = 255
 
 
 @dataclass
@@ -1759,6 +1871,7 @@ class RankedItemKindWire:
     STATEMENT = 1
     ENTITY = 2
     RELATION = 3
+    UNKNOWN = 255
 
 
 @dataclass
@@ -2068,20 +2181,25 @@ class MemoryListRequest:
     """MEMORY_LIST (``0x0027``). A paginated enumeration of the caller's
     ``(namespace, space)`` memories — no query, no ranking. It walks the tenant
     timeline in a stable order and returns a page plus an opaque keyset cursor.
-    Empty/zero fields mean "no filter". ``cursor`` / ``next_cursor`` are opaque
-    byte blobs (CBOR arrays of ints on the wire, not byte strings)."""
+    Empty ``kinds`` and ``text_contains`` mean no filter, and a zero time bound
+    means no bound. Salience bounds are always inclusive, so an unbounded
+    salience window is ``0.0..=1.0``, not ``0.0..=0.0``. ``limit = 0`` is
+    rejected rather than treated as unlimited. ``time_axis`` is a selector
+    (``0`` means ``Created``; ``Occurred`` is currently rejected), not an
+    unset filter. ``cursor`` / ``next_cursor`` are opaque byte blobs (CBOR
+    arrays of ints on the wire, not byte strings)."""
 
     sort: int
     dir: int
-    limit: int  # u32, validated server-side to 1..=100
+    limit: int  # u32, validated server-side to 1..=100; 0 is rejected
     cursor: bytes  # empty on first page; opaque continuation token otherwise
     kinds: list[int]  # empty = all kinds
     include_tombstoned: bool
     time_axis: int
     from_unix_nanos: int  # 0 = no lower bound
     to_unix_nanos: int  # 0 = no upper bound
-    salience_min: float  # f32
-    salience_max: float  # f32
+    salience_min: float  # f32, inclusive bound
+    salience_max: float  # f32, inclusive bound; use 1.0 for no upper bound
     # Substring/token filter over memory text; empty = no filter. Only the
     # empty value is served in v1: a non-empty filter is refused rather than
     # answered by scanning every text body. RECALL is the supported way to
@@ -3491,6 +3609,7 @@ class PlanStatus:
     BUDGET_EXHAUSTED = 1
     NO_PATH_FOUND = 2
     CANCELLED = 3
+    UNKNOWN = 255
 
 
 @dataclass
@@ -3702,6 +3821,7 @@ class PlanTraceDirection:
 
     FORWARD = 0
     BACKWARD = 1
+    UNKNOWN = 255
 
 
 @dataclass
@@ -3799,6 +3919,7 @@ class ReasonStatus:
     BUDGET_EXHAUSTED = 1
     DEPTH_LIMIT_REACHED = 2
     CANCELLED = 3
+    UNKNOWN = 255
 
 
 @dataclass
@@ -4366,6 +4487,7 @@ class EventType:
     EDGE_ADDED = 31
     EDGE_REMOVED = 32
     EDGE_SUPERSEDED = 33
+    UNKNOWN = 255
 
 
 class StageOutcome:
@@ -4374,6 +4496,7 @@ class StageOutcome:
     OK = 0
     EMPTY = 1
     FAILED = 2
+    UNKNOWN = 255
 
 
 class StageAuditStatus:
@@ -4537,12 +4660,19 @@ class SimilarityFilter:
 
 @dataclass
 class SubscriptionFilter:
-    """The selection filter on a subscription: optional session, kind, similarity, space-subset, and memory-id-subset constraints (None = no constraint)."""
+    """The selection filter on a subscription: optional session, kind, similarity and
+    memory-id constraints (None = no constraint), and a required space.
+
+    The server accepts only the caller's effective space in ``spaces`` (the
+    ``act_as`` target when the subscription carries one) and refuses ``None``,
+    an empty list, or any other id: a shard is multi-tenant, so an unfiltered
+    feed would carry other tenants' events. Resolve the id with ``derive_space_id``.
+    """
 
     session_filter: Optional[list[int]]
     kinds: Optional[list[int]]
     similar_to: Optional[SimilarityFilter]
-    spaces: Optional[list[bytes]]  # subset of space ids (16-byte), or None for all
+    spaces: Optional[list[bytes]]  # the caller's effective space id; None and [] are refused
     memory_ids: Optional[list[int]] = None  # subset of memory ids (u128), or None for all
 
     def to_map(self) -> dict[str, Any]:
@@ -5328,13 +5458,13 @@ class EntityGetResponse:
 
 @dataclass
 class EntityListRequest:
-    """ENTITY_LIST (``0x0137``). Page through entities under optional type/name-prefix/mention filters, with tombstone and merge inclusion, a limit, and a cursor."""
+    """ENTITY_LIST (``0x0137``). Page through entities under optional name-prefix and mention-count filters, with tombstone and merge inclusion, a limit, and a cursor. An empty ``name_prefix`` and ``mention_count_min = 0`` mean no filter. ``entity_type_id`` is a required selector: ``0`` is invalid, not unset. ``limit = 0`` is rejected rather than treated as unlimited."""
 
     # The entity type id to enumerate. Required: listing every type at once
     # is not offered in v1.0, and 0 is refused as an invalid request.
     entity_type_id: int
-    name_prefix: str  # empty = no filter
-    mention_count_min: int
+    name_prefix: str  # empty = no name filter
+    mention_count_min: int  # 0 = no lower bound
     include_tombstoned: bool
     include_merged: bool
     limit: int  # 1..=1000
@@ -5425,6 +5555,7 @@ class ResolutionOutcome:
     CREATED = 2
     AMBIGUOUS = 3
     NOT_FOUND = 4
+    UNKNOWN = 255
 
 
 @dataclass
@@ -5637,17 +5768,17 @@ class StatementGetResponse:
 
 @dataclass
 class StatementListRequest:
-    """STATEMENT_LIST (``0x0146``). Page statements for a subject/predicate under kind, confidence, and time-range filters, with current-only/tombstone toggles, a limit, and a cursor."""
+    """STATEMENT_LIST (``0x0146``). Page statements for a subject/predicate under kind, confidence, and time-range filters, with current-only/tombstone toggles, a limit, and a cursor. ``kind = 0``, ``min_confidence = 0``, and zero time bounds mean no filter or bound where applicable. ``limit = 0`` is rejected rather than treated as unlimited."""
 
     subject: bytes
     predicate: str
-    kind: int  # 0 = no filter; 1=Fact / 2=Preference / 3=Event
-    min_confidence: float  # f32
-    time_range_start_unix_nanos: int
-    time_range_end_unix_nanos: int
+    kind: int  # 0 = no kind filter; 1=Fact / 2=Preference / 3=Event
+    min_confidence: float  # f32; 0 = no lower bound
+    time_range_start_unix_nanos: int  # 0 = no lower bound
+    time_range_end_unix_nanos: int  # 0 = no upper bound
     only_current: bool
     include_tombstoned: bool
-    limit: int
+    limit: int  # 0 is rejected rather than treated as unlimited
     cursor: list[int]  # Vec<u8> -> array of ints
     # Effective identity this list runs as. Omitted from the CBOR map when None
     # so the common single-tenant path stays byte-identical.
@@ -5964,12 +6095,19 @@ class SchemaGetRequest:
 
 @dataclass
 class SchemaGetResponse:
-    """SCHEMA_GET_RESP (``0x01A1``). The namespace and version, the schema document and source blob, upload time, and validator version."""
+    """SCHEMA_GET_RESP (``0x01A1``). The namespace and version, the schema document, upload time, and validator version.
+
+    ``schema_document`` is now the only carrier of the schema: it is the merged
+    schema rendered back to DSL from the stored AST so the output is
+    re-uploadable, falling back to the stored upload text when the AST cannot
+    be rendered. A ``source_blob`` field used to sit beside it holding the same
+    parsed AST as JSON -- the same schema twice, in two formats. The server
+    removed it.
+    """
 
     namespace: str
     schema_version: int
     schema_document: str
-    source_blob: list[int]  # Vec<u8> -> array of ints
     uploaded_at_unix_nanos: int
     validator_version: int
 
@@ -5978,7 +6116,6 @@ class SchemaGetResponse:
             "namespace": self.namespace,
             "schema_version": self.schema_version,
             "schema_document": self.schema_document,
-            "source_blob": list(self.source_blob),
             "uploaded_at_unix_nanos": self.uploaded_at_unix_nanos,
             "validator_version": self.validator_version,
         }
@@ -5989,7 +6126,6 @@ class SchemaGetResponse:
             m["namespace"],
             m["schema_version"],
             m["schema_document"],
-            list(m["source_blob"]),
             m["uploaded_at_unix_nanos"],
             m["validator_version"],
         )
@@ -7484,16 +7620,17 @@ class SessionDeleteResponse:
 class LlmCredentialView:
     """What a read reports about an installed credential.
 
-    Carries no key material. ``fingerprint`` is a display-safe tail, enough to
-    tell which key is installed and too little to narrow a search for the rest.
+    The full key is not returned, but ``fingerprint`` is the ``…`` plus the
+    last four characters of the provider key verbatim. It is a small amount of
+    key material, not an opaque identifier, and must be treated as sensitive.
     """
 
     provider: str
     model: str
     fingerprint: str
     created_at_unix_nanos: int
-    #: True when a space-scoped read resolved the namespace's key rather than
-    #: one of its own. Always False while space scope is refused at the op.
+    #: Always False: a credential belongs to a namespace and there is no
+    #: narrower scope for a read to resolve from.
     inherited: bool = False
 
     def to_map(self) -> dict[str, Any]:
@@ -7545,8 +7682,6 @@ class LlmCredentialPutRequest:
     api_key: str
     request_id: bytes  # 16-byte byte string
     act_as: Optional[ActAs] = None
-    #: Where the key lands. ALWAYS ON THE WIRE -- the server declares it the
-    #: same way, so a client that omits it sends a map it cannot decode.
 
     def __repr__(self) -> str:
         # Hand-written so a logged request cannot carry a live provider key.
@@ -7647,11 +7782,7 @@ class LlmCredentialGetResponse:
 
 @dataclass
 class LlmCredentialDeleteRequest:
-    """LLM_CREDENTIAL_DELETE (``0x0078``). Revoke the key at exactly ``scope``.
-
-    Exact rather than resolved: a space revoking its own key must not be able
-    to remove the tenant's by accident.
-    """
+    """LLM_CREDENTIAL_DELETE (``0x0078``). Revoke the authenticated namespace's key."""
 
     request_id: bytes  # 16-byte byte string
     act_as: Optional[ActAs] = None
@@ -7673,8 +7804,8 @@ class LlmCredentialDeleteRequest:
 
 @dataclass
 class LlmCredentialDeleteResponse:
-    """LLM_CREDENTIAL_DELETE_RESP (``0x00F8``). ``existed`` is False when that
-    scope owned no key -- reported rather than always succeeding, because a
+    """LLM_CREDENTIAL_DELETE_RESP (``0x00F8``). ``existed`` is False when the
+    namespace had no key installed -- reported rather than always succeeding, because a
     caller revoking during an incident needs to tell "revoked" from "there was
     nothing there"."""
 

@@ -347,12 +347,17 @@ async function serveSubscription(sock: net.Socket): Promise<void> {
     streamId: unsub.streamId,
     payload: encodeUnsubscribeResponse({ targetStreamId: evStream, finalLsn: 2n }),
   });
-  await chan.write({
+  // Brain's terminator carries no event. A payload on this frame decodes as
+  // one more subscription event, so every consumer would see a phantom
+  // memory after the feed ended.
+  const terminator = {
     opcode: Opcode.SubscribeEvent,
     flags: FLAG_EOS,
     streamId: evStream,
     payload: new Uint8Array(0),
-  });
+  };
+  expect(terminator.payload.length).toBe(0);
+  await chan.write(terminator);
 
   const bye = await chan.read();
   expect(bye.opcode).toBe(Opcode.Bye);

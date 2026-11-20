@@ -8,7 +8,7 @@ Brain stores what your application learns and hands it back when something is re
 npm install @brain-db/sdk
 ```
 
-**ESM only.** `package.json` sets `"type": "module"`, and its `exports` map declares an `import` condition and no `require` one for both `.` and `./http` — so `require()` of either entry fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`. Use `import`, or `await import()` from CommonJS. `engines` asks for Node >= 18.
+**ESM only.** `package.json` sets `"type": "module"`, and its `exports` map declares an `import` condition and no `require` one for both `.` and `./http` — so `require()` of either entry fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`. Use `import`, or `await import()` from CommonJS. `engines` asks for **Node >= 24**. A `Subscription` is disposable, and Node 24 is the first release where `Symbol.asyncDispose` is V8's own spec symbol rather than a symbol Node defines for itself during bootstrap, and the first where `await using` parses natively.
 
 ## Quickstart
 
@@ -57,6 +57,52 @@ One connection, many requests. `MuxConnection` owns the socket and runs a single
 `Pool` opens a fixed set of connections and hands them out round-robin; `Pool.getHealthy()` replaces a member whose socket has died before handing it out, and concurrent callers landing on the same dead slot share one reconnect. A verb call on an already-dropped connection is not transparently retried — open a fresh one.
 
 `withRetry` + `RetryPolicy` give exponential backoff with full jitter, honoring a server-sent `retryAfterMs` as the floor.
+
+## Disposable subscriptions
+
+A `Subscription` owns an entry in its connection's route table and keeps the server pushing until it is torn down. It implements both disposal protocols, so a scope can own one:
+
+```typescript
+import { deriveSpaceId } from "@brain-db/sdk";
+
+// The server refuses an unfiltered feed: a shard is multi-tenant, so a
+// subscription names the caller's own space and nothing else.
+await using feed = await client.subscribe({
+  filter: {
+    sessionFilter: null,
+    kinds: null,
+    similarTo: null,
+    spaces: [deriveSpaceId("acme", "default")],
+    memoryIds: null,
+  },
+  includeHistory: false,
+  fromLsn: null,
+  maxInflight: 64,
+});
+
+for await (const event of feed) {
+  console.log(event.eventType, event.memoryId, event.lsn);
+}
+```
+
+Leaving the scope sends UNSUBSCRIBE and then drops the route. `using feed = …` without the `await` is the synchronous half: it drops the route, but nothing tells the server to stop pushing, so prefer `await using` wherever the caller can await.
+
+`await using` is syntax, not a library feature, and **Node 24 is the first release that parses it** — on anything older it is a `SyntaxError` raised when the module loads, before a line of it runs. At this package's floor no transpiler is involved: TypeScript and esbuild will happily downlevel it, but hand-written JavaScript on a supported Node needs neither.
+
+Where the syntax is unavailable anyway — an older compile target, or a toolchain that will not emit it — the disposal method is a plain call:
+
+```javascript
+const feed = await client.subscribe(/* … */);
+try {
+  for await (const event of feed) {
+    console.log(event.eventType, event.memoryId, event.lsn);
+  }
+} finally {
+  await feed[Symbol.asyncDispose]();
+}
+```
+
+`await feed.unsubscribe()` is the explicit form of that same round trip, and `feed.close()` drops the route without one.
 
 ## Two transports
 

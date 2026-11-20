@@ -232,6 +232,7 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("resp_memory_list", MemoryListResponseFrame);
     payload!("req_memory_inspect", MemoryInspectRequest);
     payload!("resp_memory_inspect", MemoryInspectResponse);
+    payload!("resp_memory_inspect_truncated", MemoryInspectResponse);
     payload!("req_graph_fetch", GraphFetchRequest);
     payload!("resp_graph_fetch", GraphFetchResponseFrame);
     payload!("resp_forget", ForgetResponse);
@@ -380,6 +381,7 @@ fn registry() -> BTreeMap<&'static str, Checker> {
     payload!("resp_error_resource_exhausted", ErrorResponse);
     payload!("resp_error_internal", ErrorResponse);
     payload!("resp_error_unavailable", ErrorResponse);
+    payload!("resp_error_operator_intervention", ErrorResponse);
 
     // Full-frame cases: 32-byte header + payload.
     m.insert("frame_hello", Box::new(check_frame) as Checker);

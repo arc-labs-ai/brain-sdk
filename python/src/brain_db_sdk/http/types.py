@@ -957,6 +957,12 @@ class MemoryInspect:
     #: the extractor's write-time knowledge graph and never contains an edge
     #: asserted through ``link``.
     edges: list[MemoryEdge] = field(default_factory=list)
+    #: Total edges anchored at this memory before the per-direction cap; use
+    #: this value for the user-visible total instead of ``len(edges)``.
+    edge_total_count: int | None = None
+    #: True when ``edges`` is only part of the set; treating it as complete is
+    #: incorrect when this flag is set.
+    edges_truncated: bool = False
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> MemoryInspect:
@@ -965,6 +971,8 @@ class MemoryInspect:
             text=d["text"],
             artifact=StageArtifact.from_dict(d["artifact"]),
             edges=[MemoryEdge.from_dict(e) for e in d.get("edges", [])],
+            edge_total_count=d.get("edge_total_count"),
+            edges_truncated=d.get("edges_truncated", False),
         )
 
 
@@ -1485,8 +1493,9 @@ class QueryTraceResult:
 class LlmCredential:
     provider: str
     model: str
-    #: Display-safe tail so an operator can tell which key is installed. Not
-    #: reversible into the key.
+    #: The ``…`` plus last four characters of the provider key. This is a small
+    #: amount of key material, not an opaque identifier, and must be treated as
+    #: sensitive even though it cannot reconstruct the full key.
     fingerprint: str
     created_at_unix_secs: int
 

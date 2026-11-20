@@ -120,9 +120,17 @@ async fn mock_edge(replies: Vec<(u16, &str)>) -> MockEdge {
                     }
                 };
 
+                // A 429 whose body names a throttle carries a cool-off hint;
+                // a 429 that names a refusal carries none, so scripted bodies
+                // let tests choose between the two.
+                let retry_header = if status == 429 && body.contains("rate_limited") {
+                    "retry-after: 0\r\n"
+                } else {
+                    ""
+                };
                 let resp = format!(
                     "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\n\
-                     content-length: {}\r\nconnection: close\r\n\r\n{body}",
+                     {retry_header}content-length: {}\r\nconnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = sock.write_all(resp.as_bytes()).await;
@@ -868,6 +876,62 @@ async fn an_idempotent_verb_retries_a_503_and_succeeds() {
         2,
         "a 503 on an idempotent GET must be retried"
     );
+}
+
+#[tokio::test]
+async fn an_idempotent_verb_retries_a_429_with_retry_after_and_succeeds() {
+    let edge = mock_edge(vec![
+        (
+            429,
+            r#"{"error":{"code":"rate_limited","message":"slow down"}}"#,
+        ),
+        (200, WHOAMI),
+    ])
+    .await;
+
+    client(&edge).whoami().await.expect("hinted 429 must retry");
+    assert_eq!(edge.seen().len(), 2, "waiting can clear a hinted throttle");
+}
+
+#[tokio::test]
+async fn a_429_without_retry_after_is_a_single_request_verdict() {
+    let edge = mock_edge(vec![
+        (
+            429,
+            r#"{"error":{"code":"quota.exceeded","message":"quota"}}"#,
+        ),
+        (
+            429,
+            r#"{"error":{"code":"quota.exceeded","message":"quota"}}"#,
+        ),
+    ])
+    .await;
+
+    let err = client(&edge)
+        .whoami()
+        .await
+        .expect_err("unhinted 429 is terminal");
+    assert_eq!(err.status, 429);
+    assert_eq!(
+        edge.seen().len(),
+        1,
+        "a refusal without a cool-off is not retried"
+    );
+}
+
+#[tokio::test]
+async fn an_edge_field_refusal_reaches_the_caller_with_its_field() {
+    let edge = mock_edge(vec![(
+        400,
+        r#"{"error":{"code":"bad_request","engine_code":"invalid_argument","message":"text is invalid","errors":[{"field":"text","code":"invalid_argument","message":"text is invalid"}]}}"#,
+    )])
+    .await;
+
+    let err = client(&edge)
+        .whoami()
+        .await
+        .expect_err("field refusal must fail");
+    assert_eq!(err.field_errors[0].field, "text");
 }
 
 #[tokio::test]

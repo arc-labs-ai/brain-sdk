@@ -61,6 +61,12 @@ export function itTarget(): ItTarget | null {
   };
 }
 
+/** Enable tests that send plaintext provider keys only when the runner shares
+ * the engine's network namespace, so the server observes a loopback peer. */
+export function itLoopbackEnabled(): boolean {
+  return process.env.BRAIN_SDK_IT_LOOPBACK === "1";
+}
+
 function splitHostPort(s: string): [string, number] {
   const i = s.lastIndexOf(":");
   return [s.slice(0, i), Number(s.slice(i + 1))];
@@ -71,7 +77,11 @@ function hex(id: Uint8Array): string {
 }
 
 /** Mint a FULL data-plane token bound to `(namespace, spaceId)`. */
-export async function mint(t: ItTarget, spaceId: Uint8Array): Promise<string> {
+export async function mint(
+  t: ItTarget,
+  spaceId: Uint8Array,
+  namespace = t.namespace,
+): Promise<string> {
   const res = await fetch(`http://${t.adminHost}:${t.adminPort}/v1/api-keys`, {
     method: "POST",
     headers: {
@@ -80,7 +90,7 @@ export async function mint(t: ItTarget, spaceId: Uint8Array): Promise<string> {
     },
     body: JSON.stringify({
       space_id_hex: hex(spaceId),
-      namespace: t.namespace,
+      namespace,
       permissions: ["FULL"],
     }),
   });
@@ -92,8 +102,12 @@ export async function mint(t: ItTarget, spaceId: Uint8Array): Promise<string> {
 }
 
 /** Mint a token for `spaceId` and connect a client as that agent. */
-export async function connectAs(t: ItTarget, spaceId: Uint8Array): Promise<BrainClient> {
-  const token = await mint(t, spaceId);
+export async function connectAs(
+  t: ItTarget,
+  spaceId: Uint8Array,
+  namespace = t.namespace,
+): Promise<BrainClient> {
+  const token = await mint(t, spaceId, namespace);
   const auth: Auth = { kind: "token", token: new TextEncoder().encode(token) };
   return BrainClient.connect(t.dataHost, t.dataPort, { auth });
 }
@@ -101,9 +115,10 @@ export async function connectAs(t: ItTarget, spaceId: Uint8Array): Promise<Brain
 /** Mint + connect as a brand-new random agent. */
 export async function connectFresh(
   t: ItTarget,
+  namespace = t.namespace,
 ): Promise<{ client: BrainClient; spaceId: Uint8Array }> {
   const spaceId = newId();
-  return { client: await connectAs(t, spaceId), spaceId };
+  return { client: await connectAs(t, spaceId, namespace), spaceId };
 }
 
 /**

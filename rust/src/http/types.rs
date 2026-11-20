@@ -490,6 +490,12 @@ pub struct MemoryInspect {
     /// and never contains an edge asserted through `link`.
     #[serde(default)]
     pub edges: Vec<MemoryEdge>,
+    /// How many edges are anchored at this memory before the per-direction cap; show this to users instead of `edges.len()`.
+    #[serde(default)]
+    pub edge_total_count: Option<u32>,
+    /// True when `edges` is only part of the set; code that treats `edges` as complete without reading this is wrong.
+    #[serde(default)]
+    pub edges_truncated: bool,
 }
 
 /// One memory↔memory edge, as returned by `memory_inspect`.
@@ -1775,7 +1781,7 @@ pub struct QueryTraceResult {
 // --- BYOK provider credentials ---------------------------------------------
 
 /// `put_llm_credential` input.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Default, Serialize)]
 pub struct PutLlmCredentialInput {
     /// `openai` | `anthropic`.
     pub provider: String,
@@ -1784,13 +1790,52 @@ pub struct PutLlmCredentialInput {
     pub api_key: String,
 }
 
-/// An installed provider credential. Carries no key material.
+/// Input for probing a provider key without storing it; the probe is of the key itself and takes no model.
+#[derive(Clone, Default, Serialize)]
+pub struct TestLlmCredentialInput {
+    /// `openai` | `anthropic`.
+    pub provider: String,
+    /// The provider key. Sealed by the edge on arrival; never returned.
+    pub api_key: String,
+}
+
+/// This body carries a live provider key, so `Debug` redacts it rather than being derived.
+impl core::fmt::Debug for TestLlmCredentialInput {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TestLlmCredentialInput")
+            .field("provider", &self.provider)
+            .field("api_key", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Redacting `Debug`, written by hand rather than derived.
+///
+/// The HTTP twin of [`crate::wire::types::LlmCredentialPutRequest`], carrying
+/// the same live provider key. A derived `Debug` is one log line away from
+/// putting that key in a file, and request logging is exactly the kind of
+/// thing added later by someone who has not read this file.
+impl core::fmt::Debug for PutLlmCredentialInput {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PutLlmCredentialInput")
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("api_key", &"[redacted]")
+            .finish()
+    }
+}
+
+/// An installed provider credential. Its fingerprint is the provider key's
+/// last four characters, verbatim, so it carries a small amount of real key
+/// material and must be treated as sensitive rather than as an opaque
+/// identifier.
 #[derive(Clone, Debug, Deserialize)]
 pub struct LlmCredential {
     pub provider: String,
     pub model: String,
-    /// Display-safe tail so an operator can tell which key is installed. Not
-    /// reversible into the key.
+    /// The provider key's last four characters, verbatim. This is a small
+    /// amount of real key material, not an opaque or display-safe identifier;
+    /// treat it as sensitive.
     pub fingerprint: String,
     pub created_at_unix_secs: u64,
 }
@@ -1982,4 +2027,22 @@ pub struct SubscribeQuery {
     pub from_lsn: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_inflight: Option<u32>,
+}
+
+#[cfg(test)]
+mod credential_redaction_tests {
+    use super::PutLlmCredentialInput;
+
+    #[test]
+    fn debug_hides_the_provider_key_and_keeps_the_rest() {
+        let input = PutLlmCredentialInput {
+            provider: "openai".into(),
+            model: "gpt-4o".into(),
+            api_key: "sk-live-DO-NOT-LOG".into(),
+        };
+        let shown = format!("{input:?}");
+        assert!(!shown.contains("sk-live-DO-NOT-LOG"), "{shown}");
+        assert!(shown.contains("openai"), "{shown}");
+        assert!(shown.contains("gpt-4o"), "{shown}");
+    }
 }

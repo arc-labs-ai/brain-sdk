@@ -350,6 +350,10 @@ export interface MemoryInspect {
    * asserted through `link`.
    */
   edges: MemoryEdge[];
+  /** How many edges are anchored at this memory before the per-direction cap; show this to users instead of `edges.length`. */
+  edgeTotalCount?: number | null | undefined;
+  /** True when `edges` is only part of the set; code that treats `edges` as complete without reading this is wrong. */
+  edgesTruncated: boolean;
 }
 
 // --- entities --------------------------------------------------------------
@@ -1171,12 +1175,19 @@ export interface PutLlmCredentialInput {
   /** Sealed by the edge on arrival; never returned. */
   apiKey: string;
 }
+/** Probe a provider key without storing it; the probe is of the key itself and takes no model. */
+export interface TestLlmCredentialInput {
+  /** `openai` | `anthropic`. */
+  provider: string;
+  /** Sealed by the edge on arrival; never returned. */
+  apiKey: string;
+}
 export interface LlmCredential {
   provider: string;
   model: string;
   /**
-   * Display-safe tail so an operator can tell which key is installed. Not
-   * reversible into the key.
+   * Last-four display suffix of the provider key. This is a small amount of
+   * key material, so treat it as sensitive rather than as an opaque identifier.
    */
   fingerprint: string;
   createdAtUnixSecs: number;

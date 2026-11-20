@@ -54,8 +54,8 @@ const CASES: Array<[string, unknown, boolean]> = [
   ["server Unavailable", serverError(ErrorCategoryWire.Unavailable), true],
 
   // Every other server category — a repeat sends the same request and gets
-  // the same verdict. All nine are listed so a new category cannot be added
-  // without a decision being made about it here.
+  // the same verdict. All of them are listed so a new category cannot be
+  // added without a decision being made about it here.
   ["server Protocol", serverError(ErrorCategoryWire.Protocol), false],
   ["server Authentication", serverError(ErrorCategoryWire.Authentication), false],
   ["server Authorization", serverError(ErrorCategoryWire.Authorization), false],
@@ -63,6 +63,14 @@ const CASES: Array<[string, unknown, boolean]> = [
   ["server NotFound", serverError(ErrorCategoryWire.NotFound), false],
   ["server Conflict", serverError(ErrorCategoryWire.Conflict), false],
   ["server Internal", serverError(ErrorCategoryWire.Internal), false],
+  // A latched fault that only an operator restart clears, so a retry can
+  // never succeed. Deliberately not `Unavailable`, which would be retried
+  // forever.
+  ["server OperatorIntervention", serverError(ErrorCategoryWire.OperatorIntervention), false],
+  // A category newer than this build. Must default to not retrying: the
+  // allowlist in `isRetryable` makes that automatic, and this row pins it so
+  // a future denylist rewrite fails here.
+  ["server Unknown", serverError(ErrorCategoryWire.Unknown), false],
 
   // Client-side faults — a repeat sends the same wrong thing.
   ["a protocol violation", new ProtocolError("unexpected opcode"), false],

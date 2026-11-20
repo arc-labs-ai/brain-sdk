@@ -29,6 +29,16 @@ KNOWN_LOCAL_FIELDS: dict[tuple[str, str], str] = {
 KNOWN_LOCAL_VARIANTS: dict[tuple[str, str], str] = {
     ("ErrorCodeWire", "Unknown"): "0xFFFF catch-all so one unrecognised code cannot "
     "make a whole ERROR frame undecodable; the server never sends it",
+    ("ErrorCategoryWire", "Unknown"): "0xFF catch-all so one unrecognised category cannot "
+    "make a whole ERROR frame undecodable; the server never sends it",
+}
+
+# Field type representations the SDK is allowed to keep distinct from the
+# server's, because both are total over the same integers and the corpus pins
+# the bytes. The recorded server type makes each exemption self-invalidating.
+KNOWN_LOCAL_FIELD_TYPES: dict[tuple[str, str], tuple[str, str]] = {
+    ("ErrorResponse", "code"): ("u16", "the SDK enum and server integer are total over the same integers; the `resp_error*` corpus vectors pin the bytes"),
+    ("ErrorResponse", "category"): ("u8", "the SDK enum and server integer are total over the same integers; the `resp_error*` corpus vectors pin the bytes"),
 }
 
 # SDK-local types that happen to share a name with a server type but are not the
@@ -129,9 +139,11 @@ def compare(server: dict, sdk: dict) -> list[str]:
             if not g:
                 continue
             if f["type"] != g["type"]:
-                problems.append(
-                    f"STRUCT {name}.{f['name']}: TYPE server={g['type']!r} sdk={f['type']!r}"
-                )
+                exemption = KNOWN_LOCAL_FIELD_TYPES.get((name, f["name"]))
+                if not exemption or g["type"] != exemption[0]:
+                    problems.append(
+                        f"STRUCT {name}.{f['name']}: TYPE server={g['type']!r} sdk={f['type']!r}"
+                    )
             for d in cmp_serde(g["serde"], f["serde"]):
                 problems.append(f"STRUCT {name}.{f['name']}: {d}")
 

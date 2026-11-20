@@ -37,6 +37,10 @@ tokio = { version = "1", features = [
   "macros",
   "sync",
 ] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio-rustls = "0.26"
+rustls-native-certs = "0.8"
+rustls-pemfile = "2"
 # request_id / agent_id minting: time-ordered UUIDv7, taken as 16 raw bytes.
 uuid = { version = "1", features = ["v5", "v7"] }
 

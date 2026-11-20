@@ -64,13 +64,18 @@ class It:
             namespace=os.environ.get("BRAIN_SDK_IT_NAMESPACE", "sdk-it"),
         )
 
-    def mint(self, space_id: bytes) -> str:
+    def mint(self, space_id: bytes, namespace: Optional[str] = None) -> str:
         """Mint a FULL data-plane token bound to ``(namespace, space_id)`` and
-        return its secret string."""
+        return its secret string.
+
+        ``namespace`` is optional so existing integration tests keep using the
+        configured shared namespace, while tests that mutate tenant state can
+        provision an isolated throwaway namespace.
+        """
         body = json.dumps(
             {
                 "space_id_hex": space_id.hex(),
-                "namespace": self.namespace,
+                "namespace": self.namespace if namespace is None else namespace,
                 "permissions": ["FULL"],
             }
         )
@@ -94,8 +99,8 @@ class It:
         finally:
             conn.close()
 
-    def connect_as(self, space_id: bytes) -> BrainClient:
-        token = self.mint(space_id)
+    def connect_as(self, space_id: bytes, namespace: Optional[str] = None) -> BrainClient:
+        token = self.mint(space_id, namespace)
         return BrainClient.connect(self.data_host, self.data_port, Auth.token(token.encode()))
 
     def connect_fresh(self) -> tuple[BrainClient, bytes]:
@@ -103,7 +108,9 @@ class It:
         agent = new_id()
         return self.connect_as(agent), agent
 
-    async def connect_as_async(self, space_id: bytes) -> AsyncBrainClient:
+    async def connect_as_async(
+        self, space_id: bytes, namespace: Optional[str] = None
+    ) -> AsyncBrainClient:
         """The asyncio twin of :meth:`connect_as`.
 
         Minting is a blocking HTTP call on the admin plane, so it runs on a
@@ -111,7 +118,7 @@ class It:
         same thing a real caller would have to do with any synchronous
         provisioning step.
         """
-        token = await asyncio.to_thread(self.mint, space_id)
+        token = await asyncio.to_thread(self.mint, space_id, namespace)
         return await AsyncBrainClient.connect(
             self.data_host, self.data_port, Auth.token(token.encode())
         )
@@ -171,6 +178,24 @@ def it() -> It:
             "integration server not configured (set BRAIN_SDK_IT_DATA; see scripts/it-server.sh)"
         )
     return target
+
+
+@pytest.fixture
+def byok_it(it: It) -> It:
+    """The integration target when the runner shares the engine's network namespace.
+
+    Registering a provider key is permitted only over TLS, mTLS, or a genuine
+    loopback connection. A published container port is not loopback from the
+    server's perspective, so this live suite requires an explicit opt-in from
+    a runner colocated with the engine, typically via its network namespace.
+    """
+    if os.environ.get("BRAIN_SDK_IT_LOOPBACK") != "1":
+        pytest.skip(
+            "live BYOK credential tests require a TLS, mTLS, or loopback connection; "
+            "the runner must be colocated with the engine in its network namespace "
+            "(set BRAIN_SDK_IT_LOOPBACK=1)"
+        )
+    return it
 
 
 @pytest.fixture

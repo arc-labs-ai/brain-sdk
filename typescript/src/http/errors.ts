@@ -7,9 +7,12 @@ export class BrainHttpError extends Error {
   readonly status: number;
   /** Stable error code from the edge (`"transport"` for network failures). */
   readonly code: string;
-  /** Per-field problems on a validation failure (`422`), when the server
-   * reports them — e.g. `{ field: "email", message: "must be a valid email" }`. */
+  /** Per-field problems on a field-level refusal from either server shape,
+   * when the server reports them — e.g. `{ field: "email", message: "must be a
+   * valid email" }`. */
   readonly fieldErrors: ReadonlyArray<{ field: string; code?: string; message: string }>;
+  /** Engine-specific code from the edge envelope, when present. */
+  readonly engineCode?: string | undefined;
 
   constructor(
     status: number,
@@ -17,6 +20,7 @@ export class BrainHttpError extends Error {
     message: string,
     options?: ErrorOptions & {
       fieldErrors?: ReadonlyArray<{ field: string; code?: string; message: string }>;
+      engineCode?: string | undefined;
     },
   ) {
     super(message, options);
@@ -24,5 +28,6 @@ export class BrainHttpError extends Error {
     this.status = status;
     this.code = code;
     this.fieldErrors = options?.fieldErrors ?? [];
+    this.engineCode = options?.engineCode;
   }
 }

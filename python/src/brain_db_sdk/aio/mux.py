@@ -35,6 +35,7 @@ import asyncio
 import contextlib
 import socket
 import time
+import weakref
 from typing import TypeVar, Union
 
 from brain_db_sdk.errors import (
@@ -107,8 +108,13 @@ class AsyncMuxConnection:
         self._write_lock = asyncio.Lock()
         self._next_stream_id = 1
         self._closed_error: Exception | None = None
+        self._last_received = time.monotonic()
+        self._idle_watchdog_seconds: float | None = None
         self._reader_task: asyncio.Task[None] = asyncio.create_task(
             self._reader_loop(), name="brain-mux-reader"
+        )
+        self._watchdog_task: asyncio.Task[None] = asyncio.create_task(
+            self._watchdog_loop(), name="brain-mux-watchdog"
         )
 
     @classmethod
@@ -120,6 +126,8 @@ class AsyncMuxConnection:
         auth: AuthPayload,
         connect_timeout: float | None = 10.0,
         request_timeout: float | None = 30.0,
+        ssl_context: object | None = None,
+        server_name: str | None = None,
     ) -> tuple[AsyncMuxConnection, HandshakeOutcome]:
         """Connect to ``host:port``, run the handshake, and return the live
         connection plus the negotiated outcome.
@@ -130,7 +138,13 @@ class AsyncMuxConnection:
         half-open connections and reader tasks.
         """
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=connect_timeout
+            asyncio.open_connection(
+                host,
+                port,
+                ssl=ssl_context,
+                server_hostname=(server_name or host) if ssl_context is not None else None,
+            ),
+            timeout=connect_timeout,
         )
         sock = writer.get_extra_info("socket")
         if sock is not None:
@@ -155,6 +169,10 @@ class AsyncMuxConnection:
             await self._write(Opcode.HELLO, HANDSHAKE_STREAM_ID, encode_payload(hello))
             welcome_frame = await self._expect(q, Opcode.WELCOME)
             welcome = decode_payload(WelcomePayload, welcome_frame.payload)
+            idle_timeout = welcome.server_features.idle_timeout_seconds
+            if idle_timeout > 0:
+                self._last_received = time.monotonic()
+                self._idle_watchdog_seconds = 2 * idle_timeout
             if welcome.chosen_version not in offered:
                 raise VersionMismatch(welcome.chosen_version, offered)
 
@@ -282,11 +300,14 @@ class AsyncMuxConnection:
         """
         self._fail_all(ConnectionClosed("connection closed by client"))
         self._reader_task.cancel()
+        self._watchdog_task.cancel()
         # The reader is cancelled, not awaited to completion, so a task blocked
         # in `read` does not hold up the close. Awaiting it here is what makes
         # `aclose` leave no pending task behind for the loop to warn about.
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await self._reader_task
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await self._watchdog_task
         self._writer.close()
         # `wait_closed` can raise whatever the connection died of; the socket is
         # gone either way and a teardown error is not separately actionable.
@@ -294,6 +315,15 @@ class AsyncMuxConnection:
             await self._writer.wait_closed()
 
     # ---- internals ----
+
+    async def _watchdog_loop(self) -> None:
+        while self._closed_error is None:
+            await asyncio.sleep(0.1)
+            interval = self._idle_watchdog_seconds
+            if interval is not None and time.monotonic() - self._last_received >= interval:
+                self._fail_all(ConnectionClosed("connection idle timeout"))
+                self._writer.close()
+                return
 
     def _check_loop(self) -> None:
         """Refuse an operation issued from a loop other than the one that owns
@@ -336,6 +366,7 @@ class AsyncMuxConnection:
             except Exception as exc:  # noqa: BLE001 — transport/codec failure ends the loop
                 self._fail_all(exc)
                 return
+            self._last_received = time.monotonic()
             if frame.opcode == int(Opcode.SERVER_PING):
                 await self._pong(frame)
                 continue
@@ -404,6 +435,25 @@ class AsyncMuxConnection:
             raise item.error
         return item
 
+    async def _next_pushed(self, q: _RouteQueue) -> Frame:
+        """Await the next frame routed to ``q``.
+
+        No deadline: a change feed is quiet by design and may publish nothing
+        for hours, so silence is not a fault — unlike a request, where silence
+        past ``request_timeout`` means the server is not answering. Liveness
+        rides on the server's ``SERVER_PING``. The connection watchdog closes
+        a connection that receives no frame for twice the advertised idle
+        interval, so a silent dead peer wakes this wait as a transport failure.
+
+        Cancelling the awaiting task is the caller's way out, and connection
+        death still wakes this: the reader task puts a ``_Closed`` sentinel on
+        every live route before clearing the table.
+        """
+        item = await q.get()
+        if isinstance(item, _Closed):
+            raise item.error
+        return item
+
     async def _expect(self, q: _RouteQueue, expected: Opcode) -> Frame:
         frame = await self._next(q)
         if frame.opcode == Opcode.ERROR:
@@ -449,10 +499,9 @@ class AsyncSubscription:
     server then EOS-closes the event stream, which :meth:`next` observes as
     end-of-stream.
 
-    Dropping a subscription without unsubscribing leaks no route once it is
-    closed: :meth:`aclose` (and the async-context-manager exit) deregisters the
-    route. Prefer :meth:`unsubscribe` before closing so the server stops
-    pushing.
+    A handle that goes out of scope without being closed still drops its route;
+    what it cannot do is tell the server to stop, so prefer
+    :meth:`unsubscribe` first.
     """
 
     def __init__(self, conn: AsyncMuxConnection, stream_id: int, q: _RouteQueue) -> None:
@@ -462,27 +511,46 @@ class AsyncSubscription:
         # Set once an EOS frame has been observed: the next next() returns None
         # without touching the (already-removed) route.
         self._ended = False
+        # LSN of the most recent event handed to the caller: the cursor to
+        # resume a severed feed from, as `SubscribeRequest.from_lsn`.
+        self._last_lsn: int | None = None
+        # A handle that simply goes out of scope is the common accident. On a
+        # connection meant to stay up for days, each leaked route keeps the
+        # reader appending frames into a queue nobody drains, so losing the
+        # handle must drop the route even when the caller never calls `close`.
+        self._finalizer = weakref.finalize(self, conn._deregister, stream_id)  # noqa: SLF001
 
     @property
     def stream_id(self) -> int:
         """The stream id the server pushes events on."""
         return self._stream_id
 
+    @property
+    def last_lsn(self) -> int | None:
+        """LSN of the last event this subscription delivered, or ``None`` before
+        the first one. Pass it as ``SubscribeRequest.from_lsn`` to resume a feed
+        that was cut mid-stream without re-reading what the caller already
+        saw."""
+        return self._last_lsn
+
     async def next(self) -> SubscriptionEvent | None:
         """Return the next subscription event, or ``None`` once the stream has
-        ended (the server EOS-closed it, or the connection dropped).
+        completed or the handle has been closed locally.
 
-        An EOS-flagged frame carrying an event yields that event; the following
-        call returns ``None``. An EOS frame with an empty payload ends the
-        stream immediately.
+        Each pushed ``SUBSCRIBE_EVENT`` yields one event. A server ``ERROR``
+        raises :class:`ServerError`; a connection drop before the stream closes
+        raises :class:`ConnectionClosed`, because a severed feed is a failure,
+        not an ending. An EOS-flagged frame carrying an event yields that event;
+        the following call returns ``None``. An EOS frame with an empty payload
+        ends the stream immediately.
         """
         if self._ended:
             return None
         try:
-            frame = await self._conn._next(self._q)  # noqa: SLF001 — same module
+            frame = await self._conn._next_pushed(self._q)  # noqa: SLF001 — same module
         except ConnectionClosed:
             self._end()
-            return None
+            raise
         if frame.opcode == Opcode.ERROR:
             self._end()
             raise ServerError.from_response(decode_payload(ErrorResponse, frame.payload))
@@ -491,7 +559,9 @@ class AsyncSubscription:
             self._end()
             if not frame.payload:
                 return None
-        return decode_payload(SubscriptionEvent, frame.payload)
+        event = decode_payload(SubscriptionEvent, frame.payload)
+        self._last_lsn = event.lsn
+        return event
 
     def __aiter__(self) -> AsyncSubscription:
         return self
@@ -523,7 +593,7 @@ class AsyncSubscription:
 
     def _end(self) -> None:
         self._ended = True
-        self._conn._deregister(self._stream_id)  # noqa: SLF001 — same module
+        self._finalizer()
 
     async def __aenter__(self: _SelfSub) -> _SelfSub:
         return self

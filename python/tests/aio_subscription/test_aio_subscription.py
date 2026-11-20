@@ -10,13 +10,14 @@ leaves a route behind on a connection meant to stay up for days.
 from __future__ import annotations
 
 import asyncio
+import gc
 
 import pytest
 from aio_harness import MockBrain, MockSession
 
 from brain_db_sdk.aio import AsyncBrainClient
 from brain_db_sdk.client import Auth, ClientConfig
-from brain_db_sdk.errors import ProtocolError, ServerError
+from brain_db_sdk.errors import ConnectionClosed, ProtocolError, ServerError
 from brain_db_sdk.wire.frame import FLAG_EOS
 from brain_db_sdk.wire.opcode import Opcode
 from brain_db_sdk.wire.types import (
@@ -62,8 +63,18 @@ def _event(lsn: int, text: str) -> bytes:
     )
 
 
-async def _client(server: MockBrain) -> AsyncBrainClient:
-    return await AsyncBrainClient.connect_with(server.host, server.port, ClientConfig(auth=AUTH))
+async def _client(server: MockBrain, config: ClientConfig | None = None) -> AsyncBrainClient:
+    return await AsyncBrainClient.connect_with(
+        server.host, server.port, config if config is not None else ClientConfig(auth=AUTH)
+    )
+
+
+async def _write_eos(session: MockSession, stream_id: int, payload: bytes = b"") -> None:
+    """End the event stream the way Brain does: an EOS frame carrying no
+    event. A payload on that frame decodes as one more subscription event,
+    so the subscriber would see a phantom memory after the feed ended."""
+    assert payload == b"", "the subscription terminator carries no event"
+    await session.write(Opcode.SUBSCRIBE_EVENT, stream_id, payload, flags=FLAG_EOS)
 
 
 async def test_events_arrive_in_order_and_async_for_ends_at_eos() -> None:
@@ -76,7 +87,7 @@ async def test_events_arrive_in_order_and_async_for_ends_at_eos() -> None:
                 Opcode.SUBSCRIBE_EVENT, frame.stream_id, _event(i, f"e{i}"), flags=0
             )
         # An EOS frame with an empty payload is how the server ends the stream.
-        await session.write(Opcode.SUBSCRIBE_EVENT, frame.stream_id, b"", flags=FLAG_EOS)
+        await _write_eos(session, frame.stream_id)
         await asyncio.sleep(0.5)
 
     async with MockBrain(handler) as server:
@@ -132,7 +143,7 @@ async def test_unsubscribe_round_trips_on_its_own_stream() -> None:
             unsub_frame.stream_id,
             encode_payload(UnsubscribeResponse(target_stream_id=sub_frame.stream_id, final_lsn=1)),
         )
-        await session.write(Opcode.SUBSCRIBE_EVENT, sub_frame.stream_id, b"", flags=FLAG_EOS)
+        await _write_eos(session, sub_frame.stream_id)
         await asyncio.sleep(0.5)
 
     async with MockBrain(handler) as server:
@@ -226,9 +237,10 @@ async def test_the_async_context_manager_drops_the_route() -> None:
             await client.aclose()
 
 
-async def test_a_dropped_connection_ends_the_stream_rather_than_raising() -> None:
-    """A subscription outliving its connection reads as end-of-stream: the
-    caller's loop finishes instead of exploding mid-iteration."""
+async def test_a_feed_cut_mid_stream_raises_rather_than_ending() -> None:
+    """A severed feed must not read as a finished one: the server is still
+    producing events the consumer has stopped receiving, and nothing anywhere
+    reports that loss as a completed feed."""
 
     async def handler(session: MockSession) -> None:
         await session.handshake()
@@ -241,7 +253,82 @@ async def test_a_dropped_connection_ends_the_stream_rather_than_raising() -> Non
         client = await _client(server)
         try:
             sub = await client.subscribe(_subscribe())
-            seen = [event.text async for event in sub]
-            assert seen == ["e1"]
+            first = await sub.next()
+            assert first is not None and first.text == "e1"
+            with pytest.raises(ConnectionClosed):
+                await sub.next()
+            assert sub.last_lsn == 1
+        finally:
+            await client.aclose()
+
+
+async def test_a_quiet_feed_outlives_the_request_deadline() -> None:
+    """A feed that publishes nothing for a while is the normal case, not a
+    timeout."""
+
+    async def handler(session: MockSession) -> None:
+        await session.handshake()
+        frame = await session.read()
+        await asyncio.sleep(0.6)
+        await session.write(Opcode.SUBSCRIBE_EVENT, frame.stream_id, _event(1, "e1"), flags=0)
+        await _write_eos(session, frame.stream_id)
+        await asyncio.sleep(0.5)
+
+    async with MockBrain(handler) as server:
+        client = await _client(server, ClientConfig(auth=AUTH, request_timeout=0.2))
+        try:
+            sub = await client.subscribe(_subscribe())
+            event = await sub.next()
+            assert event is not None and event.text == "e1"
+            assert await sub.next() is None
+        finally:
+            await client.aclose()
+
+
+async def test_a_subscription_reports_the_last_delivered_cursor() -> None:
+    async def handler(session: MockSession) -> None:
+        await session.handshake()
+        frame = await session.read()
+        for lsn in (1, 2):
+            await session.write(
+                Opcode.SUBSCRIBE_EVENT, frame.stream_id, _event(lsn, f"e{lsn}"), flags=0
+            )
+        await _write_eos(session, frame.stream_id)
+        await asyncio.sleep(0.5)
+
+    async with MockBrain(handler) as server:
+        client = await _client(server)
+        try:
+            sub = await client.subscribe(_subscribe())
+            assert (await sub.next()).lsn == 1
+            assert (await sub.next()).lsn == 2
+            assert sub.last_lsn == 2
+            assert await sub.next() is None
+            assert sub.last_lsn == 2
+        finally:
+            await client.aclose()
+
+
+async def test_a_forgotten_handle_drops_its_route() -> None:
+    """On a connection meant to live for days, a handle that merely goes out
+    of scope must not leave the reader appending into a queue nobody drains."""
+
+    async def handler(session: MockSession) -> None:
+        await session.handshake()
+        await session.read()
+        await asyncio.sleep(1.0)
+
+    async with MockBrain(handler) as server:
+        client = await _client(server)
+        try:
+
+            async def open_and_forget() -> None:
+                sub = await client.subscribe(_subscribe())
+                assert sub.stream_id % 2 == 1, "a client-initiated stream id is odd"
+                assert client._conn.route_count() == 1
+
+            await open_and_forget()
+            gc.collect()
+            assert client._conn.route_count() == 0
         finally:
             await client.aclose()

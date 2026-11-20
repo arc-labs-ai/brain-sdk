@@ -14,6 +14,7 @@
  */
 
 import { createConnection, type Socket } from "node:net";
+import { connect as connectTls, rootCertificates } from "node:tls";
 
 import {
   BrainTimeout,
@@ -58,20 +59,37 @@ import type { HandshakeOutcome } from "./connection.js";
 const HANDSHAKE_STREAM_ID = 0;
 
 /**
+ * Last-resort cleanup for a subscription handle that goes out of scope without
+ * being closed. On a connection meant to stay up for days, each leaked route
+ * keeps the pump buffering frames into an array nobody drains, so losing the
+ * handle must still drop the route.
+ *
+ * Collection timing is the engine's to choose, so this is a backstop, never
+ * the path a caller should rely on: `close()`, `unsubscribe()` and `await using`
+ * all drop the route at a point the caller controls.
+ */
+const abandonedSubscriptions = new FinalizationRegistry<{
+  conn: MuxConnection;
+  streamId: number;
+}>(({ conn, streamId }) => conn.dropRoute(streamId));
+
+/**
  * A single-stream frame queue. Frames the pump routes here are buffered until a
- * `next()` consumes them; `fail()` rejects the current and future waiters once
- * the connection dies.
+ * `next()` consumes them; waiters are served in arrival order, and `fail()`
+ * rejects every current and future waiter once the connection dies.
  */
 class StreamSink {
   private readonly frames: Frame[] = [];
-  private waiter: { resolve: (f: Frame) => void; reject: (e: Error) => void } | null = null;
+  private readonly waiters: {
+    resolve: (f: Frame) => void;
+    reject: (e: Error) => void;
+  }[] = [];
   private failure: Error | null = null;
 
   push(frame: Frame): void {
-    if (this.waiter) {
-      const w = this.waiter;
-      this.waiter = null;
-      w.resolve(frame);
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter.resolve(frame);
     } else {
       this.frames.push(frame);
     }
@@ -79,11 +97,8 @@ class StreamSink {
 
   fail(err: Error): void {
     if (this.failure === null) this.failure = err;
-    if (this.waiter) {
-      const w = this.waiter;
-      this.waiter = null;
-      w.reject(err);
-    }
+    const pending = this.waiters.splice(0, this.waiters.length);
+    for (const waiter of pending) waiter.reject(err);
   }
 
   next(): Promise<Frame> {
@@ -91,7 +106,7 @@ class StreamSink {
     if (queued !== undefined) return Promise.resolve(queued);
     if (this.failure !== null) return Promise.reject(this.failure);
     return new Promise<Frame>((resolve, reject) => {
-      this.waiter = { resolve, reject };
+      this.waiters.push({ resolve, reject });
     });
   }
 }
@@ -102,6 +117,9 @@ export class MuxConnection {
   private readonly routes = new Map<number, StreamSink>();
   private nextStreamId = 1;
   private closedError: Error | null = null;
+  private idleTimeoutMs: number | undefined;
+  private idleWatchdog: ReturnType<typeof setTimeout> | undefined;
+  private lastFrameReceivedAt = 0;
   /**
    * The server's WELCOME `maxPayloadSize`, enforced before every write.
    *
@@ -138,9 +156,18 @@ export class MuxConnection {
     options: {
       connectTimeoutMs?: number | undefined;
       requestTimeoutMs?: number | undefined;
+      tls?:
+        | {
+            ca?: string | undefined;
+            servername?: string | undefined;
+          }
+        | undefined;
     } = {},
   ): Promise<{ conn: MuxConnection; outcome: HandshakeOutcome }> {
-    const socket = await connectTcp(host, port, options.connectTimeoutMs);
+    const socket =
+      options.tls === undefined
+        ? await connectTcp(host, port, options.connectTimeoutMs)
+        : await connectTlsSocket(host, port, options.tls, options.connectTimeoutMs);
     socket.setNoDelay(true);
     const conn = new MuxConnection(socket, options.requestTimeoutMs);
     const outcome = await conn.handshake(hello, auth);
@@ -166,6 +193,7 @@ export class MuxConnection {
       await this.writeFrame(Opcode.Hello, HANDSHAKE_STREAM_ID, encodeHello(hello));
       const welcomeFrame = await this.expectReply(sink, Opcode.Welcome);
       const welcome = decodeWelcome(welcomeFrame.payload);
+      this.startIdleWatchdog(welcome.serverFeatures.idleTimeoutSeconds);
       if (!offered.includes(welcome.chosenVersion)) {
         throw new VersionMismatch(welcome.chosenVersion, offered);
       }
@@ -296,9 +324,20 @@ export class MuxConnection {
 
   // ---- subscription support (consumed by `Subscription`, same module) ----
 
-  /** Await the next frame routed to `sink`, honoring the request timeout. */
+  /**
+   * Await the next frame routed to `sink` with no deadline.
+   *
+   * A subscription is long-lived by definition: a change feed is quiet by
+   * design and may publish nothing for hours, so silence is not a fault — the
+   * request deadline that bounds {@link request} would turn the normal case
+   * into an error. The connection watchdog accepts two missed advertised idle
+   * intervals before failing every route, while SERVER_PING frames refresh it.
+   *
+   * A socket error or peer close still settles it: the pump fails every live
+   * sink.
+   */
   awaitFrame(sink: StreamSink): Promise<Frame> {
-    return this.nextFrame(sink);
+    return sink.next();
   }
 
   /** Drop the route for `streamId` (subscription teardown). */
@@ -321,7 +360,13 @@ export class MuxConnection {
     const deadlineMs = timeoutMs ?? this.requestTimeoutMs;
     if (deadlineMs === undefined) return sink.next();
     return new Promise<Frame>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new BrainTimeout(deadlineMs)), deadlineMs);
+      const timer = setTimeout(() => {
+        // Fail the sink rather than only this promise: an abandoned waiter
+        // would be resolved by the next frame to arrive and silently swallow
+        // it. A request whose deadline has passed has its route dropped, so
+        // there is nothing left on this stream to deliver.
+        sink.fail(new BrainTimeout(deadlineMs));
+      }, deadlineMs);
       sink.next().then(
         (f) => {
           clearTimeout(timer);
@@ -396,6 +441,8 @@ export class MuxConnection {
       // leaves frame-straddling correct: a partial trailing frame stays in
       // `this.buf` and is retried after the next chunk arrives.
       offset += this.buf.length - offset - decoded.rest.length;
+      this.lastFrameReceivedAt = Date.now();
+      if (this.idleTimeoutMs !== undefined) this.scheduleIdleWatchdog();
       // Server idle-timer heartbeat: answer with CLIENT_PONG on stream 0 so an
       // idle connection isn't reaped. Otherwise route to the request that owns
       // this stream; an unknown id is a late frame for a cancelled/timed-out
@@ -411,9 +458,37 @@ export class MuxConnection {
   }
 
   private failAll(err: Error): void {
+    if (this.idleWatchdog !== undefined) {
+      clearTimeout(this.idleWatchdog);
+      this.idleWatchdog = undefined;
+    }
     if (this.closedError === null) this.closedError = err;
     for (const sink of this.routes.values()) sink.fail(err);
     this.routes.clear();
+  }
+
+  private startIdleWatchdog(idleTimeoutSeconds: number): void {
+    if (idleTimeoutSeconds <= 0) return;
+    this.idleTimeoutMs = idleTimeoutSeconds * 2 * 1000;
+    this.lastFrameReceivedAt = Date.now();
+    this.scheduleIdleWatchdog();
+  }
+
+  private scheduleIdleWatchdog(): void {
+    const timeoutMs = this.idleTimeoutMs;
+    if (timeoutMs === undefined) return;
+    if (this.idleWatchdog !== undefined) clearTimeout(this.idleWatchdog);
+    const remainingMs = Math.max(1, timeoutMs - (Date.now() - this.lastFrameReceivedAt));
+    this.idleWatchdog = setTimeout(() => {
+      if (Date.now() - this.lastFrameReceivedAt < timeoutMs) {
+        this.scheduleIdleWatchdog();
+        return;
+      }
+      const err = new TransportError(`connection idle for ${timeoutMs}ms`);
+      this.failAll(err);
+      this.socket.destroy();
+    }, remainingMs);
+    this.idleWatchdog.unref?.();
   }
 
   /**
@@ -457,20 +532,25 @@ export class MuxConnection {
  * the server then EOS-closes the event stream, which {@link next} observes as
  * end-of-stream (`null`).
  *
- * Dropping a subscription without unsubscribing leaks no route once {@link close}
- * (or the async-iterator's return path) deregisters it. Prefer
- * `await unsubscribe()` before closing so the server stops pushing.
+ * A handle that goes out of scope without being closed still drops its route
+ * eventually. It cannot tell the server to stop pushing, so prefer
+ * `await unsubscribe()` or `await using`.
  */
 export class Subscription implements AsyncIterableIterator<SubscriptionEvent> {
   // Set once an EOS frame has been observed: the next `next()` short-circuits
   // to done without touching the (already-removed) route.
   private ended = false;
+  // LSN of the most recent event handed to the caller: the cursor to resume a
+  // severed feed from, as `SubscribeRequest.fromLsn`.
+  private lastLsnValue: bigint | null = null;
 
   constructor(
     private readonly conn: MuxConnection,
     private readonly streamIdValue: number,
     private readonly sink: StreamSink,
-  ) {}
+  ) {
+    abandonedSubscriptions.register(this, { conn, streamId: streamIdValue }, this);
+  }
 
   /** The stream id the server pushes events on. */
   get streamId(): number {
@@ -478,10 +558,14 @@ export class Subscription implements AsyncIterableIterator<SubscriptionEvent> {
   }
 
   /**
-   * Await the next subscription event, or `null` once the stream has ended
-   * (the server EOS-closed it, or the connection dropped). An EOS-flagged frame
-   * carrying an event yields that event; the following call returns `null`. An
-   * EOS frame with an empty payload ends the stream immediately.
+   * Await the next subscription event, or `null` once the stream completed.
+   * Each pushed frame yields a {@link SubscriptionEvent}; a server ERROR
+   * yields {@link ServerError}; and a connection drop before the stream was
+   * closed yields {@link ConnectionClosed} or {@link TransportError}. A
+   * severed feed is a failure, not an ending. `null` is returned only after a
+   * server EOS or a local close. An EOS-flagged frame carrying an event yields
+   * that event; the following call returns `null`. An EOS frame with an empty
+   * payload ends the stream immediately.
    */
   async nextEvent(): Promise<SubscriptionEvent | null> {
     if (this.ended) return null;
@@ -489,23 +573,33 @@ export class Subscription implements AsyncIterableIterator<SubscriptionEvent> {
     try {
       frame = await this.conn.awaitFrame(this.sink);
     } catch (err) {
-      this.ended = true;
-      this.conn.dropRoute(this.streamIdValue);
-      if (err instanceof ConnectionClosed) return null;
+      // A feed cut mid-stream is a failure, not an ending: the server is still
+      // producing events this caller has stopped receiving. Only an EOS frame,
+      // or a local close, ends a stream.
+      this.close();
       throw err;
     }
     if (frame.opcode === Opcode.Error) {
-      this.ended = true;
-      this.conn.dropRoute(this.streamIdValue);
+      this.close();
       throw new ServerError(decodeError(frame.payload));
     }
     if ((frame.flags & FLAG_EOS) !== 0) {
       // Last frame on the stream; mark ended and drop the route.
-      this.ended = true;
-      this.conn.dropRoute(this.streamIdValue);
+      this.close();
       if (frame.payload.length === 0) return null;
     }
-    return decodeSubscriptionEvent(frame.payload);
+    const event = decodeSubscriptionEvent(frame.payload);
+    this.lastLsnValue = event.lsn;
+    return event;
+  }
+
+  /**
+   * LSN of the last event this subscription delivered, or `null` before the
+   * first one. Pass it as `SubscribeRequest.fromLsn` to resume a feed that was
+   * cut mid-stream without re-reading what the caller already saw.
+   */
+  get lastLsn(): bigint | null {
+    return this.lastLsnValue;
   }
 
   /**
@@ -534,7 +628,32 @@ export class Subscription implements AsyncIterableIterator<SubscriptionEvent> {
    */
   close(): void {
     this.ended = true;
+    abandonedSubscriptions.unregister(this);
     this.conn.dropRoute(this.streamIdValue);
+  }
+
+  /**
+   * Scoped teardown for `await using`: stop the server pushing, then drop the
+   * route. The UNSUBSCRIBE is best effort — a scope exit must not throw over a
+   * connection that has already failed, and the route is dropped either way.
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    if (!this.ended) {
+      try {
+        await this.unsubscribe();
+      } catch {
+        /* ignored: a scope exit reports the body's failure, not the teardown's */
+      }
+    }
+    this.close();
+  }
+
+  /**
+   * Scoped teardown for `using`: drops the route only. Telling the server to
+   * stop needs a round trip, so prefer `await using` where the caller can.
+   */
+  [Symbol.dispose](): void {
+    this.close();
   }
 
   // ---- async iteration ----
@@ -576,6 +695,46 @@ function connectTcp(host: string, port: number, timeoutMs: number | undefined): 
           }, timeoutMs)
         : undefined;
     socket.once("connect", () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(socket);
+    });
+    socket.once("error", (err: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(new TransportError(err.message));
+    });
+  });
+}
+
+function connectTlsSocket(
+  host: string,
+  port: number,
+  options: { ca?: string | undefined; servername?: string | undefined },
+  timeoutMs: number | undefined,
+): Promise<Socket> {
+  return new Promise<Socket>((resolve, reject) => {
+    const socket = connectTls({
+      host,
+      port,
+      servername: options.servername ?? host,
+      ALPNProtocols: ["brain/1"],
+      minVersion: "TLSv1.3",
+      ...(options.ca === undefined ? {} : { ca: [...rootCertificates, options.ca] }),
+    });
+    let settled = false;
+    const timer =
+      timeoutMs !== undefined
+        ? setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            socket.destroy();
+            reject(new BrainTimeout(timeoutMs));
+          }, timeoutMs)
+        : undefined;
+    socket.once("secureConnect", () => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);

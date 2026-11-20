@@ -24,6 +24,7 @@ from brain_db_sdk import (
     RecallBuilder,
     new_id,
 )
+from brain_db_sdk.errors import ConnectionClosed
 from brain_db_sdk.transport import read_frame, write_frame
 from brain_db_sdk.wire.frame import FLAG_EOS, Frame
 from brain_db_sdk.wire.opcode import Opcode
@@ -204,6 +205,120 @@ def test_two_requests_in_flight_route_back_correctly() -> None:
         listener.close()
 
 
+def _serve_quiet_request(
+    sock: socket.socket, idle_timeout_seconds: int, release: threading.Event
+) -> None:
+    buf = bytearray()
+    hello_frame = read_frame(sock, buf)
+    hello = decode_payload(HelloPayload, hello_frame.payload)
+    welcome = WelcomePayload(
+        server_id="mock-brain",
+        chosen_version=1,
+        connection_id=b"\xab" * 16,
+        capabilities=hello.capabilities,
+        server_features=ServerFeatures(
+            max_payload_size=1 << 20,
+            max_concurrent_streams=256,
+            idle_timeout_seconds=idle_timeout_seconds,
+            auth_methods=[],
+        ),
+    )
+    _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
+
+    auth_frame = read_frame(sock, buf)
+    decode_payload(AuthPayload, auth_frame.payload)
+    auth_ok = AuthOkPayload(
+        space_id=SERVER_AGENT_ID,
+        bound_shard_id=0,
+        permissions=SpacePermissions(
+            can_encode=True,
+            can_recall=True,
+            can_plan=True,
+            can_reason=True,
+            can_forget=True,
+            can_admin=False,
+        ),
+        namespace="",
+        server_time_unix_nanos=1,
+    )
+    _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
+
+    request = read_frame(sock, buf)
+    assert request.opcode == Opcode.ENCODE_REQ
+    # The peer remains connected while the client decides whether silence is
+    # a promised liveness failure or an allowed quiet connection.
+    release.wait(timeout=10)
+
+
+def test_idle_watchdog_wakes_waiter_with_idle_timeout_reason() -> None:
+    release = threading.Event()
+    host, port, server_thread, listener = _spawn(
+        lambda sock: _serve_quiet_request(sock, 1, release)
+    )
+    try:
+        hello = HelloPayload(
+            client_id="idle-watchdog-test",
+            supported_versions=[1],
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=False
+            ),
+            client_connection_token=None,
+        )
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
+        conn, _outcome = MuxConnection.connect(host, port, hello, auth, request_timeout=None)
+        try:
+            with pytest.raises(ConnectionClosed, match=r"^connection idle timeout$"):
+                conn.request_one(Opcode.ENCODE_REQ, encode_payload(_request(1)), timeout=10)
+            assert conn.is_closed()
+        finally:
+            release.set()
+            conn.close()
+            server_thread.join(timeout=5)
+    finally:
+        listener.close()
+
+
+def test_idle_watchdog_stays_off_when_server_advertises_zero() -> None:
+    release = threading.Event()
+    host, port, server_thread, listener = _spawn(
+        lambda sock: _serve_quiet_request(sock, 0, release)
+    )
+    try:
+        hello = HelloPayload(
+            client_id="idle-watchdog-disabled-test",
+            supported_versions=[1],
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=False
+            ),
+            client_connection_token=None,
+        )
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
+        conn, _outcome = MuxConnection.connect(host, port, hello, auth, request_timeout=None)
+        result: dict[str, Exception] = {}
+
+        def wait_for_request() -> None:
+            try:
+                conn.request_one(Opcode.ENCODE_REQ, encode_payload(_request(2)))
+            except Exception as exc:  # noqa: BLE001 - client close ends the probe
+                result["error"] = exc
+
+        waiter = threading.Thread(target=wait_for_request)
+        waiter.start()
+        time.sleep(1.2)
+        assert waiter.is_alive()
+        assert not conn.is_closed()
+    finally:
+        release.set()
+        conn.close()
+        waiter.join(timeout=5)
+        server_thread.join(timeout=5)
+        listener.close()
+
+
 # ===========================================================================
 # SUBSCRIBE: a long-lived server-push stream.
 #
@@ -314,14 +429,15 @@ def _serve_subscription(sock: socket.socket) -> None:
         encode_payload(UnsubscribeResponse(target_stream_id=sub_stream, final_lsn=2)),
     )
 
-    # Final EOS SUBSCRIBE_EVENT on stream N: an empty-payload terminator that
-    # closes the subscription stream. The client observes this as end-of-stream.
-    write_frame(
-        sock,
-        Frame(
-            opcode=int(Opcode.SUBSCRIBE_EVENT), flags=FLAG_EOS, stream_id=sub_stream, payload=b""
-        ),
+    terminator = Frame(
+        opcode=int(Opcode.SUBSCRIBE_EVENT), flags=FLAG_EOS, stream_id=sub_stream, payload=b""
     )
+    # Final EOS SUBSCRIBE_EVENT on the subscription stream: Brain's terminator
+    # carries no event, and the client reads it as end-of-stream. A payload on
+    # this frame decodes as one more subscription event, so every consumer would
+    # see a phantom memory after the feed ended.
+    assert terminator.payload == b"", "the subscription terminator carries no event"
+    write_frame(sock, terminator)
 
     bye = read_frame(sock, buf)
     assert bye.opcode == Opcode.BYE
@@ -364,6 +480,7 @@ def test_subscription_drains_events_unsubscribes_and_leaks_no_route() -> None:
         assert e1 is not None and e1.lsn == 1
         e2 = sub.next()
         assert e2 is not None and e2.lsn == 2
+        assert sub.last_lsn == 2, "the handle carries the resume cursor"
 
         # Clean teardown: UNSUBSCRIBE on a fresh stream; server EOS-closes the
         # subscription stream in response.
@@ -382,6 +499,170 @@ def test_subscription_drains_events_unsubscribes_and_leaks_no_route() -> None:
         conn.close()
         server_thread.join(timeout=5)
         assert not server_thread.is_alive()
+    finally:
+        listener.close()
+
+
+def _serve_quiet_subscription(sock: socket.socket) -> None:
+    buf = bytearray()
+    hello_frame = read_frame(sock, buf)
+    hello = decode_payload(HelloPayload, hello_frame.payload)
+    welcome = WelcomePayload(
+        server_id="mock-brain",
+        chosen_version=1,
+        connection_id=b"\xab" * 16,
+        capabilities=hello.capabilities,
+        server_features=ServerFeatures(
+            max_payload_size=1 << 20,
+            max_concurrent_streams=256,
+            idle_timeout_seconds=300,
+            auth_methods=[],
+        ),
+    )
+    _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
+    auth_frame = read_frame(sock, buf)
+    decode_payload(AuthPayload, auth_frame.payload)
+    auth_ok = AuthOkPayload(
+        space_id=SERVER_AGENT_ID,
+        bound_shard_id=0,
+        permissions=SpacePermissions(
+            can_encode=True,
+            can_recall=True,
+            can_plan=True,
+            can_reason=True,
+            can_forget=True,
+            can_admin=False,
+        ),
+        namespace="",
+        server_time_unix_nanos=1,
+    )
+    _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
+    frame = read_frame(sock, buf)
+    assert frame.opcode == Opcode.SUBSCRIBE_REQ
+    time.sleep(0.6)
+    write_frame(
+        sock,
+        Frame(
+            opcode=int(Opcode.SUBSCRIBE_EVENT),
+            flags=0,
+            stream_id=frame.stream_id,
+            payload=encode_payload(_sample_event(1)),
+        ),
+    )
+    _write(sock, Opcode.SUBSCRIBE_EVENT, frame.stream_id, b"")
+
+
+def test_a_quiet_feed_outlives_the_request_deadline() -> None:
+    host, port, _server_thread, listener = _spawn(_serve_quiet_subscription)
+    try:
+        hello = HelloPayload(
+            client_id="sub-test",
+            supported_versions=[1],
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=True
+            ),
+            client_connection_token=None,
+        )
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
+        conn, _outcome = MuxConnection.connect(host, port, hello, auth, request_timeout=0.2)
+        sub = conn.subscribe(
+            SubscribeRequest(
+                filter=SubscriptionFilter(
+                    session_filter=None, kinds=None, similar_to=None, spaces=None
+                ),
+                include_history=False,
+                from_lsn=None,
+                max_inflight=8,
+            )
+        )
+        # A feed is quiet by design, so the request deadline has no business here.
+        event = sub.next()
+        assert event is not None and event.lsn == 1
+        assert sub.next() is None
+        conn.close()
+    finally:
+        listener.close()
+
+
+def _serve_cut_subscription(sock: socket.socket) -> None:
+    buf = bytearray()
+    hello_frame = read_frame(sock, buf)
+    hello = decode_payload(HelloPayload, hello_frame.payload)
+    welcome = WelcomePayload(
+        server_id="mock-brain",
+        chosen_version=1,
+        connection_id=b"\xab" * 16,
+        capabilities=hello.capabilities,
+        server_features=ServerFeatures(
+            max_payload_size=1 << 20,
+            max_concurrent_streams=256,
+            idle_timeout_seconds=300,
+            auth_methods=[],
+        ),
+    )
+    _write(sock, Opcode.WELCOME, 0, encode_payload(welcome))
+    auth_frame = read_frame(sock, buf)
+    decode_payload(AuthPayload, auth_frame.payload)
+    auth_ok = AuthOkPayload(
+        space_id=SERVER_AGENT_ID,
+        bound_shard_id=0,
+        permissions=SpacePermissions(
+            can_encode=True,
+            can_recall=True,
+            can_plan=True,
+            can_reason=True,
+            can_forget=True,
+            can_admin=False,
+        ),
+        namespace="",
+        server_time_unix_nanos=1,
+    )
+    _write(sock, Opcode.AUTH_OK, 0, encode_payload(auth_ok))
+    frame = read_frame(sock, buf)
+    write_frame(
+        sock,
+        Frame(
+            opcode=int(Opcode.SUBSCRIBE_EVENT),
+            flags=0,
+            stream_id=frame.stream_id,
+            payload=encode_payload(_sample_event(1)),
+        ),
+    )
+
+
+def test_a_feed_cut_mid_stream_raises_rather_than_ending() -> None:
+    host, port, _server_thread, listener = _spawn(_serve_cut_subscription)
+    try:
+        hello = HelloPayload(
+            client_id="sub-test",
+            supported_versions=[1],
+            capabilities=HelloCapabilities(
+                streaming=True, compression_zstd=False, server_push=True
+            ),
+            client_connection_token=None,
+        )
+        auth = AuthPayload(
+            method=AuthMethod.TOKEN, credentials=AuthCredentials.token(b"opaque-token")
+        )
+        conn, _outcome = MuxConnection.connect(host, port, hello, auth)
+        sub = conn.subscribe(
+            SubscribeRequest(
+                filter=SubscriptionFilter(
+                    session_filter=None, kinds=None, similar_to=None, spaces=None
+                ),
+                include_history=False,
+                from_lsn=None,
+                max_inflight=8,
+            )
+        )
+        event = sub.next()
+        assert event is not None and event.lsn == 1
+        with pytest.raises(ConnectionClosed):
+            sub.next()
+        assert sub.last_lsn == 1
+        conn.close()
     finally:
         listener.close()
 

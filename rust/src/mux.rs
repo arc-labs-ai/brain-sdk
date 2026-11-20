@@ -74,7 +74,12 @@ fn now_unix_nanos() -> u64 {
 /// instead of hanging.
 struct RouteTable {
     routes: HashMap<u32, mpsc::UnboundedSender<Frame>>,
-    closed: Option<String>,
+    closed: Option<CloseReason>,
+}
+
+enum CloseReason {
+    Transport(String),
+    IdleTimeout,
 }
 
 /// State both the connection and any live [`Subscription`] share: the write
@@ -117,7 +122,12 @@ where
         let (tx, rx) = mpsc::unbounded_channel();
         let mut table = self.table.lock().expect("route table mutex poisoned");
         if let Some(reason) = &table.closed {
-            return Err(BrainError::Protocol(format!("connection closed: {reason}")));
+            return Err(match reason {
+                CloseReason::Transport(reason) => {
+                    BrainError::Protocol(format!("connection closed: {reason}"))
+                }
+                CloseReason::IdleTimeout => BrainError::Closed,
+            });
         }
         table.routes.insert(stream_id, tx);
         Ok(rx)
@@ -201,12 +211,18 @@ where
         }
     }
 
-    /// The error to surface when a request's channel closed without an EOS —
-    /// the reader recorded a failure reason, or the peer simply went away.
+    /// The error to surface when a request's channel closed without an EOS:
+    /// a transport failure, an idle-timeout closure, or the peer simply went away.
     fn closed_error(&self) -> BrainError {
         let table = self.table.lock().expect("route table mutex poisoned");
         match &table.closed {
-            Some(reason) => BrainError::Protocol(format!("connection closed: {reason}")),
+            Some(CloseReason::Transport(reason)) => {
+                BrainError::Protocol(format!("connection closed: {reason}"))
+            }
+            Some(CloseReason::IdleTimeout) => BrainError::Protocol(
+                "connection closed: no frame arrived within the idle timeout the server advertised at WELCOME"
+                    .to_owned(),
+            ),
             None => BrainError::Closed,
         }
     }
@@ -301,6 +317,9 @@ where
             buf,
             Arc::clone(&table),
             Arc::clone(&writer),
+            (welcome.server_features.idle_timeout_seconds != 0).then(|| {
+                Duration::from_secs(u64::from(welcome.server_features.idle_timeout_seconds) * 2)
+            }),
         ));
 
         let shared = Arc::new(Shared {
@@ -419,6 +438,7 @@ where
             stream_id,
             rx,
             ended: false,
+            last_lsn: None,
         })
     }
 
@@ -463,6 +483,12 @@ where
 /// isn't async), so a dropped-without-unsubscribe subscription leaves the
 /// server pushing into a now-dead channel until it notices. Prefer
 /// `unsubscribe().await` before dropping.
+///
+/// A subscription wait carries no deadline: a feed is quiet by design and may
+/// publish nothing for hours, so silence is not a fault. Liveness instead rides
+/// on the server's SERVER_PING, which it sends within the
+/// `idle_timeout_seconds` it advertises at WELCOME. The reader closes the
+/// connection after two advertised intervals without receiving any frame.
 pub struct Subscription<S> {
     shared: Arc<Shared<S>>,
     stream_id: u32,
@@ -470,6 +496,9 @@ pub struct Subscription<S> {
     /// Set once an EOS frame has been observed: the next `next()` returns
     /// `None` without touching the (already-removed) channel.
     ended: bool,
+    /// LSN of the most recent event handed to the caller: the cursor to resume
+    /// a severed feed from, as `SubscribeRequest::from_lsn`.
+    last_lsn: Option<u64>,
 }
 
 impl<S> std::fmt::Debug for Subscription<S> {
@@ -478,6 +507,7 @@ impl<S> std::fmt::Debug for Subscription<S> {
         f.debug_struct("Subscription")
             .field("stream_id", &self.stream_id)
             .field("ended", &self.ended)
+            .field("last_lsn", &self.last_lsn)
             .finish_non_exhaustive()
     }
 }
@@ -493,10 +523,20 @@ where
         self.stream_id
     }
 
+    /// LSN of the last event this subscription delivered, or `None` before the
+    /// first one. Pass it as `SubscribeRequest::from_lsn` to resume a feed that
+    /// was cut mid-stream without re-reading what the caller already saw.
+    #[must_use]
+    pub fn last_lsn(&self) -> Option<u64> {
+        self.last_lsn
+    }
+
     /// Await the next subscription event. Returns `Some(Ok(event))` for each
-    /// pushed `SUBSCRIBE_EVENT`, `Some(Err(_))` if a frame failed to decode or
-    /// the server sent an ERROR on the stream, and `None` once the stream has
-    /// ended (the server EOS-closed it, or the connection dropped).
+    /// pushed event; `Some(Err(_))` if a frame failed to decode, the server sent
+    /// an ERROR on the stream, or the connection dropped before the stream was
+    /// closed; and `None` only once the server EOS-closed the stream or the
+    /// handle was closed locally. A severed feed is a failure because the
+    /// server is still producing events the caller is no longer receiving.
     ///
     /// An EOS-flagged frame carrying an event yields that event; the *following*
     /// call returns `None`. An EOS frame with an empty payload ends the stream
@@ -505,7 +545,10 @@ where
         if self.ended {
             return None;
         }
-        let frame = self.rx.recv().await?;
+        let Some(frame) = self.rx.recv().await else {
+            self.ended = true;
+            return Some(Err(self.shared.closed_error()));
+        };
         if frame.opcode == Opcode::Error as u16 {
             self.ended = true;
             return Some(match from_cbor_bytes::<ErrorResponse>(&frame.payload) {
@@ -522,7 +565,13 @@ where
                 return None;
             }
         }
-        Some(from_cbor_bytes::<SubscriptionEvent>(&frame.payload).map_err(Into::into))
+        match from_cbor_bytes::<SubscriptionEvent>(&frame.payload) {
+            Ok(event) => {
+                self.last_lsn = Some(event.lsn);
+                Some(Ok(event))
+            }
+            Err(e) => Some(Err(e.into())),
+        }
     }
 
     /// Tear the subscription down cleanly: send UNSUBSCRIBE on a fresh stream
@@ -583,15 +632,30 @@ async fn reader_loop<S>(
     mut buf: Vec<u8>,
     table: Arc<Mutex<RouteTable>>,
     writer: Arc<tokio::sync::Mutex<WriteHalf<S>>>,
+    idle_timeout: Option<Duration>,
 ) where
     // `ReadHalf<S>`/`WriteHalf<S>` are `Unpin` regardless of `S`, so the
     // read/write calls need only `S: AsyncRead + AsyncWrite`. Send/'static
     // for the spawned task come from the call site (handshake bound).
     S: AsyncRead + AsyncWrite,
 {
+    let mut last_frame_received = tokio::time::Instant::now();
     loop {
-        match read_frame(&mut read_half, &mut buf).await {
+        let (result, idle_expired) = match idle_timeout {
+            Some(timeout) => match tokio::time::timeout_at(
+                last_frame_received + timeout,
+                read_frame(&mut read_half, &mut buf),
+            )
+            .await
+            {
+                Ok(result) => (result, false),
+                Err(_) => (Err(BrainError::Closed), true),
+            },
+            None => (read_frame(&mut read_half, &mut buf).await, false),
+        };
+        match result {
             Ok(frame) => {
+                last_frame_received = tokio::time::Instant::now();
                 // Server idle-timer heartbeat: reply CLIENT_PONG on stream 0
                 // so the server doesn't reap an otherwise-idle connection.
                 // The reply echoes the server timestamp (0 if the payload
@@ -617,24 +681,35 @@ async fn reader_loop<S>(
                 }
                 let stream_id = frame.stream_id;
                 let is_last = frame.flags & FLAG_EOS != 0;
-                let mut t = table.lock().expect("route table mutex poisoned");
-                if let Some(tx) = t.routes.get(&stream_id) {
-                    // A receiver dropped (request cancelled) just means the send
-                    // fails; drop the frame and the route.
-                    let _ = tx.send(frame);
-                    if is_last {
-                        t.routes.remove(&stream_id);
+                {
+                    let mut t = table.lock().expect("route table mutex poisoned");
+                    if let Some(tx) = t.routes.get(&stream_id) {
+                        // A receiver dropped (request cancelled) just means the send
+                        // fails; drop the frame and the route.
+                        let _ = tx.send(frame);
+                        if is_last {
+                            t.routes.remove(&stream_id);
+                        }
                     }
+                    // An unknown stream_id is a late frame for a timed-out/cancelled
+                    // request; drop it.
                 }
-                // An unknown stream_id is a late frame for a timed-out/cancelled
-                // request; drop it.
             }
             Err(e) => {
-                let mut t = table.lock().expect("route table mutex poisoned");
-                t.closed = Some(e.to_string());
-                // Dropping every sender wakes each waiting `rx.recv()` with
-                // `None`, so all outstanding requests fail.
-                t.routes.clear();
+                let reason = if idle_expired {
+                    CloseReason::IdleTimeout
+                } else {
+                    CloseReason::Transport(e.to_string())
+                };
+                {
+                    let mut t = table.lock().expect("route table mutex poisoned");
+                    t.closed = Some(reason);
+                    // Dropping every sender wakes each waiting `rx.recv()` with
+                    // `None`, so all outstanding requests fail.
+                    t.routes.clear();
+                }
+                let mut w = writer.lock().await;
+                let _ = tokio::io::AsyncWriteExt::shutdown(&mut *w).await;
                 return;
             }
         }

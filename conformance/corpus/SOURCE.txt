@@ -1,6 +1,6 @@
 Corpus vendored from arc-labs-ai/brain-db
-commit: 4e8ed12aa34a924b8fb434c3c14e8f13a1198d31
-date: 2026-11-13
+commit: 2f718e0f+uncommitted (working tree; protocol src sha256 e0ab4470e4474316)
+date: 2026-11-16
 
 req_entity_type_list / resp_entity_type_list added at this commit for the
 new ENTITY_TYPE_LIST opcode (0x0139 / 0x01B9, brain-db 4e8ed12a), copied
@@ -50,3 +50,18 @@ Copied byte-for-byte from the server corpus at v0.4.1
 (75df00c7dcb11b4915eae53edf6b68f77b59b127); index.json re-vendored with
 them.
 
+resp_schema_get re-vendored because SchemaGetResponse no longer carries
+source_blob: the response is 158 bytes where it was 262. resp_memory_inspect
+re-vendored for MemoryInspectResponse's edge_total_count and edges_truncated,
+and resp_memory_inspect_truncated added beside it for the truncated form, so
+the corpus pins both states of the flag: the plain case keeps the complete
+edge list, the new case carries a cut-short list with the true total reported
+and the flag set. resp_error_operator_intervention added for the
+OperatorIntervention error category, which exists to tell a client to stop
+rather than retry a dead disk, so its encoding is worth pinning. Copied
+byte-for-byte from the server corpus; index.json re-vendored with them.
+
+Those four cases were copied from an uncommitted brain working tree rather
+than from a commit, so they describe a format no released server speaks yet.
+See ../SOURCE.txt for what that means and re-vendor from a real commit before
+release.

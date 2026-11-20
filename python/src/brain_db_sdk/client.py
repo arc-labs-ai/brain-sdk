@@ -12,6 +12,7 @@ builder mints makes the resend idempotent server-side.
 
 from __future__ import annotations
 
+import ssl
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -265,7 +266,11 @@ class Auth:
     """How the client authenticates after WELCOME. Auth is mandatory: there is
     no anonymous mode. The credential is the connection's whole identity — the
     server resolves ``(namespace, space, permissions)`` from it and refuses any
-    connection it cannot resolve."""
+    connection it cannot resolve.
+
+    The generated ``repr`` is safe to keep: the token redacts itself in
+    ``AuthCredentials``. Any new field holding secret material must redact at
+    its own type rather than here."""
 
     # The on-wire discriminant. `AuthMethod` is a constant namespace, not
     # a type — annotating this as `AuthMethod` claimed the field holds an
@@ -307,6 +312,26 @@ class ClientConfig:
     # asynchronous half of a write. Everything else keeps ``request_timeout``;
     # see ``DEFAULT_DERIVED_WRITE_TIMEOUT`` for the measurements behind it.
     derived_write_timeout: float | None = DEFAULT_DERIVED_WRITE_TIMEOUT
+    tls: bool = False
+    tls_ca_pem: str | bytes | None = None
+    tls_server_name: str | None = None
+
+
+def _tls_context(config: ClientConfig) -> ssl.SSLContext | None:
+    if not config.tls:
+        return None
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.maximum_version = ssl.TLSVersion.TLSv1_3
+    context.set_alpn_protocols(["brain/1"])
+    if config.tls_ca_pem is not None:
+        ca_pem = (
+            config.tls_ca_pem.decode()
+            if isinstance(config.tls_ca_pem, bytes)
+            else config.tls_ca_pem
+        )
+        context.load_verify_locations(cadata=ca_pem)
+    return context
 
 
 @dataclass(frozen=True)
@@ -391,6 +416,8 @@ class BrainClient:
             auth,
             connect_timeout=config.connect_timeout,
             request_timeout=config.request_timeout,
+            ssl_context=_tls_context(config),
+            server_name=config.tls_server_name or host,
         )
         # AUTH_OK decodes ``permissions`` as a raw map; lift it to the typed
         # form so callers get attribute access.
@@ -982,8 +1009,9 @@ class BrainClient:
 
         The only request in the protocol that carries a plaintext provider
         key. The server refuses it unless the connection is TLS, mTLS or
-        loopback. The key is sealed on arrival and never returned: the
-        response carries a display fingerprint instead.
+        loopback. The key is sealed on arrival and never returned in full: the
+        response carries the ``…`` plus its last four characters. That suffix
+        is a small amount of key material and must be treated as sensitive.
         """
         return self._unary(
             Opcode.LLM_CREDENTIAL_PUT_REQ,
@@ -995,9 +1023,11 @@ class BrainClient:
     def get_llm_credential(self, request: LlmCredentialGetRequest) -> LlmCredentialGetResponse:
         """What this namespace has installed (LLM_CREDENTIAL_GET).
 
-        Answers with the provider, the model and a display fingerprint, never
-        with anything a key can be rebuilt from. ``credential`` is ``None``
-        until the namespace registers one.
+        Answers with the provider, the model and the ``…`` plus the last four
+        characters of the provider key. The full key is not returned, but this
+        suffix is a small amount of key material and must be treated as
+        sensitive rather than as an opaque identifier. ``credential`` is
+        ``None`` until the namespace registers one.
         """
         return self._unary(
             Opcode.LLM_CREDENTIAL_GET_REQ,

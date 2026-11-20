@@ -16,6 +16,14 @@ from .wire.types import ErrorCode, ErrorResponse
 
 # Error categories that a retry could plausibly clear (mirrors the wire
 # ``ErrorCategory`` discriminants: ResourceExhausted = 6, Unavailable = 8).
+#
+# This is an ALLOWLIST on purpose. Every other category -- including one this
+# build has never heard of -- is non-retryable. Do not turn it into a denylist
+# of terminal categories: the server adds categories over time, and a denylist
+# would make each new one retryable by default, which is the worst possible
+# default because a category that is new *and* terminal would be retried
+# forever. ``OperatorIntervention = 9`` is exactly that case, and it is
+# correctly non-retryable here without needing an entry.
 _CATEGORY_RESOURCE_EXHAUSTED = 6
 _CATEGORY_UNAVAILABLE = 8
 
@@ -98,6 +106,22 @@ class LlmCredentialMissing(ServerError):
     """
 
 
+class ShardStorageFaulted(ServerError):
+    """The shard's write-ahead log latched into a terminal faulted state
+    (wire code ``0x00A0``, category ``OPERATOR_INTERVENTION``).
+
+    **Terminal, and not transient.** The shard keeps answering this way until
+    its process is restarted, so retrying cannot make progress -- only
+    operator action clears it. :func:`is_retryable` returns ``False``.
+
+    Deliberately distinct from the ``Unavailable``-category shard errors
+    (``ShardUnavailable`` / ``Restarting`` / ``Maintenance``), which *do* clear
+    on their own. Surface this one to a human as an outage needing attention
+    rather than as a blip, and do not fold it into a generic "server busy"
+    path.
+    """
+
+
 class LlmCredentialUnavailable(ServerError):
     """The namespace's LLM credential could not be resolved right now — the
     credential broker is unreachable, timed out, or returned a transient error
@@ -115,7 +139,41 @@ _CODE_TO_ERROR: dict[int, type[ServerError]] = {
     ErrorCode.ACT_AS_DENIED: ActAsDenied,
     ErrorCode.LLM_CREDENTIAL_MISSING: LlmCredentialMissing,
     ErrorCode.LLM_CREDENTIAL_UNAVAILABLE: LlmCredentialUnavailable,
+    ErrorCode.SHARD_STORAGE_FAULTED: ShardStorageFaulted,
 }
+
+
+def invalid_field(exc: BaseException) -> str | None:
+    """For a validation refusal, the name of the request field the server
+    rejected -- ``"text"``, ``"vector"``, and so on -- or ``None`` when this is
+    not an ``InvalidArgument`` or the server named no field.
+
+    ``InvalidArgument`` (``0x0040``) is now the *only* code for a field-level
+    refusal. Nine narrower codes used to carry that information in the code
+    itself and were removed; the conditions they named now arrive as
+    ``InvalidArgument`` with the field in ``ErrorDetails.field``:
+
+    ==========================================================  ===================
+    condition                                                   field
+    ==========================================================  ===================
+    ``text`` empty or over the size cap                         ``"text"``
+    a client tried to set a memory ``kind``                     ``"kind"``
+    vector wrong dimension, non-finite, or wrong L2 norm        ``"vector"``
+    ``model_fingerprint`` mismatch                              ``"model_fingerprint"``
+    plan or reason budget out of range                          that budget's name
+    ==========================================================  ===================
+
+    So code that read ``if exc.code == TEXT_TOO_LARGE`` becomes
+    ``if invalid_field(exc) == "text"``. Treat the set of field names as open:
+    match the ones you handle and fall back to ``exc.message`` for the rest,
+    rather than assuming the table above is exhaustive forever.
+    """
+    if not isinstance(exc, ServerError):
+        return None
+    if exc.code != ErrorCode.INVALID_ARGUMENT:
+        return None
+    details = exc.response.details
+    return None if details is None else details.field
 
 
 def is_retryable(exc: BaseException) -> bool:
@@ -140,6 +198,8 @@ __all__ = [
     "LlmCredentialUnavailable",
     "ProtocolError",
     "ServerError",
+    "ShardStorageFaulted",
     "VersionMismatch",
+    "invalid_field",
     "is_retryable",
 ]

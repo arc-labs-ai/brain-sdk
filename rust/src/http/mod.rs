@@ -37,9 +37,9 @@ pub use types::{
     StageGraph, StageGraphEdge, StageGraphNode, StageKeywordField, StageRecord, StatementDetail,
     StatementHistoryQuery, StatementHistoryResult, StatementObject, StatementValue, SubscribeQuery,
     SubscriptionClosed, SubscriptionEvent, SupersedeRelationResult, SupersedeStatementResult,
-    TimeRange, TombstoneEntityQuery, TombstoneRelationQuery, TombstoneResult, TraversalPath,
-    TraversalStep, TraverseInput, TraverseResult, UnlinkInput, UnlinkResult, UnmergeEntityResult,
-    UpdateEntityInput, Whoami,
+    TestLlmCredentialInput, TimeRange, TombstoneEntityQuery, TombstoneRelationQuery,
+    TombstoneResult, TraversalPath, TraversalStep, TraverseInput, TraverseResult, UnlinkInput,
+    UnlinkResult, UnmergeEntityResult, UpdateEntityInput, Whoami,
 };
 
 pub use sse::{FeedItem, Subscription};

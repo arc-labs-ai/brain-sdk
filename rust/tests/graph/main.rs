@@ -506,7 +506,6 @@ fn read_side_types_round_trip() {
         namespace: "people".to_string(),
         schema_version: 2,
         schema_document: "entity Person {}".to_string(),
-        source_blob: vec![0x7B, 0x7D],
         uploaded_at_unix_nanos: 1_700_000_000_000_000_000,
         validator_version: 1,
     });
@@ -667,7 +666,6 @@ async fn serve_read(mut sock: TcpStream) {
             namespace: "people".to_string(),
             schema_version: 2,
             schema_document: "entity Person {}".to_string(),
-            source_blob: vec![],
             uploaded_at_unix_nanos: 1,
             validator_version: 1,
         },
@@ -1013,7 +1011,7 @@ fn edge_cognitive_types_round_trip() {
         budget: PlanBudget {
             max_steps: 16,
             max_wall_time_ms: 5_000,
-            max_branches_explored: 256,
+            max_branches_explored: 32,
         },
         strategy_hint: Some(PlanStrategy::AStar),
         session_filter: Some(vec![1, 2, 3]),
@@ -1317,7 +1315,7 @@ async fn edge_cognitive_verbs_over_connection() {
         budget: PlanBudget {
             max_steps: 16,
             max_wall_time_ms: 5_000,
-            max_branches_explored: 256,
+            max_branches_explored: 32,
         },
         strategy_hint: Some(PlanStrategy::Auto),
         session_filter: None,

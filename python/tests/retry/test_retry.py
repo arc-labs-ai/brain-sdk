@@ -223,6 +223,13 @@ _CATEGORIES = {
     6: ("ResourceExhausted", True),
     7: ("Internal", False),
     8: ("Unavailable", True),
+    # A latched fault that only an operator restart clears, so a retry can
+    # never succeed. Deliberately not Unavailable, which would be retried
+    # forever.
+    9: ("OperatorIntervention", False),
+    # A category newer than this build. Must default to not retrying; the
+    # allowlist in `is_retryable` makes that automatic and this row pins it.
+    0xFF: ("Unknown", False),
 }
 
 
